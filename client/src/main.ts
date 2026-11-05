@@ -4,9 +4,10 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { initAudio, sfx, toggleMute } from './audio';
 import { buildWorld, makeWeaponModel } from './world';
+import { loadProfile, saveProfile, addMatch, clearHistory } from './profile';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  ARMOR_ITEM, ARMOR_COST,
+  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -16,10 +17,10 @@ const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 // ---------- input sources ----------
 const keys = { up: false, down: false, left: false, right: false, use: false };
 const BUY_KEYS: Record<string, number> = { KeyZ: 2, KeyX: 1, KeyC: 3, KeyV: ARMOR_ITEM };
+const profile = loadProfile();
 let game: Game | null = null;
 const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false };
 const mouse = { x: 0, y: 0, down: false };
-let weapon = 0;
 
 function bindTouch() {
   const layer = $('touch');
@@ -55,7 +56,9 @@ window.addEventListener('keydown', (e) => setKey(e.code, true));
 window.addEventListener('keyup', (e) => setKey(e.code, false));
 function setKey(code: string, v: boolean) {
   const m = /^Digit(\d)$/.exec(code);
-  if (m && v) { const n = Number(m[1]) - 1; if (n >= 0 && n < WEAPONS.length) weapon = n; }
+  if (m && v) game?.selectWeapon(Number(m[1]) - 1);
+  if (v && code === 'KeyQ') game?.lastWeapon();
+  if (v && code === 'KeyB') game?.rebuy();
   if (v && code in BUY_KEYS) game?.buy(BUY_KEYS[code]);
   if (code === 'KeyE') keys.use = v;
   if (v && code === 'KeyM') toggleMute();
@@ -65,6 +68,7 @@ function setKey(code: string, v: boolean) {
   if (code === 'KeyD' || code === 'ArrowRight') keys.right = v;
 }
 window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('wheel', (e) => { if (e.deltaY !== 0) game?.cycleWeapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
 
 // ---------- 3D building blocks ----------
 const AIM_HEIGHT = 34; // height of the gun, used when turning the mouse position into an aim direction
@@ -78,11 +82,12 @@ interface Character {
 // ---- real character model (Kenney "Animated Characters 2", CC0). Falls back to the blocky soldier if missing. ----
 const MODEL_GLB = '/models/character.glb';                       // optional: a rigged, animated glb overrides everything below
 const KENNEY = '/models/kenney';
-const SKIN_URLS: Record<Team, string> = { CT: `${KENNEY}/survivorMaleB.png`, T: `${KENNEY}/survivorFemaleA.png` };
+// costume index -> texture (same order as the menu thumbnails)
+const SKIN_URLS = ['survivorMaleB', 'survivorFemaleA', 'zombieA', 'zombieC'].map((n) => `${KENNEY}/${n}.png`);
 const QS = new URLSearchParams(location.search); // dev overrides: ?yaw=<radians>&zoom=<0.2..1>
 const MODEL_YAW = QS.has('yaw') ? Number(QS.get('yaw')) : Math.PI / 2; // the model faces +Z; the game faces +X. Change if a model faces the wrong way.
 const MODEL_HEIGHT = 58;       // world units; the model is auto-scaled to this height
-interface Template { scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: Partial<Record<Team, THREE.Material>> }
+interface Template { scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
 let template: Template | null = null;
 
 function finishTemplate(scene: THREE.Object3D, clips: THREE.AnimationClip[], skins?: Template['skins']): Template {
@@ -113,12 +118,12 @@ async function loadTemplate(): Promise<void> {
     const idleClip = longest(idle), runClip = longest(run);
     if (idleClip) { idleClip.name = 'idle'; clips.push(idleClip); }
     if (runClip) { runClip.name = 'run'; clips.push(runClip); }
-    const skins: Template['skins'] = {};
+    const skins: THREE.Material[] = [];
     const tl = new THREE.TextureLoader();
-    for (const team of ['CT', 'T'] as Team[]) {
-      const tex = await tl.loadAsync(SKIN_URLS[team]);
+    for (const url of SKIN_URLS) {
+      const tex = await tl.loadAsync(url);
       tex.colorSpace = THREE.SRGBColorSpace;
-      skins[team] = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
+      skins.push(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }));
     }
     template = finishTemplate(model, clips, skins);
     console.info(`Loaded character model, animations: ${clips.map((c) => c.name).join(', ')}`);
@@ -135,7 +140,7 @@ async function loadTemplate(): Promise<void> {
   }
 }
 
-function makeModelCharacter(team: Team, color: number): Character {
+function makeModelCharacter(skinIdx: number, color: number): Character {
   const t = template!;
   const root = new THREE.Group();
   const model = SkeletonUtils.clone(t.scene) as THREE.Group;
@@ -145,7 +150,7 @@ function makeModelCharacter(team: Team, color: number): Character {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     m.castShadow = true;
-    const skin = t.skins?.[team];
+    const skin = t.skins?.[skinIdx];
     if (skin) m.material = skin;
   });
   const holder = new THREE.Group();
@@ -231,7 +236,7 @@ function makePickup(): THREE.Group {
 }
 
 // ---------- game ----------
-interface Config { mode: 'single' | 'multi'; name: string; room: string }
+interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number }
 interface Shown { x: number; y: number; angle: number; moved: number }
 
 class Game {
@@ -244,6 +249,11 @@ class Game {
   private bullets: THREE.InstancedMesh;
   private bombMesh: THREE.Mesh;
   private lastBuyState = '';
+  private lastWbar = '';
+  private pendingWeapon: number | null = null; // a weapon switch the player asked for, sent once then cleared
+  private curWeapon = 0;
+  private prevWeapon = 0;
+  private tp = { phase: '', recorded: false };
   private ev = { maxBullet: 0, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
@@ -285,11 +295,13 @@ class Game {
     this.bombMesh = new THREE.Mesh(new THREE.BoxGeometry(16, 9, 12), new THREE.MeshStandardMaterial({ color: 0xc0392b, emissive: 0xff2200, emissiveIntensity: 0.5 }));
     this.bombMesh.castShadow = true; this.bombMesh.visible = false;
     this.scene.add(this.bombMesh);
-    $('buy').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => this.buy(Number((b as HTMLElement).dataset.item))));
+    $('buy').querySelectorAll('button[data-item]').forEach((b) => b.addEventListener('click', () => this.buy(Number((b as HTMLElement).dataset.item))));
+    $('rebuy').addEventListener('click', () => this.rebuy());
+    $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
       this.sim = new Sim({ rounds: true });
-      this.sim.join(this.myId, cfg.name);
+      this.sim.join(this.myId, cfg.name, cfg.skin);
       this.sim.fillBots(TEAM_SIZE);
     } else {
       this.connect();
@@ -301,13 +313,42 @@ class Game {
     this.status = 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:8080`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room }));
+    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin }));
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; }
       else this.snap = m.snap;
     };
     this.ws.onclose = () => { this.status = 'Disconnected (is the server running?)'; };
+  }
+
+  private me() { return this.snap?.players.find((p) => p.id === this.myId); }
+
+  /** Switch to weapon `i` (0-based) if the player owns it. */
+  selectWeapon(i: number) {
+    const me = this.me();
+    if (!me || !me.alive || !Number.isInteger(i) || i < 0 || i >= WEAPONS.length || !((me.owned >> i) & 1) || i === me.weapon) return;
+    this.pendingWeapon = i;
+  }
+  /** Mouse wheel: next / previous owned weapon. */
+  cycleWeapon(dir: number) {
+    const me = this.me();
+    if (!me) return;
+    const owned = WEAPONS.map((_, i) => i).filter((i) => (me.owned >> i) & 1);
+    if (owned.length < 2) return;
+    const at = Math.max(0, owned.indexOf(this.pendingWeapon ?? me.weapon));
+    this.selectWeapon(owned[(at + dir + owned.length) % owned.length]);
+  }
+  /** Q: flip back to the previously used weapon. */
+  lastWeapon() { this.selectWeapon(this.prevWeapon); }
+
+  /** B: buy whatever was in the last saved weapon pack (best weapon first, then armor). */
+  rebuy() {
+    const me = this.me();
+    const pack = profile.pack;
+    if (!pack || !me || !me.alive || this.snap?.round?.phase !== 'buy') return;
+    for (const i of [...pack.weapons].sort((a, b) => WEAPONS[b].cost - WEAPONS[a].cost)) if (!((me.owned >> i) & 1)) this.buy(i);
+    if (pack.armor && me.armor < 100) this.buy(ARMOR_ITEM);
   }
 
   buy(item: number) {
@@ -340,7 +381,7 @@ class Game {
       this.raycaster.setFromCamera(ndc, this.camera);
       if (this.raycaster.ray.intersectPlane(this.aimPlane, this.tmp)) angle = Math.atan2(this.tmp.z - me.y, this.tmp.x - me.x);
     }
-    return { mx, my, angle, fire, weapon, use: keys.use };
+    return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use };
   }
 
   private frame() {
@@ -351,7 +392,8 @@ class Game {
     const input = this.readInput();
     if (this.sim) {
       this.sim.setInput(this.myId, input);
-      this.acc += delta / 1000;
+      this.pendingWeapon = null;
+      this.acc += (delta / 1000) * (QS.has('timescale') ? Number(QS.get('timescale')) : 1); // dev: ?timescale=40 fast-forwards single player
       const dt = 1 / TICK_RATE;
       while (this.acc >= dt) { this.sim.step(dt); this.acc -= dt; }
       this.snap = this.sim.snapshot();
@@ -360,6 +402,7 @@ class Game {
       if (this.sendAcc >= 1000 / TICK_RATE) {
         this.sendAcc = 0;
         this.ws.send(JSON.stringify({ type: 'input', input }));
+        this.pendingWeapon = null;
       }
     }
     this.draw(delta / 1000, now / 1000);
@@ -393,7 +436,7 @@ class Game {
       let c = this.chars.get(p.id);
       if (!c) {
         const teamColor = p.team === 'CT' ? 0x3f8cff : 0xd9822b;
-        c = template ? makeModelCharacter(p.team, teamColor) : makeCharacter(teamColor);
+        c = template ? makeModelCharacter(p.skin, teamColor) : makeCharacter(teamColor);
         this.chars.set(p.id, c);
         this.scene.add(c.root);
       }
@@ -489,7 +532,32 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
-    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); }
+    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); }
+  }
+
+  /** Remember the weapon pack and save finished matches to the profile. */
+  private trackProfile(s: Snapshot) {
+    const r = s.round!, me = this.me();
+    if (!me) return;
+    if (me.weapon !== this.curWeapon) { this.prevWeapon = this.curWeapon; this.curWeapon = me.weapon; }
+    if (this.tp.phase === 'buy' && r.phase === 'live' && me.alive) {
+      const weapons = WEAPONS.map((_, i) => i).filter((i) => i > 0 && ((me.owned >> i) & 1));
+      if (weapons.length || me.armor > 0) { profile.pack = { weapons, armor: me.armor > 0 }; saveProfile(profile); }
+    }
+    if (r.phase === 'over' && !this.tp.recorded && r.winner) {
+      this.tp.recorded = true;
+      addMatch(profile, { t: Date.now(), mode: this.cfg.mode, room: this.cfg.room || 'public', team: me.team, won: r.winner === me.team, tWins: r.tWins, ctWins: r.ctWins, kills: me.score, deaths: me.deaths });
+    }
+    if (r.phase !== 'over') this.tp.recorded = false;
+    this.tp.phase = r.phase;
+  }
+
+  private updateWeaponBar() {
+    const me = this.me();
+    const key = me ? `${me.owned}|${me.weapon}` : '';
+    if (key === this.lastWbar) return;
+    this.lastWbar = key;
+    $('wbar').innerHTML = me ? WEAPONS.map((w, i) => `<button data-w="${i}" class="${((me.owned >> i) & 1) ? '' : 'off'} ${me.weapon === i ? 'cur' : ''}"><b>${i + 1}</b>${w.name}</button>`).join('') : '';
   }
 
   private audioEvents(s: Snapshot, time: number) {
@@ -530,6 +598,7 @@ class Game {
 
   private updateHud(s: Snapshot) {
     const r = s.round!;
+    this.updateWeaponBar();
     const me = s.players.find((p) => p.id === this.myId);
     const myTeam: Team = me?.team ?? 'CT';
     $('ctw').textContent = `CT ${r.ctWins}`;
@@ -541,7 +610,7 @@ class Game {
     let big = '', sub = '', prog = 0;
     if (r.phase === 'post' || r.phase === 'over') {
       big = r.phase === 'over' ? `${r.winner} WIN THE MATCH` : `${r.winner === 'CT' ? 'COUNTER-TERRORISTS' : 'TERRORISTS'} WIN`;
-      sub = r.reason;
+      sub = r.phase === 'over' ? `${r.reason}  -  match saved to your profile` : r.reason;
     } else if (r.bomb.progress > 0) {
       big = r.bomb.status === 'carried' ? 'PLANTING...' : 'DEFUSING...';
       prog = r.bomb.progress;
@@ -564,13 +633,14 @@ class Game {
 
     // buy panel: only in the buy phase while alive
     const showBuy = !!me && me.alive && r.phase === 'buy';
+    ($('rebuy') as HTMLButtonElement).disabled = !profile.pack;
     $('buy').style.display = showBuy ? 'block' : 'none';
     if (showBuy && me) {
       $('buytime').textContent = `${Math.ceil(r.timeLeft)}s   $${me.money}`;
       const key = `${me.money}|${me.owned}|${me.armor}`;
       if (key !== this.lastBuyState) {
         this.lastBuyState = key;
-        $('buy').querySelectorAll('button').forEach((btn) => {
+        $('buy').querySelectorAll('button[data-item]').forEach((btn) => {
           const item = Number((btn as HTMLElement).dataset.item);
           const cost = item === ARMOR_ITEM ? ARMOR_COST : WEAPONS[item].cost;
           const have = item === ARMOR_ITEM ? me.armor >= 100 : ((me.owned >> item) & 1) === 1;
@@ -591,15 +661,55 @@ class Game {
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
+// ---------- menu, costume picker and profile ----------
+function buildSkinPicker() {
+  const box = $('skins');
+  box.innerHTML = '';
+  for (let i = 0; i < SKIN_COUNT; i++) {
+    const d = document.createElement('div');
+    d.className = 'skin' + (profile.skin === i ? ' sel' : '');
+    d.style.backgroundImage = `url(/models/kenney/thumb${i}.png)`;
+    d.addEventListener('click', () => { profile.skin = i; saveProfile(profile); buildSkinPicker(); });
+    box.appendChild(d);
+  }
+}
+
+function openProfile() {
+  const t = profile.totals;
+  const name = ($('name') as HTMLInputElement).value.trim() || profile.name || 'Player';
+  $('pname').textContent = name;
+  const kd = t.deaths ? (t.kills / t.deaths).toFixed(2) : t.kills.toFixed(0);
+  $('pstats').innerHTML = `<div><b>${t.matches}</b>matches</div><div><b>${t.wins}</b>wins${t.matches ? ` (${Math.round((t.wins / t.matches) * 100)}%)` : ''}</div><div><b>${t.kills}/${t.deaths}</b>kills / deaths</div><div><b>${kd}</b>K/D</div>`;
+  $('pskin').innerHTML = `<div class="skin sel" style="background-image:url(/models/kenney/thumb${profile.skin}.png)"></div>`;
+  const pack = profile.pack;
+  $('ppack').textContent = pack ? [...pack.weapons.map((i) => WEAPONS[i]?.name).filter(Boolean), ...(pack.armor ? ['Armor'] : [])].join(' + ') || 'Pistol only' : 'None yet. It is saved when a buy phase ends, and you can rebuy it with B.';
+  $('phist').innerHTML = profile.history.length
+    ? '<table><tr><th>When</th><th>Result</th><th>Score</th><th>K/D</th><th>Side</th><th>Mode</th></tr>' + profile.history.map((m) =>
+      `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${m.team}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
+    : 'No fights saved yet. Finish a match (first to 6 rounds) and it shows up here.';
+  $('profile').style.display = 'flex';
+}
+
+function initMenu() {
+  ($('name') as HTMLInputElement).value = profile.name;
+  buildSkinPicker();
+  $('profileBtn').addEventListener('click', openProfile);
+  $('pclose').addEventListener('click', () => { $('profile').style.display = 'none'; });
+  $('pclear').addEventListener('click', () => { if (confirm('Clear your saved fights and weapon pack?')) { clearHistory(profile); openProfile(); } });
+}
+initMenu();
+
 // ---------- boot ----------
 async function start(mode: 'single' | 'multi') {
   const name = ($('name') as HTMLInputElement).value.trim() || 'Player';
   const room = ($('room') as HTMLInputElement).value.trim();
+  profile.name = name === 'Player' ? profile.name : name;
+  saveProfile(profile);
   $('menu').style.display = 'none';
   initAudio();
   if (isTouch) bindTouch();
   await loadTemplate();
-  game = new Game({ mode, name, room });
+  game = new Game({ mode, name, room, skin: profile.skin });
 }
 $('single').addEventListener('click', () => void start('single'));
 $('multi').addEventListener('click', () => void start('multi'));

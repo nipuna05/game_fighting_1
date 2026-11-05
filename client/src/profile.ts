@@ -1,0 +1,62 @@
+// Player profile, saved in this browser's localStorage (name, costume, last weapon pack, recent fights).
+// It is per browser. Accounts that follow you across devices need a server database (a later step).
+import type { Team } from '@fight/shared';
+
+export interface MatchEntry {
+  t: number;                      // when the match ended (ms since epoch)
+  mode: 'single' | 'multi';
+  room: string;
+  team: Team;
+  won: boolean;
+  tWins: number;
+  ctWins: number;
+  kills: number;
+  deaths: number;
+}
+export interface Pack { weapons: number[]; armor: boolean }
+export interface Totals { matches: number; wins: number; kills: number; deaths: number }
+export interface Profile { name: string; skin: number; pack: Pack | null; history: MatchEntry[]; totals: Totals }
+
+const KEY = 'fight.profile.v1';
+const MAX_HISTORY = 20;
+
+const fresh = (): Profile => ({ name: '', skin: 0, pack: null, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+
+export function loadProfile(): Profile {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return fresh();
+    const p = JSON.parse(raw) as Partial<Profile>;
+    const base = fresh();
+    return {
+      name: typeof p.name === 'string' ? p.name.slice(0, 14) : base.name,
+      skin: Number.isInteger(p.skin) ? Math.max(0, Math.min(3, p.skin as number)) : 0,
+      pack: p.pack && Array.isArray(p.pack.weapons) ? { weapons: p.pack.weapons.filter(Number.isInteger), armor: !!p.pack.armor } : null,
+      history: Array.isArray(p.history) ? p.history.slice(0, MAX_HISTORY) : [],
+      totals: { ...base.totals, ...(p.totals ?? {}) },
+    };
+  } catch {
+    return fresh(); // storage blocked or corrupt: start clean, the game still works
+  }
+}
+
+export function saveProfile(p: Profile) {
+  try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private mode / quota: ignore */ }
+}
+
+export function addMatch(p: Profile, e: MatchEntry) {
+  p.history.unshift(e);
+  p.history = p.history.slice(0, MAX_HISTORY);
+  p.totals.matches++;
+  if (e.won) p.totals.wins++;
+  p.totals.kills += e.kills;
+  p.totals.deaths += e.deaths;
+  saveProfile(p);
+}
+
+export function clearHistory(p: Profile) {
+  p.history = [];
+  p.totals = { matches: 0, wins: 0, kills: 0, deaths: 0 };
+  p.pack = null;
+  saveProfile(p);
+}

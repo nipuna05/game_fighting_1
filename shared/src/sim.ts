@@ -235,7 +235,8 @@ export class Sim {
     if (!Number.isInteger(item) || item < 0 || item >= WEAPONS.length) return false;
     const w = WEAPONS[item];
     if ((p.owned >> item) & 1 || p.money < w.cost) return false;
-    p.money -= w.cost; p.owned |= 1 << item; p.weapon = item;
+    p.money -= w.cost; p.owned |= 1 << item;
+    if (w.cost >= WEAPONS[p.weapon].cost) p.weapon = item; // equip upgrades only (so a rebuy keeps your best gun in hand)
     return true;
   }
 
@@ -298,7 +299,8 @@ export class Sim {
   private buyFor(p: Player, item: number) {
     const w = WEAPONS[item];
     if ((p.owned >> item) & 1 || p.money < w.cost) return;
-    p.money -= w.cost; p.owned |= 1 << item; p.weapon = item;
+    p.money -= w.cost; p.owned |= 1 << item;
+    if (w.cost >= WEAPONS[p.weapon].cost) p.weapon = item;
   }
 
   private endRound(winner: Team, reason: string) {

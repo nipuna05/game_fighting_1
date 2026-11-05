@@ -5,7 +5,7 @@ Browser 3D arena shooter (angled third-person camera). Playable on desktop and m
 - **Mode**: CS-style bomb defusal, 3v3 (CT vs T). Buy phase, then a live round. First to 6 round wins takes the match.
 - **Single player**: you + bots, simulation runs fully in the browser.
 - **Multiplayer**: authoritative Node WebSocket server, room codes, bots fill empty slots.
-- Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy shotgun/rifle/sniper/armor, 1-4 switch weapon.
+- Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy shotgun/rifle/sniper/armor, 1-4 / mouse wheel / Q switch weapon, B rebuy last pack, M mute.
 - Mobile: left stick moves, right stick aims and shoots (plant/defuse button not built yet).
 
 ## Run
@@ -28,3 +28,7 @@ Set `VITE_WS_URL` to point the client at a deployed server.
 
 Character model, animations and skins: Kenney "Animated Characters 2" (CC0), https://kenney.nl
 
+
+## Profile
+
+Name, costume (4 skins), last weapon pack and your last 20 finished fights are saved in the browser (localStorage). Open **Profile & recent fights** in the menu. Cross-device accounts need a server database (not built yet).

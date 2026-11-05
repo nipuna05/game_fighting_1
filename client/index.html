@@ -29,6 +29,23 @@
     #buy button:hover:not(:disabled) { background: #2f6fed; } #buy button:disabled { opacity: .4; cursor: default; }
     .lbl.ct span { color: #8fc0ff; } .lbl.t span { color: #ffbe73; }
     #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
+    #skins { display: flex; gap: 8px; }
+    .skin { width: 64px; height: 92px; border-radius: 10px; border: 2px solid #2a3544; background: #1f2a38 center / auto 130% no-repeat; cursor: pointer; }
+    .skin.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8466; }
+    #menu button.ghost { background: #151c26; border-color: #2a3544; font-weight: 500; }
+    #profile { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: #000b; padding: 16px; box-sizing: border-box; }
+    #profile .card { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: #10161f; border: 1px solid #2a3544; border-radius: 14px; padding: 18px 20px; }
+    #profile h2 { margin: 0 0 4px; } #profile h3 { margin: 16px 0 6px; font-size: 13px; letter-spacing: 1px; color: #8795a8; text-transform: uppercase; }
+    #profile .stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 15px; } #profile .stats b { font-size: 20px; display: block; }
+    #profile table { width: 100%; border-collapse: collapse; font-size: 14px; } #profile td, #profile th { padding: 5px 6px; text-align: left; border-bottom: 1px solid #1f2a38; }
+    #profile .w { color: #3ddc84; font-weight: 700; } #profile .l { color: #ff6b6b; font-weight: 700; }
+    #profile button { font: 600 15px system-ui; padding: 10px 14px; border-radius: 10px; border: 1px solid #2f6fed; background: #2f6fed; color: #e8eef5; cursor: pointer; }
+    #profile button.ghost { background: #151c26; border-color: #2a3544; font-weight: 500; }
+    #profile .row { display: flex; gap: 10px; margin-top: 14px; } #profile .row button { flex: 1; width: auto; }
+    #wbar { position: fixed; left: 10px; bottom: 14px; z-index: 4; display: flex; gap: 6px; }
+    #wbar button { font: 13px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; min-width: 74px; }
+    #wbar button b { display: block; font: 11px ui-monospace, monospace; color: #8795a8; }
+    #wbar button.off { opacity: .35; cursor: default; } #wbar button.cur { border-color: #3ddc84; background: #1b3a2c; }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -40,22 +57,33 @@
   <div id="labels"></div>
   <div id="hurt"></div>
   <div id="hud"></div>
+  <div id="wbar"></div>
   <div id="topbar"><span class="ct" id="ctw"></span><span class="tm" id="tm"></span><span class="t" id="tw"></span></div>
   <div id="banner"><div class="big" id="bigtxt"></div><div class="sub" id="subtxt"></div><div id="bar"><b></b></div></div>
   <div id="buy"><h3>BUY &mdash; <span id="buytime"></span></h3><div class="row">
     <button data-item="2">[Z] Shotgun $1200</button><button data-item="1">[X] Rifle $2700</button>
-    <button data-item="3">[C] Sniper $4750</button><button data-item="4">[V] Armor $650</button></div></div>
+    <button data-item="3">[C] Sniper $4750</button><button data-item="4">[V] Armor $650</button>
+    <button id="rebuy">[B] Rebuy last pack</button></div></div>
   <div id="touch">
     <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
     <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
   </div>
+  <div id="profile"><div class="card">
+    <h2 id="pname"></h2><div class="stats" id="pstats"></div>
+    <h3>Costume</h3><div id="pskin"></div>
+    <h3>Last weapon pack</h3><div id="ppack"></div>
+    <h3>Recent fights</h3><div id="phist"></div>
+    <div class="row"><button id="pclear" class="ghost">Clear history</button><button id="pclose">Close</button></div>
+  </div></div>
   <div id="menu">
     <h1>FIGHT</h1>
     <input id="name" maxlength="14" placeholder="Your name" />
+    <div id="skins" title="Choose your costume"></div>
     <button id="single">Single player (vs bots)</button>
     <input id="room" maxlength="16" placeholder="Room code (blank = public)" />
     <button id="multi" class="alt">Multiplayer</button>
-    <small>Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy, 1-4 weapon, M mute. Mobile: left stick moves, right stick aims and shoots.</small>
+    <button id="profileBtn" class="ghost">Profile &amp; recent fights</button>
+    <small>Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy, B rebuy, 1-4 / wheel / Q switch weapon, M mute. Mobile: left stick moves, right stick aims and shoots.</small>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
