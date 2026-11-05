@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { initAudio, sfx, toggleMute } from './audio';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
@@ -65,7 +67,63 @@ window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.c
 // ---------- 3D building blocks ----------
 const AIM_HEIGHT = 34; // height of the gun, used when turning the mouse position into an aim direction
 
-interface Character { root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number }
+interface Character {
+  root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
+  mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
+}
+
+// ---- optional real character model: drop a .glb at client/public/models/character.glb ----
+const MODEL_URL = '/models/character.glb';
+const MODEL_YAW = Math.PI / 2; // most glTF characters face +Z; the game faces +X. Change if your model faces the wrong way.
+const MODEL_HEIGHT = 58;       // world units; the model is auto-scaled to this height
+interface Template { scene: THREE.Group; clips: THREE.AnimationClip[]; scale: number; offsetY: number }
+let template: Template | null = null;
+
+async function loadTemplate(): Promise<void> {
+  try {
+    const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const h = box.max.y - box.min.y;
+    if (!(h > 0)) throw new Error('empty model');
+    const scale = MODEL_HEIGHT / h;
+    template = { scene: gltf.scene, clips: gltf.animations, scale, offsetY: -box.min.y * scale };
+    console.info(`Loaded character model (${gltf.animations.length} animations: ${gltf.animations.map((a) => a.name).join(', ')})`);
+  } catch {
+    template = null; // no model file (or unreadable): the built-in blocky soldier is used instead
+  }
+}
+
+function makeModelCharacter(color: number): Character {
+  const t = template!;
+  const root = new THREE.Group();
+  const model = SkeletonUtils.clone(t.scene) as THREE.Group;
+  model.scale.setScalar(t.scale);
+  model.position.y = t.offsetY;
+  model.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+  const holder = new THREE.Group();
+  holder.rotation.y = MODEL_YAW;
+  holder.add(model);
+  root.add(holder);
+
+  // team-coloured ring under the feet, so teams read clearly whatever the model looks like
+  const ring = new THREE.Mesh(new THREE.RingGeometry(15, 21, 28), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 1;
+  root.add(ring);
+  // simple weapon so the aim direction is always visible
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(28, 5, 5), new THREE.MeshStandardMaterial({ color: 0x16181d }));
+  gun.position.set(18, 36, 8); gun.castShadow = true;
+  root.add(gun);
+
+  const mixer = new THREE.AnimationMixer(model);
+  const find = (re: RegExp) => t.clips.find((c) => re.test(c.name));
+  const idleClip = find(/idle/i) ?? t.clips[0];
+  const runClip = find(/run|jog|walk/i) ?? idleClip;
+  const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
+  const run = runClip ? mixer.clipAction(runClip) : undefined;
+  idle?.play(); run?.play();
+  const dummy = () => new THREE.Group();
+  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, mixer, idle, run };
+}
 
 function makeCharacter(color: number): Character {
   const root = new THREE.Group();
@@ -363,7 +421,8 @@ class Game {
 
       let c = this.chars.get(p.id);
       if (!c) {
-        c = makeCharacter(p.team === 'CT' ? 0x3f8cff : 0xd9822b);
+        const teamColor = p.team === 'CT' ? 0x3f8cff : 0xd9822b;
+        c = template ? makeModelCharacter(teamColor) : makeCharacter(teamColor);
         this.chars.set(p.id, c);
         this.scene.add(c.root);
       }
@@ -371,10 +430,17 @@ class Game {
       c.root.position.set(d.x, 0, d.y);
       c.root.rotation.y = -d.angle;
       const speed = Math.min(1, d.moved / 220);
-      c.phase += dt * 11 * speed;
-      const swing = Math.sin(c.phase) * 0.8 * speed;
-      c.legL.rotation.z = swing; c.legR.rotation.z = -swing;
-      c.root.position.y = Math.abs(Math.sin(c.phase)) * 1.5 * speed;
+      if (c.mixer) { // loaded model: blend between its idle and run animations
+        const w = Math.min(1, speed * 1.6);
+        c.run?.setEffectiveWeight(w); c.idle?.setEffectiveWeight(1 - w);
+        if (c.run) c.run.timeScale = 0.6 + speed * 0.8;
+        c.mixer.update(dt);
+      } else {
+        c.phase += dt * 11 * speed;
+        const swing = Math.sin(c.phase) * 0.8 * speed;
+        c.legL.rotation.z = swing; c.legR.rotation.z = -swing;
+        c.root.position.y = Math.abs(Math.sin(c.phase)) * 1.5 * speed;
+      }
     }
     for (const [id, c] of this.chars) {
       if (seen.has(id)) continue;
@@ -549,17 +615,18 @@ const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).p
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 // ---------- boot ----------
-function start(mode: 'single' | 'multi') {
+async function start(mode: 'single' | 'multi') {
   const name = ($('name') as HTMLInputElement).value.trim() || 'Player';
   const room = ($('room') as HTMLInputElement).value.trim();
   $('menu').style.display = 'none';
   initAudio();
   if (isTouch) bindTouch();
+  await loadTemplate();
   game = new Game({ mode, name, room });
 }
-$('single').addEventListener('click', () => start('single'));
-$('multi').addEventListener('click', () => start('multi'));
+$('single').addEventListener('click', () => void start('single'));
+$('multi').addEventListener('click', () => void start('multi'));
 
 // dev shortcut: http://localhost:5173/?mode=single (or multi) skips the menu
 const auto = new URLSearchParams(location.search).get('mode');
-if (auto === 'single' || auto === 'multi') start(auto);
+if (auto === 'single' || auto === 'multi') void start(auto);
