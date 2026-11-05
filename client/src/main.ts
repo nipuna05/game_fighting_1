@@ -108,8 +108,11 @@ async function loadTemplate(): Promise<void> {
       loader.loadAsync(`${KENNEY}/run.fbx`),
     ]);
     const clips: THREE.AnimationClip[] = [];
-    if (idle.animations[0]) { idle.animations[0].name = 'idle'; clips.push(idle.animations[0]); }
-    if (run.animations[0]) { run.animations[0].name = 'run'; clips.push(run.animations[0]); }
+    // each file also holds a one-frame "Targeting Pose" clip, so take the longest clip, which is the real animation
+    const longest = (f: THREE.Object3D) => f.animations.reduce<THREE.AnimationClip | null>((a, b) => (!a || b.duration > a.duration ? b : a), null);
+    const idleClip = longest(idle), runClip = longest(run);
+    if (idleClip) { idleClip.name = 'idle'; clips.push(idleClip); }
+    if (runClip) { runClip.name = 'run'; clips.push(runClip); }
     const skins: Template['skins'] = {};
     const tl = new THREE.TextureLoader();
     for (const team of ['CT', 'T'] as Team[]) {
@@ -119,6 +122,13 @@ async function loadTemplate(): Promise<void> {
     }
     template = finishTemplate(model, clips, skins);
     console.info(`Loaded character model, animations: ${clips.map((c) => c.name).join(', ')}`);
+    if (QS.has('debuganim')) {
+      const bones: string[] = [];
+      model.traverse((o) => { if ((o as THREE.Bone).isBone) bones.push(o.name); });
+      console.info('DEBUG bones:', bones.slice(0, 12).join(' | '), `(total ${bones.length})`);
+      for (const [label, f] of [['idle.fbx', idle], ['run.fbx', run], ['model', model]] as const) console.info('DEBUG file', label, 'animations:', f.animations.map((c) => `${c.name}(${c.duration.toFixed(2)}s,${c.tracks.length})`).join(', ') || 'none');
+      for (const c of clips) console.info('DEBUG clip', c.name, 'dur', c.duration.toFixed(2), 'tracks', c.tracks.length, c.tracks.slice(0, 6).map((t) => t.name).join(' | '));
+    }
   } catch (e) {
     console.info('Character model not loaded, using blocky soldier', e);
     template = null;
@@ -375,7 +385,9 @@ class Game {
       let da = p.angle - d.angle;
       da = Math.atan2(Math.sin(da), Math.cos(da));
       d.angle += da * Math.min(1, dt * 20);
-      d.moved = Math.hypot(d.x - px, d.y - py) / Math.max(dt, 1e-3); // units/sec, drives the walk cycle
+      const inst = Math.hypot(d.x - px, d.y - py) / Math.max(dt, 1e-3);   // units/sec this frame
+      d.moved += (inst - d.moved) * Math.min(1, dt * 12);                  // smoothed: sim ticks at 30Hz, frames at 60Hz
+      if (QS.has('forcerun')) d.moved = 220;                               // dev: ?forcerun=1 shows the run animation
       this.shown.set(p.id, d);
 
       let c = this.chars.get(p.id);

@@ -31,7 +31,7 @@ wss.on('connection', (ws) => {
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
       r.clients.set(id, ws);
-      r.sim.join(id, String(msg.name || 'Player').slice(0, 14));
+      r.sim.join(id, String(msg.name || 'Player').slice(0, 14), Number(msg.skin) || 0);
       r.sim.fillBots(TEAM_SIZE);
       send(ws, { type: 'welcome', id, room: code });
     } else if (msg.type === 'input' && room) {

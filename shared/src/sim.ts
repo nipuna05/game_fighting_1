@@ -28,6 +28,7 @@ export const PICKUP_SPOTS = [{ x: 500, y: 600 }, { x: 1100, y: 600 }, { x: 800, 
 export type Team = 'T' | 'CT';
 export type Phase = 'buy' | 'live' | 'post' | 'over';
 export const TEAM_SIZE = 3;
+export const SKIN_COUNT = 4; // costumes a player can choose from
 export const BUY_TIME = 10;
 export const LIVE_TIME = 100;
 export const POST_TIME = 4;
@@ -81,6 +82,7 @@ export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
   hp: number; score: number; deaths: number; bot: boolean; alive: boolean; weapon: number;
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
+  skin: number; // costume index, 0..SKIN_COUNT-1
 }
 export interface BulletState { id: number; x: number; y: number }
 export interface PickupState { id: number; x: number; y: number }
@@ -162,17 +164,17 @@ export class Sim {
 
   // ---------- roster ----------
   /** Adds a human (rounds mode: to the team with fewer humans). */
-  join(id: string, name: string) {
+  join(id: string, name: string, skin = 0) {
     let humansT = 0, humansCT = 0;
     for (const p of this.players.values()) if (!p.bot) (p.team === 'T' ? humansT++ : humansCT++);
-    this.addPlayer(id, name, false, humansCT <= humansT ? 'CT' : 'T');
+    this.addPlayer(id, name, false, humansCT <= humansT ? 'CT' : 'T', skin);
   }
 
-  addPlayer(id: string, name: string, bot = false, team: Team = 'T') {
+  addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 0 : 1) : 0) {
     const p: Player = {
       id, name, x: 0, y: 0, angle: 0, hp: MAX_HP, score: 0, deaths: 0, bot, alive: true,
       weapon: !this.rounds && bot ? 1 + Math.floor(Math.random() * (WEAPONS.length - 1)) : 0,
-      team, money: START_MONEY, armor: 0, owned: this.rounds ? 1 : 0b1111,
+      team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 : 0b1111,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * SITES.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
@@ -500,7 +502,7 @@ export class Sim {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
-        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned,
+        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin,
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y) })),
       pickups: PICKUP_SPOTS.map((sp, i) => ({ id: i, x: sp.x, y: sp.y })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
@@ -515,7 +517,7 @@ export class Sim {
 
 // ---- network protocol ----
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string }
+  | { type: 'join'; name: string; room: string; skin?: number }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number };
 export type ServerMsg =
