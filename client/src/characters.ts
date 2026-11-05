@@ -8,8 +8,11 @@ import type { Team } from '@fight/shared';
 export interface Character {
   root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
   gunHolder: THREE.Group; gunIdx: number; // the weapon model currently shown in the hands
-  holder?: THREE.Group; spine?: THREE.Object3D; neck?: THREE.Object3D; legYaw?: number; backward?: boolean; // loaded models: lower-body facing + torso bones
+  holder?: THREE.Group; legYaw?: number; backward?: boolean; // loaded models: lower-body facing
+  twistBones?: { bone: THREE.Object3D; k: number }[];         // torso/neck bones that share the upper-body twist toward the aim
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
+  runBase?: number; runGain?: number;                         // run animation speed = runBase + runGain * (how fast the character moves)
+  death?: THREE.AnimationAction; dead?: boolean; ring?: THREE.Object3D; // realistic soldier: falls down and stays down until the next round
 }
 
 // ---- real character model (Kenney "Animated Characters 2", CC0). Falls back to the blocky soldier if missing. ----
@@ -25,25 +28,45 @@ export const TURN_RATE = 9;                                     // rad/s, how fa
 export const TWIST_SIGN = QS.has('twist') ? Number(QS.get('twist')) : -1; // spine twist direction for this rig (dev: ?twist=1)
 export const AXIS_Y = new THREE.Vector3(0, 1, 0);
 export const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));       // world units; the model is auto-scaled to this height
-interface Template { scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
+interface Template { rig: 'cole' | 'kenney' | 'other'; scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
+export let rigName: Template['rig'] | null = null; // which character is loaded (the menu uses this to pick costume thumbnails)
+// "Soldier Cole" (realistic soldier): costumes are colour tints of its camo texture
+const COLE_TINTS = [0xffffff, 0xaec0d6, 0xe6d3a2, 0x80838c];
 export let template: Template | null = null;
 
-function finishTemplate(scene: THREE.Object3D, clips: THREE.AnimationClip[], skins?: Template['skins']): Template {
+function finishTemplate(rig: Template['rig'], scene: THREE.Object3D, clips: THREE.AnimationClip[], skins?: Template['skins']): Template {
   const box = new THREE.Box3().setFromObject(scene);
   const h = box.max.y - box.min.y;
   if (!(h > 0)) throw new Error('empty model');
   const scale = MODEL_HEIGHT / h;
-  return { scene, clips, scale, offsetY: -box.min.y * scale, skins };
+  return { rig, scene, clips, scale, offsetY: -box.min.y * scale, skins };
 }
 
 export async function loadTemplate(): Promise<void> {
   template = null;
+  rigName = null;
   try { // 1) a user-supplied glb
     const gltf = await new GLTFLoader().loadAsync(MODEL_GLB);
-    template = finishTemplate(gltf.scene, gltf.animations);
+    template = finishTemplate('other', gltf.scene, gltf.animations);
+    rigName = 'other';
     return;
-  } catch { /* none, try the bundled FBX pack */ }
-  try { // 2) bundled Kenney FBX model + separate idle/run animation files + per-team skins
+  } catch { /* none, try Soldier Cole */ }
+  if (!QS.has('kenney')) {
+    try { // 2) "Soldier Cole": realistic soldier (compact glb made by client/src/coleprep.ts) + animation clips
+      const [gltf, anims] = await Promise.all([
+        new GLTFLoader().loadAsync('/models/cole/cole.glb'),
+        fetch('/models/cole/anims.json').then((r) => { if (!r.ok) throw new Error('no anims'); return r.json() as Promise<Record<string, object>>; }),
+      ]);
+      const order = ['idle', 'run', 'walk', 'death', 'jump'];
+      const clips = order.filter((n) => anims[n]).map((n) => THREE.AnimationClip.parse(anims[n] as Parameters<typeof THREE.AnimationClip.parse>[0]));
+      if (!clips.some((c) => c.name === 'idle') || !clips.some((c) => c.name === 'run')) throw new Error('idle/run missing');
+      template = finishTemplate('cole', gltf.scene, clips);
+      rigName = 'cole';
+      console.info(`Loaded Soldier Cole, animations: ${clips.map((c) => c.name).join(', ')}`);
+      return;
+    } catch { /* not available: fall back to the Kenney character */ }
+  }
+  try { // 3) bundled Kenney FBX model + separate idle/run animation files + per-team skins
     const loader = new FBXLoader();
     const [model, idle, run] = await Promise.all([
       loader.loadAsync(`${KENNEY}/characterMedium.fbx`),
@@ -63,7 +86,8 @@ export async function loadTemplate(): Promise<void> {
       tex.colorSpace = THREE.SRGBColorSpace;
       skins.push(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }));
     }
-    template = finishTemplate(model, clips, skins);
+    template = finishTemplate('kenney', model, clips, skins);
+    rigName = 'kenney';
     console.info(`Loaded character model, animations: ${clips.map((c) => c.name).join(', ')}`);
     if (QS.has('debuganim')) {
       const bones: string[] = [];
@@ -90,6 +114,11 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
     m.castShadow = true;
     const skin = t.skins?.[skinIdx];
     if (skin) m.material = skin;
+    if (t.rig === 'cole') { // costume = tint of the camo texture (each character gets its own material copy)
+      const mat = (m.material as THREE.MeshStandardMaterial).clone();
+      mat.color.setHex(COLE_TINTS[skinIdx % COLE_TINTS.length]);
+      m.material = mat;
+    }
   });
   const holder = new THREE.Group();
   holder.rotation.y = MODEL_YAW;
@@ -105,14 +134,26 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
   root.add(gunHolder);
 
   const mixer = new THREE.AnimationMixer(model);
-  const find = (re: RegExp) => t.clips.find((c) => re.test(c.name));
-  const idleClip = find(/idle/i) ?? t.clips[0];
-  const runClip = find(/run|jog|walk/i) ?? idleClip;
+  const named = (n: string) => t.clips.find((c) => c.name === n);
+  const idleClip = named('idle') ?? t.clips.find((c) => /idle/i.test(c.name)) ?? t.clips[0];
+  const runClip = named('run') ?? t.clips.find((c) => /run|jog|walk/i.test(c.name)) ?? idleClip;
   const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
   const run = runClip ? mixer.clipAction(runClip) : undefined;
   idle?.play(); run?.play();
+  const deathClip = named('death');
+  const death = deathClip ? mixer.clipAction(deathClip) : undefined;
+  if (death) { death.setLoop(THREE.LoopOnce, 1); death.clampWhenFinished = true; }
+  // bones that share the upper-body twist (the names differ between the two rigs)
+  const pick = (name: string, k: number) => { const bone = model.getObjectByName(name); return bone ? [{ bone, k }] : []; };
+  const twistBones = t.rig === 'cole'
+    ? [...pick('Spine01', 0.5), ...pick('Spine', 0.35), ...pick('neck', 0.1)]
+    : [...pick('Spine', 0.8), ...pick('Neck', 0.15)];
   const dummy = () => new THREE.Group();
-  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, spine: model.getObjectByName('Spine') ?? undefined, neck: model.getObjectByName('Neck') ?? undefined, mixer, idle, run };
+  const cole = t.rig === 'cole';
+  return {
+    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, death, ring,
+    runBase: cole ? 0.8 : 0.6, runGain: cole ? 0.5 : 0.8,
+  };
 }
 
 export function makeCharacter(color: number): Character {

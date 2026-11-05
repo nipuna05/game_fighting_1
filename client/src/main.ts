@@ -443,10 +443,24 @@ class Game {
         c.gunHolder.add(makeWeaponModel(p.weapon));
         c.gunIdx = p.weapon;
       }
-      c.root.visible = p.alive;
+      if (c.death) { // falls down with the death animation and stays down until the player is alive again
+        if (!p.alive && !c.dead) {
+          c.dead = true;
+          c.idle?.stop(); c.run?.stop();
+          c.death.reset().setEffectiveWeight(1).play();
+        } else if (p.alive && c.dead) {
+          c.dead = false;
+          c.death.stop();
+          c.idle?.reset().play(); c.run?.reset().play();
+        }
+      }
+      c.root.visible = p.alive || !!c.dead;
+      c.gunHolder.visible = p.alive;
+      if (c.ring) c.ring.visible = p.alive;
       c.root.position.set(d.x, 0, d.y);
       c.root.rotation.y = -d.angle;
       const speed = Math.min(1, d.moved / 220);
+      if (c.dead && c.mixer) { c.mixer.update(dt); continue; }
       if (c.mixer) { // loaded model: blend between its idle and run animations
         const w = Math.min(1, speed * 1.6);
         c.run?.setEffectiveWeight(w); c.idle?.setEffectiveWeight(1 - w);
@@ -472,11 +486,10 @@ class Game {
         const step = TURN_RATE * dt;
         c.legYaw += Math.max(-step, Math.min(step, wrapAngle(target - c.legYaw) * Math.min(1, dt * 14)));
         const twist = Math.max(-MAX_TWIST - 0.2, Math.min(MAX_TWIST + 0.2, wrapAngle(aim - c.legYaw)));
-        if (c.run) c.run.timeScale = (c.backward ? -1 : 1) * (0.6 + speed * 0.8);
+        if (c.run) c.run.timeScale = (c.backward ? -1 : 1) * ((c.runBase ?? 0.6) + speed * (c.runGain ?? 0.8));
         if (c.holder) c.holder.rotation.y = MODEL_YAW + twist; // lower body faces c.legYaw, root faces the aim
         c.mixer.update(dt);
-        if (c.spine) c.spine.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * 0.8); // after the animation pose is applied
-        if (c.neck) c.neck.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * 0.15);
+        for (const tb of c.twistBones ?? []) tb.bone.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * tb.k); // after the animation pose is applied
       } else {
         c.phase += dt * 11 * speed;
         const swing = Math.sin(c.phase) * 0.8 * speed;
@@ -771,7 +784,16 @@ if (QS.get('gallery')) void (async () => {
   sc.background = new THREE.Color(0x2a3140);
   sc.add(new THREE.HemisphereLight(0xffffff, 0x445066, 2.4));
   const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(40, 90, 80); sc.add(dl);
-  WEAPONS.forEach((_, i) => { const m = makeWeaponModel(i); m.position.set((i % 3) * 78 - 70, -Math.floor(i / 3) * 24 + 36, 0); sc.add(m); });
+  WEAPONS.forEach((w, i) => {
+    const m = makeWeaponModel(i);
+    m.position.set((i % 3) * 78 - 70, -Math.floor(i / 3) * 24 + 36, 0);
+    sc.add(m);
+    const box = new THREE.Box3().setFromObject(m);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff2222 })); // red dot = where the game thinks the FRONT (muzzle) is
+    dot.position.set(box.max.x + 2, m.position.y, 0); sc.add(dot);
+    const lab = document.createElement('div'); lab.textContent = w.id; lab.style.cssText = 'position:fixed;color:#fff;font:12px monospace;background:#000a;padding:1px 4px';
+    lab.style.left = `${(i % 3) * 33 + 2}%`; lab.style.top = `${Math.floor(i / 3) * 22 + 6}%`; document.body.appendChild(lab);
+  });
   const cam = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 500);
   cam.position.set(40, 0, 190); cam.lookAt(40, 0, 0);
   r.render(sc, cam);

@@ -50,7 +50,7 @@ async function main() {
   log(`size ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} (height ${size.y.toFixed(1)})`);
   log(`animations ${clips.length}: ${clips.map((c) => `${c.name}(${c.duration.toFixed(2)}s)`).join(', ') || 'none'}`);
   log(`textures: ${[...textures.entries()].map(([k, v]) => `${k}=${v}`).join(', ') || 'none embedded'}`);
-  log(`bones: ${boneNames.slice(0, 14).join(' | ')}${boneNames.length > 14 ? ' ...' : ''}`);
+  log(`bones: ${boneNames.join(' | ')}`);
 
   // fit to view
   const h = size.y || 1;

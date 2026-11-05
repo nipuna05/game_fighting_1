@@ -501,12 +501,14 @@ export function buildWorld(scene: THREE.Scene, map: MapDef) {
 // Each file is turned so the barrel points along +x, scaled to a sensible length and moved so the grip sits near the origin.
 // Any weapon without a file keeps its built-in low-poly model.
 const GUN_LENGTH: Record<string, number> = {
-  usp: 19, deagle: 23, glock: 18, mp5: 31, p90: 29, spas12: 44, striker: 40, ak47: 46, m4a1: 43, l118a: 58, m60e4: 50, barrett: 60,
+  usp: 12, deagle: 14, glock: 11, mp5: 23, p90: 21, spas12: 32, striker: 28, ak47: 32, m4a1: 31, l118a: 42, m60e4: 38, barrett: 44,
 };
+// The automatic "barrel is the light end" guess is wrong for these models (their stock end came out in front), so flip them.
+const GUN_FLIP = new Set(['deagle', 'glock', 'mp5', 'p90', 'spas12', 'striker', 'ak47']);
 const gunTemplates = new Map<string, THREE.Group>();
 let gunLoad: Promise<void> | null = null;
 
-function prepareGun(src: THREE.Object3D, targetLen: number): THREE.Group {
+function prepareGun(src: THREE.Object3D, targetLen: number, flip: boolean): THREE.Group {
   const obj = src.clone(true);
   const wrap = new THREE.Group();
   wrap.add(obj);
@@ -526,6 +528,7 @@ function prepareGun(src: THREE.Object3D, targetLen: number): THREE.Group {
   });
   box.setFromObject(wrap);
   if (n && sum / n > (box.min.x + box.max.x) / 2) { wrap.rotation.y += Math.PI; wrap.updateMatrixWorld(true); }
+  if (flip) { wrap.rotation.y += Math.PI; wrap.updateMatrixWorld(true); }
 
   box.setFromObject(wrap);
   const k = targetLen / Math.max(0.0001, box.max.x - box.min.x);
@@ -546,7 +549,7 @@ export function loadGunModels(): Promise<void> {
     await Promise.all(WEAPONS.map(async (w) => {
       try {
         const gltf = await loader.loadAsync(`/models/guns/${w.id}.glb`);
-        gunTemplates.set(w.id, prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30));
+        gunTemplates.set(w.id, prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30, GUN_FLIP.has(w.id)));
       } catch { /* no file for this weapon: the built-in model is used */ }
     }));
     if (gunTemplates.size) console.info(`Loaded ${gunTemplates.size} gun models: ${[...gunTemplates.keys()].join(', ')}`);
@@ -628,8 +631,8 @@ export function makeWeaponModel(idx: number): THREE.Group {
       cyl(3.8, 22, M.black, 12, 9.6); cyl(4.6, 4, M.black, 24, 9.6); cyl(4, 1.4, M.glass, 25.8, 9.6); box(28, 1.8, 3.2, M.gun, 11, 6.4);
       box(9, 7, 3.6, M.black, 8, -6.2); box(18, 9, 5, M.tan, -14, -1.4, 0, -0.08); box(2.6, 11, 6, M.rubber, -23.5, -1.8, 0, -0.08); box(4.2, 9.5, 4, M.black, 0, -7, 0, -0.22); box(12, 2, 2, M.gun, 20, 6.6);
       bipod(38, 13);
-      g.scale.setScalar(0.82);
       break;
   }
+  g.scale.setScalar(id === 'barrett' ? 0.5 : id === 'm60e4' ? 0.58 : 0.72); // built-in models are drawn large: bring them in proportion with the soldier
   return g;
 }

@@ -41,3 +41,6 @@ assets-src/accessories/*
 assets-src/characters/*
 !assets-src/characters/README.md
 client/public/models/accessories/
+
+# Soldier Cole (licence: do not redistribute raw files): keep out of git
+client/public/models/cole/
