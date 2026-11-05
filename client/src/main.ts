@@ -76,6 +76,7 @@ const AIM_HEIGHT = 34; // height of the gun, used when turning the mouse positio
 interface Character {
   root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
   gunHolder: THREE.Group; gunIdx: number; // the weapon model currently shown in the hands
+  holder?: THREE.Group; spine?: THREE.Object3D; neck?: THREE.Object3D; legYaw?: number; // loaded models: lower-body facing + torso bones
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
 }
 
@@ -86,7 +87,12 @@ const KENNEY = '/models/kenney';
 const SKIN_URLS = ['survivorMaleB', 'survivorFemaleA', 'zombieA', 'zombieC'].map((n) => `${KENNEY}/${n}.png`);
 const QS = new URLSearchParams(location.search); // dev overrides: ?yaw=<radians>&zoom=<0.2..1>
 const MODEL_YAW = QS.has('yaw') ? Number(QS.get('yaw')) : Math.PI / 2; // the model faces +Z; the game faces +X. Change if a model faces the wrong way.
-const MODEL_HEIGHT = 58;       // world units; the model is auto-scaled to this height
+const MODEL_HEIGHT = 58;
+const MAX_TWIST = 1.31;                                  // 75 degrees: how far the torso may turn away from the legs
+const TURN_RATE = 9;                                     // rad/s, how fast the body can turn (about 515 degrees/s)
+const TWIST_SIGN = QS.has('twist') ? Number(QS.get('twist')) : -1; // spine twist direction for this rig (dev: ?twist=1)
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));       // world units; the model is auto-scaled to this height
 interface Template { scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
 let template: Template | null = null;
 
@@ -130,7 +136,7 @@ async function loadTemplate(): Promise<void> {
     if (QS.has('debuganim')) {
       const bones: string[] = [];
       model.traverse((o) => { if ((o as THREE.Bone).isBone) bones.push(o.name); });
-      console.info('DEBUG bones:', bones.slice(0, 12).join(' | '), `(total ${bones.length})`);
+      console.info('DEBUG bones:', bones.filter((n) => /hips|spine|neck|head|shoulder|arm/i.test(n)).join(' | '), `(total ${bones.length})`);
       for (const [label, f] of [['idle.fbx', idle], ['run.fbx', run], ['model', model]] as const) console.info('DEBUG file', label, 'animations:', f.animations.map((c) => `${c.name}(${c.duration.toFixed(2)}s,${c.tracks.length})`).join(', ') || 'none');
       for (const c of clips) console.info('DEBUG clip', c.name, 'dur', c.duration.toFixed(2), 'tracks', c.tracks.length, c.tracks.slice(0, 6).map((t) => t.name).join(' | '));
     }
@@ -174,7 +180,7 @@ function makeModelCharacter(skinIdx: number, color: number): Character {
   const run = runClip ? mixer.clipAction(runClip) : undefined;
   idle?.play(); run?.play();
   const dummy = () => new THREE.Group();
-  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, mixer, idle, run };
+  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, spine: model.getObjectByName('Spine') ?? undefined, neck: model.getObjectByName('Neck') ?? undefined, mixer, idle, run };
 }
 
 function makeCharacter(color: number): Character {
@@ -237,7 +243,7 @@ function makePickup(): THREE.Group {
 
 // ---------- game ----------
 interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number }
-interface Shown { x: number; y: number; angle: number; moved: number }
+interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
   private renderer: THREE.WebGLRenderer;
@@ -422,7 +428,7 @@ class Game {
     for (const p of s.players) {
       seen.add(p.id);
       let d = this.shown.get(p.id);
-      if (!d || (!this.sim && Math.hypot(d.x - p.x, d.y - p.y) > 200)) d = { x: p.x, y: p.y, angle: p.angle, moved: 0 };
+      if (!d || (!this.sim && Math.hypot(d.x - p.x, d.y - p.y) > 200)) d = { x: p.x, y: p.y, angle: p.angle, moved: 0, vx: 0, vy: 0 };
       const px = d.x, py = d.y;
       if (this.sim) { d.x = p.x; d.y = p.y; } else { d.x += (p.x - d.x) * smooth; d.y += (p.y - d.y) * smooth; }
       let da = p.angle - d.angle;
@@ -430,6 +436,9 @@ class Game {
       d.angle += da * Math.min(1, dt * 20);
       const inst = Math.hypot(d.x - px, d.y - py) / Math.max(dt, 1e-3);   // units/sec this frame
       d.moved += (inst - d.moved) * Math.min(1, dt * 12);                  // smoothed: sim ticks at 30Hz, frames at 60Hz
+      const k = Math.min(1, dt * 12);
+      d.vx += ((d.x - px) / Math.max(dt, 1e-3) - d.vx) * k;
+      d.vy += ((d.y - py) / Math.max(dt, 1e-3) - d.vy) * k;
       if (QS.has('forcerun')) d.moved = 220;                               // dev: ?forcerun=1 shows the run animation
       this.shown.set(p.id, d);
 
@@ -453,7 +462,26 @@ class Game {
         const w = Math.min(1, speed * 1.6);
         c.run?.setEffectiveWeight(w); c.idle?.setEffectiveWeight(1 - w);
         if (c.run) c.run.timeScale = 0.6 + speed * 0.8;
+
+        // Realistic turning: the legs/body face the direction of travel and turn at a limited speed;
+        // the upper body twists to face the aim direction (up to MAX_TWIST away from the legs).
+        const aim = d.angle;
+        c.legYaw ??= aim;
+        let target = c.legYaw;
+        if (d.moved > 40) {
+          const diff = wrapAngle(aim - Math.atan2(d.vy, d.vx));
+          target = aim - Math.max(-MAX_TWIST, Math.min(MAX_TWIST, diff));
+        } else {
+          const diff = wrapAngle(aim - c.legYaw);
+          if (Math.abs(diff) > MAX_TWIST) target = aim - Math.sign(diff) * MAX_TWIST * 0.5; // feet shuffle round once the torso is twisted too far
+        }
+        const step = TURN_RATE * dt;
+        c.legYaw += Math.max(-step, Math.min(step, wrapAngle(target - c.legYaw) * Math.min(1, dt * 14)));
+        const twist = Math.max(-1.7, Math.min(1.7, wrapAngle(aim - c.legYaw)));
+        if (c.holder) c.holder.rotation.y = MODEL_YAW + twist; // lower body faces c.legYaw, root faces the aim
         c.mixer.update(dt);
+        if (c.spine) c.spine.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * 0.8); // after the animation pose is applied
+        if (c.neck) c.neck.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * 0.15);
       } else {
         c.phase += dt * 11 * speed;
         const swing = Math.sin(c.phase) * 0.8 * speed;
