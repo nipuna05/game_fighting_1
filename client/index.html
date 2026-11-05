@@ -13,6 +13,11 @@
     #menu button { background: #2f6fed; border-color: #2f6fed; font-weight: 600; cursor: pointer; }
     #menu button.alt { background: #1e8e5a; border-color: #1e8e5a; }
     #menu small { color: #8795a8; max-width: 320px; text-align: center; }
+    #labels { position: fixed; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+    .lbl { position: absolute; left: 0; top: 0; font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+    .lbl i { display: block; width: 44px; height: 5px; margin: 2px auto 0; background: #000a; border-radius: 3px; overflow: hidden; }
+    .lbl b { display: block; height: 100%; background: #3ddc84; }
+    #hud { position: fixed; left: 10px; top: 10px; z-index: 4; font: 14px/1.4 ui-monospace, monospace; background: #0008; padding: 6px 10px; border-radius: 6px; pointer-events: none; }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -21,6 +26,8 @@
 </head>
 <body>
   <div id="game"></div>
+  <div id="labels"></div>
+  <div id="hud"></div>
   <div id="touch">
     <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
     <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
