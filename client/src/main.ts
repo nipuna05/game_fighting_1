@@ -4,10 +4,10 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { initAudio, sfx, toggleMute } from './audio';
 import { buildWorld, makeWeaponModel } from './world';
-import { loadProfile, saveProfile, addMatch, clearHistory } from './profile';
+import { loadProfile, saveProfile, addMatch, clearHistory, type TeamPref } from './profile';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT,
+  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -242,7 +242,7 @@ function makePickup(): THREE.Group {
 }
 
 // ---------- game ----------
-interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number }
+interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref }
 interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
@@ -306,7 +306,7 @@ class Game {
 
     if (cfg.mode === 'single') {
       this.sim = new Sim({ rounds: true });
-      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm);
+      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team);
       this.sim.fillBots(TEAM_SIZE);
     } else {
       this.connect();
@@ -318,7 +318,7 @@ class Game {
     this.status = 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:8080`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm }));
+    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team }));
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; }
@@ -680,15 +680,15 @@ class Game {
     this.updateWeaponBar();
     const me = s.players.find((p) => p.id === this.myId);
     const myTeam: Team = me?.team ?? 'CT';
-    $('ctw').textContent = `CT ${r.ctWins}`;
-    $('tw').textContent = `${r.tWins} T`;
+    $('ctw').textContent = `${TEAM_INFO.CT.short} ${r.ctWins}`;
+    $('tw').textContent = `${r.tWins} ${TEAM_INFO.T.short}`;
     const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? 'BUY' : r.phase === 'live' ? fmt(r.timeLeft) : '';
     $('tm').textContent = `R${r.roundNo}  ${clock}`;
 
     // banner: round result, bomb actions, role hints
     let big = '', sub = '', prog = 0;
     if (r.phase === 'post' || r.phase === 'over') {
-      big = r.phase === 'over' ? `${r.winner} WIN THE MATCH` : `${r.winner === 'CT' ? 'COUNTER-TERRORISTS' : 'TERRORISTS'} WIN`;
+      big = `${TEAM_INFO[r.winner ?? 'CT'].name.toUpperCase()} WIN${r.phase === 'over' ? ' THE MATCH' : ''}`;
       sub = r.phase === 'over' ? `${r.reason}  -  match saved to your profile` : r.reason;
     } else if (r.bomb.progress > 0) {
       big = r.bomb.status === 'carried' ? 'PLANTING...' : 'DEFUSING...';
@@ -696,7 +696,7 @@ class Game {
     } else if (me && !me.alive && r.phase === 'live') {
       sub = 'You are dead - spectating';
     } else if (me?.alive && r.phase === 'buy') {
-      sub = myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, hold E to plant' : 'Escort the bomb carrier') : 'Defend sites A and B';
+      sub = `You are ${TEAM_INFO[myTeam].name} (${TEAM_INFO[myTeam].role}). ` + (myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, hold E to plant' : 'Escort the bomb carrier') : 'Defend sites A and B');
     } else if (me?.alive && r.bomb.status === 'carried' && r.bomb.carrier === me.id) {
       sub = 'You carry the bomb - hold E inside a site to plant';
     } else if (r.bomb.status === 'planted') {
@@ -731,7 +731,7 @@ class Game {
     const owned = WEAPONS.filter((_, i) => ((me?.owned ?? 1) >> i) & 1).map((w) => w.name).join(' / ');
     const board = [...s.players]
       .sort((a, b) => (a.team === b.team ? b.score - a.score : a.team === 'CT' ? -1 : 1))
-      .map((p) => `${p.id === this.myId ? '&gt;' : '&nbsp;'}${p.team === 'CT' ? 'CT' : 'T&nbsp;'} ${esc(p.name)} ${p.score}/${p.deaths}${p.alive ? '' : ' x'}`)
+      .map((p) => `${p.id === this.myId ? '&gt;' : '&nbsp;'}${TEAM_INFO[p.team].short} ${esc(p.name)} ${p.score}/${p.deaths}${p.alive ? '' : ' x'}`)
       .join('<br>');
     this.hud.innerHTML = `${this.status ? esc(this.status) + '<br>' : ''}$${me?.money ?? 0} &nbsp;HP ${me?.hp ?? 0} &nbsp;Armor ${me?.armor ?? 0}<br>Weapon: ${me ? WEAPONS[me.weapon].name : ''} [${owned}]<br>${board}`;
   }
@@ -753,6 +753,23 @@ function buildSkinPicker() {
   }
 }
 
+const TEAM_CHOICES: { id: TeamPref; label: string; sub: string; cls: string }[] = [
+  { id: 'auto', label: 'Auto', sub: 'balanced', cls: '' },
+  { id: 'CT', label: TEAM_INFO.CT.name, sub: TEAM_INFO.CT.role, cls: 'ct' },
+  { id: 'T', label: TEAM_INFO.T.name, sub: TEAM_INFO.T.role, cls: 't' },
+];
+function buildTeamPicker() {
+  const box = $('teams');
+  box.innerHTML = '';
+  for (const c of TEAM_CHOICES) {
+    const d = document.createElement('div');
+    d.className = `chip ${c.cls}${profile.team === c.id ? ' sel' : ''}`;
+    d.innerHTML = `${esc(c.label)}<small>${esc(c.sub)}</small>`;
+    d.addEventListener('click', () => { profile.team = c.id; saveProfile(profile); buildTeamPicker(); });
+    box.appendChild(d);
+  }
+}
+
 function openProfile() {
   const t = profile.totals;
   const name = ($('name') as HTMLInputElement).value.trim() || profile.name || 'Player';
@@ -764,7 +781,7 @@ function openProfile() {
   $('ppack').textContent = pack ? [...pack.weapons.map((i) => WEAPONS[i]?.name).filter(Boolean), ...(pack.armor ? ['Armor'] : [])].join(' + ') || 'Pistol only' : 'None yet. It is saved when a buy phase ends, and you can rebuy it with B.';
   $('phist').innerHTML = profile.history.length
     ? '<table><tr><th>When</th><th>Result</th><th>Score</th><th>K/D</th><th>Side</th><th>Mode</th></tr>' + profile.history.map((m) =>
-      `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${m.team}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
+      `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${esc(TEAM_INFO[m.team]?.name ?? m.team)}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
     : 'No fights saved yet. Finish a match (first to 6 rounds) and it shows up here.';
   $('profile').style.display = 'flex';
 }
@@ -772,6 +789,7 @@ function openProfile() {
 function initMenu() {
   ($('name') as HTMLInputElement).value = profile.name;
   buildSkinPicker();
+  buildTeamPicker();
   $('profileBtn').addEventListener('click', openProfile);
   $('pclose').addEventListener('click', () => { $('profile').style.display = 'none'; });
   $('pclear').addEventListener('click', () => { if (confirm('Clear your saved fights and weapon pack?')) { clearHistory(profile); openProfile(); } });
@@ -788,7 +806,7 @@ async function start(mode: 'single' | 'multi') {
   initAudio();
   if (isTouch) bindTouch();
   await loadTemplate();
-  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm });
+  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team });
 }
 $('single').addEventListener('click', () => void start('single'));
 $('multi').addEventListener('click', () => void start('multi'));

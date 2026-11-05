@@ -1,7 +1,7 @@
 // Map and weapon graphics, all generated in code (no image or model files).
 // Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
-import { WALLS, WEAPONS, SITES, SPAWN_ZONES, PICKUP_SPOTS, WORLD_W, WORLD_H, type Rect, type Team } from '@fight/shared';
+import { WALLS, WEAPONS, TEAM_INFO, SITES, SPAWN_ZONES, PICKUP_SPOTS, WORLD_W, WORLD_H, type Rect, type Team } from '@fight/shared';
 
 // ---------- texture helpers ----------
 type Draw = (g: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -252,8 +252,8 @@ function decalCanvas(): HTMLCanvasElement {
       g.fillStyle = `rgba(${col},0.28)`; g.fillRect(z.x, z.y, z.w, z.h);
       g.strokeStyle = `rgba(${col},0.9)`; g.lineWidth = 5; g.strokeRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4);
       g.save(); g.translate(z.x + z.w / 2, z.y + z.h / 2); g.rotate(-Math.PI / 2);
-      g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(t === 'CT' ? 'CT SPAWN' : 'T SPAWN', 0, 0); g.restore();
+      g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = 'bold 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(`${TEAM_INFO[t].name.toUpperCase()} SPAWN`, 0, 0); g.restore();
       const dir = t === 'T' ? 1 : -1;
       g.strokeStyle = `rgba(${col},0.85)`; g.lineWidth = 7; g.lineCap = 'round';
       for (let i = 0; i < 3; i++) {

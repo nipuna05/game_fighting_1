@@ -41,6 +41,11 @@ export const PICKUP_SPOTS = [{ x: 500, y: 600 }, { x: 1100, y: 600 }, { x: 800, 
 
 // ---- round / bomb rules ----
 export type Team = 'T' | 'CT';
+// 'CT' / 'T' are internal ids (network protocol, saved profiles). Players only ever see these names.
+export const TEAM_INFO: Record<Team, { name: string; short: string; role: string }> = {
+  CT: { name: 'Sentinels', short: 'SEN', role: 'Defenders' },
+  T: { name: 'Raiders', short: 'RDR', role: 'Attackers' },
+};
 export type Phase = 'buy' | 'live' | 'post' | 'over';
 export const TEAM_SIZE = 3;
 export const SKIN_COUNT = 4; // costumes a player can choose from
@@ -182,10 +187,12 @@ export class Sim {
 
   // ---------- roster ----------
   /** Adds a human (rounds mode: to the team with fewer humans). */
-  join(id: string, name: string, skin = 0, sidearm = 0) {
-    let humansT = 0, humansCT = 0;
-    for (const p of this.players.values()) if (!p.bot) (p.team === 'T' ? humansT++ : humansCT++);
-    this.addPlayer(id, name, false, humansCT <= humansT ? 'CT' : 'T', skin, sidearm);
+  join(id: string, name: string, skin = 0, sidearm = 0, prefer: Team | 'auto' = 'auto') {
+    const humans: Record<Team, number> = { T: 0, CT: 0 };
+    for (const p of this.players.values()) if (!p.bot) humans[p.team]++;
+    let team: Team = humans.CT <= humans.T ? 'CT' : 'T'; // default: the side with fewer humans
+    if ((prefer === 'CT' || prefer === 'T') && humans[prefer] < TEAM_SIZE) team = prefer; // honour the choice if that side has room
+    this.addPlayer(id, name, false, team, skin, sidearm);
   }
 
   addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 0 : 1) : 0, sidearm = bot ? Math.floor(Math.random() * SIDEARM_COUNT) : 0) {
@@ -378,8 +385,8 @@ export class Sim {
 
     let tAlive = 0, ctAlive = 0;
     for (const p of this.players.values()) if (p.alive) (p.team === 'T' ? tAlive++ : ctAlive++);
-    if (ctAlive === 0) this.endRound('T', 'Counter-terrorists eliminated');
-    else if (tAlive === 0 && this.bomb.status !== 'planted') this.endRound('CT', 'Terrorists eliminated');
+    if (ctAlive === 0) this.endRound('T', `${TEAM_INFO.CT.name} eliminated`);
+    else if (tAlive === 0 && this.bomb.status !== 'planted') this.endRound('CT', `${TEAM_INFO.T.name} eliminated`);
     else if (this.time >= this.phaseEndsAt && this.bomb.status !== 'planted') this.endRound('CT', 'Time ran out');
   }
 
@@ -534,7 +541,7 @@ export class Sim {
 
 // ---- network protocol ----
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number }
+  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto' }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number };
 export type ServerMsg =

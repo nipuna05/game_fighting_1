@@ -50,6 +50,11 @@
     #wbar button { font: 13px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; min-width: 74px; }
     #wbar button b { display: block; font: 11px ui-monospace, monospace; color: #8795a8; }
     #wbar button.off { opacity: .35; cursor: default; } #wbar button.cur { border-color: #3ddc84; background: #1b3a2c; }
+    #teams { display: flex; gap: 8px; width: min(320px, 100%); }
+    .chip { flex: 1; text-align: center; padding: 9px 6px; border-radius: 10px; border: 2px solid #2a3544; background: #151c26; cursor: pointer; font-size: 14px; line-height: 1.25; }
+    .chip small { display: block; color: #8795a8; font-size: 11px; }
+    .chip.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8455; }
+    .chip.ct { border-bottom-color: #3f8cff; } .chip.t { border-bottom-color: #e08a2c; }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -80,6 +85,7 @@
     <h1>FIGHT</h1>
     <input id="name" maxlength="14" placeholder="Your name" />
     <div id="skins" title="Choose your costume"></div>
+    <div id="teams" title="Choose your team"></div>
     <button id="single">Single player (vs bots)</button>
     <input id="room" maxlength="16" placeholder="Room code (blank = public)" />
     <button id="multi" class="alt">Multiplayer</button>
