@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Fight</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b0f14; color: #e8eef5; font-family: system-ui, sans-serif; overflow: hidden; overscroll-behavior: none; }
+    #game { position: fixed; inset: 0; }
+    #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; box-sizing: border-box; background: #0b0f14; z-index: 10; }
+    #menu h1 { margin: 0 0 8px; font-size: 40px; letter-spacing: 2px; }
+    #menu input, #menu button { font-size: 18px; padding: 12px 16px; border-radius: 10px; border: 1px solid #2a3544; background: #151c26; color: inherit; width: min(320px, 100%); box-sizing: border-box; }
+    #menu button { background: #2f6fed; border-color: #2f6fed; font-weight: 600; cursor: pointer; }
+    #menu button.alt { background: #1e8e5a; border-color: #1e8e5a; }
+    #menu small { color: #8795a8; max-width: 320px; text-align: center; }
+    #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
+    .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
+    .stick.left { left: 6%; } .stick.right { right: 6%; }
+    .knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #ffffff55; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="touch">
+    <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
+    <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
+  </div>
+  <div id="menu">
+    <h1>FIGHT</h1>
+    <input id="name" maxlength="14" placeholder="Your name" />
+    <button id="single">Single player (vs bots)</button>
+    <input id="room" maxlength="16" placeholder="Room code (blank = public)" />
+    <button id="multi" class="alt">Multiplayer</button>
+    <small>Desktop: WASD to move, mouse to aim, click to shoot. Mobile: left stick moves, right stick aims and shoots.</small>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
