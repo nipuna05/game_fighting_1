@@ -37,6 +37,8 @@ export const ARMOR_COST = 650;
 export const PICKUP_RESPAWN = 15;
 export const PICKUP_R = 16;
 export const HEAL_AMOUNT = 40;
+// cash loot on the map, mirrored about the centre; they refill every round
+export const LOOT_SPOTS = [{ x: 330, y: 170 }, { x: 1270, y: 1030 }, { x: 660, y: 600 }, { x: 940, y: 600 }, { x: 480, y: 720 }, { x: 1120, y: 480 }];
 export const PICKUP_SPOTS = [{ x: 500, y: 600 }, { x: 1100, y: 600 }, { x: 800, y: 430 }, { x: 800, y: 770 }];
 
 // ---- round / bomb rules ----
@@ -57,7 +59,9 @@ export const WINS_TO_WIN = 6;
 export const START_MONEY = 1600;
 export const WIN_MONEY = 3000;
 export const LOSE_MONEY = 1400;
-export const KILL_MONEY = 300;
+export const KILL_MONEY = 200;
+export const LOOT_AMOUNT = 350; // cash stack lying on the map (once per round)
+export const DROP_AMOUNT = 250; // bag dropped by a fallen player
 export const MAX_MONEY = 16000;
 export const PLANT_TIME = 3;
 export const DEFUSE_TIME = 5;
@@ -108,7 +112,7 @@ export interface PlayerState {
   skin: number; // costume index, 0..SKIN_COUNT-1
 }
 export interface BulletState { id: number; x: number; y: number }
-export interface PickupState { id: number; x: number; y: number }
+export interface PickupState { id: number; x: number; y: number; kind: 'heal' | 'cash'; amount?: number }
 export type BombStatus = 'none' | 'carried' | 'dropped' | 'planted';
 export interface BombState {
   status: BombStatus; x: number; y: number; carrier: string | null;
@@ -168,6 +172,9 @@ export class Sim {
   private nextBullet = 1;
   private nextBot = 1;
   private pickupReadyAt = PICKUP_SPOTS.map(() => 0);
+  private lootTaken = LOOT_SPOTS.map(() => false);
+  private drops: { id: number; x: number; y: number; amount: number }[] = [];
+  private nextDrop = 1;
 
   // round state
   private phase: Phase = 'buy';
@@ -299,6 +306,8 @@ export class Sim {
     this.roundNo++;
     this.bullets = [];
     this.pickupReadyAt.fill(0);
+    this.lootTaken.fill(false);
+    this.drops = [];
     for (const p of this.players.values()) {
       const keep = p.alive && !this.freshMatch; // survivors keep their gear
       if (!keep) { p.owned = 1 << p.sidearm; p.weapon = p.sidearm; p.armor = 0; }
@@ -437,6 +446,16 @@ export class Sim {
           this.pickupReadyAt[i] = this.time + PICKUP_RESPAWN;
         }
       });
+      if (this.rounds && this.phase === 'live') { // cash loot: stacks on the map and bags dropped by fallen players
+        LOOT_SPOTS.forEach((sp, i) => {
+          if (!this.lootTaken[i] && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + 18) { this.lootTaken[i] = true; p.money = Math.min(MAX_MONEY, p.money + LOOT_AMOUNT); }
+        });
+        this.drops = this.drops.filter((d) => {
+          if (Math.hypot(p.x - d.x, p.y - d.y) >= PLAYER_R + 16) return true;
+          p.money = Math.min(MAX_MONEY, p.money + d.amount);
+          return false;
+        });
+      }
     }
 
     const alive: Bullet[] = [];
@@ -454,6 +473,7 @@ export class Sim {
           p.hp -= dmg; hit = true;
           if (p.hp <= 0) {
             p.alive = false; p.deaths++; p.respawnAt = this.time + RESPAWN_TIME;
+            if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT });
             const killer = this.players.get(b.owner);
             if (killer) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
           }
@@ -498,6 +518,17 @@ export class Sim {
   }
 
   private botObjective(p: Player) {
+    if (this.phase === 'live' && !(p.team === 'CT' && this.bomb.status === 'planted')) { // grab loot that is close by
+      let best: { x: number; y: number } | null = null, bd = 190;
+      LOOT_SPOTS.forEach((sp, i) => { const d = Math.hypot(sp.x - p.x, sp.y - p.y); if (!this.lootTaken[i] && d < bd) { bd = d; best = sp; } });
+      for (const dr of this.drops) { const d = Math.hypot(dr.x - p.x, dr.y - p.y); if (d < bd) { bd = d; best = dr; } }
+      if (best) {
+        const t = best as { x: number; y: number };
+        const ang = Math.atan2(t.y - p.y, t.x - p.x);
+        p.input = { mx: Math.cos(ang) * 0.75, my: Math.sin(ang) * 0.75, angle: ang, fire: false, use: false };
+        return;
+      }
+    }
     const b = this.bomb;
     let gx: number, gy: number, stopR = 40, use = false;
     const site = SITES[p.botGoal];
@@ -529,7 +560,11 @@ export class Sim {
         team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin,
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y) })),
-      pickups: PICKUP_SPOTS.map((sp, i) => ({ id: i, x: sp.x, y: sp.y })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
+      pickups: [
+        ...PICKUP_SPOTS.map((sp, i) => ({ id: i, x: sp.x, y: sp.y, kind: 'heal' as const })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
+        ...(this.rounds ? LOOT_SPOTS.map((sp, i) => ({ id: 100 + i, x: sp.x, y: sp.y, kind: 'cash' as const, amount: LOOT_AMOUNT })).filter((_, i) => !this.lootTaken[i]) : []),
+        ...this.drops.map((d) => ({ id: 1000 + d.id, x: Math.round(d.x), y: Math.round(d.y), kind: 'cash' as const, amount: d.amount })),
+      ],
       round: this.rounds ? {
         phase: this.phase, timeLeft: Math.max(0, this.phaseEndsAt - this.time),
         tWins: this.tWins, ctWins: this.ctWins, roundNo: this.roundNo,

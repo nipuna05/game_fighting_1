@@ -12,18 +12,19 @@ export interface MatchEntry {
   ctWins: number;
   kills: number;
   deaths: number;
+  coins?: number; // coins earned for this match
 }
 export interface Pack { weapons: number[]; armor: boolean }
 export interface AutoBuy { primary: number | null; armor: boolean } // buy this automatically at the start of every buy phase
 export interface Totals { matches: number; wins: number; kills: number; deaths: number }
 export type TeamPref = 'auto' | 'CT' | 'T';
-export interface Profile { name: string; skin: number; team: TeamPref; sidearm: number; map: string; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Profile { coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ coins: 0, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -32,6 +33,7 @@ export function loadProfile(): Profile {
     const p = JSON.parse(raw) as Partial<Profile>;
     const base = fresh();
     return {
+      coins: Number.isFinite(p.coins) ? Math.max(0, Math.floor(p.coins as number)) : 0,
       name: typeof p.name === 'string' ? p.name.slice(0, 14) : base.name,
       skin: Number.isInteger(p.skin) ? Math.max(0, Math.min(3, p.skin as number)) : 0,
       team: p.team === 'CT' || p.team === 'T' ? p.team : 'auto',
@@ -62,6 +64,7 @@ export function addMatch(p: Profile, e: MatchEntry) {
   if (e.won) p.totals.wins++;
   p.totals.kills += e.kills;
   p.totals.deaths += e.deaths;
+  p.coins += e.coins ?? 0;
   saveProfile(p);
 }
 

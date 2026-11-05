@@ -231,6 +231,21 @@ function makeCharacter(color: number): Character {
   return { root, legL, legR, armL, armR, phase: Math.random() * 6, gunHolder, gunIdx: -1 };
 }
 
+function makeCash(): THREE.Group {
+  const g = new THREE.Group();
+  const bill = new THREE.MeshStandardMaterial({ color: 0x3fae5f, roughness: 0.6, emissive: 0x14532d, emissiveIntensity: 0.5 });
+  const band = new THREE.MeshStandardMaterial({ color: 0xe8f5e9, roughness: 0.7 });
+  for (let i = 0; i < 3; i++) {
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(26, 5, 14), bill);
+    slab.position.set(0, 3 + i * 5.2, 0); slab.rotation.y = (i - 1) * 0.18; slab.castShadow = true; g.add(slab);
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(5, 5.4, 14.4), band);
+    strap.position.copy(slab.position); strap.rotation.y = slab.rotation.y; g.add(strap);
+  }
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 2, 20), new THREE.MeshStandardMaterial({ color: 0xffd34d, metalness: 0.8, roughness: 0.25, emissive: 0x8a6a00, emissiveIntensity: 0.6 }));
+  coin.position.y = 22; coin.rotation.x = Math.PI / 2; g.add(coin);
+  return g;
+}
+
 function makePickup(): THREE.Group {
   const g = new THREE.Group();
   const m = new THREE.MeshStandardMaterial({ color: 0x3ddc84, emissive: 0x1e8e5a, emissiveIntensity: 0.6 });
@@ -260,6 +275,9 @@ class Game {
   private curWeapon = 0;
   private prevWeapon = 0;
   private tp = { phase: '', recorded: false };
+  private prevCash = new Map<number, { x: number; y: number; amount: number }>();
+  private matchLoot = 0;
+  private lastCoins = 0;
   private ev = { maxBullet: 0, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
@@ -556,8 +574,8 @@ class Game {
     const live = new Set(s.pickups.map((k) => k.id));
     for (const k of s.pickups) {
       let m = this.pickupMeshes.get(k.id);
-      if (!m) { m = makePickup(); this.pickupMeshes.set(k.id, m); this.scene.add(m); }
-      m.position.set(k.x, 22 + Math.sin(time * 2 + k.id) * 4, k.y);
+      if (!m) { m = k.kind === 'cash' ? makeCash() : makePickup(); this.pickupMeshes.set(k.id, m); this.scene.add(m); }
+      m.position.set(k.x, (k.kind === 'cash' ? 8 : 22) + Math.sin(time * 2 + k.id) * 3, k.y);
       m.rotation.y = time * 1.5;
     }
     for (const [id, m] of this.pickupMeshes) if (!live.has(id)) { this.scene.remove(m); this.pickupMeshes.delete(id); }
@@ -607,7 +625,28 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
-    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); }
+    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); this.lootEvents(s); }
+  }
+
+  private toast(text: string) {
+    const el = $('toast');
+    el.textContent = text;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+
+  /** A cash pickup that vanishes next to the player was collected by them: play a sound and show "+$". */
+  private lootEvents(s: Snapshot) {
+    const me = this.me();
+    const now = new Map<number, { x: number; y: number; amount: number }>();
+    for (const k of s.pickups) if (k.kind === 'cash') now.set(k.id, { x: k.x, y: k.y, amount: k.amount ?? 0 });
+    if (me && me.alive) {
+      for (const [id, c] of this.prevCash) {
+        if (!now.has(id) && Math.hypot(c.x - me.x, c.y - me.y) < 70) { sfx.cash(); this.toast(`+$${c.amount}`); this.matchLoot += c.amount; }
+      }
+    }
+    this.prevCash = now;
   }
 
   /** Remember the weapon pack and save finished matches to the profile. */
@@ -622,7 +661,11 @@ class Game {
     }
     if (r.phase === 'over' && !this.tp.recorded && r.winner) {
       this.tp.recorded = true;
-      addMatch(profile, { t: Date.now(), mode: this.cfg.mode, room: this.cfg.room || 'public', team: me.team, won: r.winner === me.team, tWins: r.tWins, ctWins: r.ctWins, kills: me.score, deaths: me.deaths });
+      const won = r.winner === me.team;
+      // coins: 50 for finishing, +100 for winning, +5 per kill, +1 per $100 of loot you collected
+      this.lastCoins = 50 + (won ? 100 : 0) + me.score * 5 + Math.floor(this.matchLoot / 100);
+      addMatch(profile, { t: Date.now(), mode: this.cfg.mode, room: this.cfg.room || 'public', team: me.team, won, tWins: r.tWins, ctWins: r.ctWins, kills: me.score, deaths: me.deaths, coins: this.lastCoins });
+      this.matchLoot = 0;
     }
     if (r.phase !== 'over') this.tp.recorded = false;
     this.tp.phase = r.phase;
@@ -689,7 +732,7 @@ class Game {
     let big = '', sub = '', prog = 0;
     if (r.phase === 'post' || r.phase === 'over') {
       big = `${TEAM_INFO[r.winner ?? 'CT'].name.toUpperCase()} WIN${r.phase === 'over' ? ' THE MATCH' : ''}`;
-      sub = r.phase === 'over' ? `${r.reason}  -  match saved to your profile` : r.reason;
+      sub = r.phase === 'over' ? `${r.reason}  -  +${this.lastCoins} coins saved to your profile` : r.reason;
     } else if (r.bomb.progress > 0) {
       big = r.bomb.status === 'carried' ? 'PLANTING...' : 'DEFUSING...';
       prog = r.bomb.progress;
@@ -775,18 +818,21 @@ function openProfile() {
   const name = ($('name') as HTMLInputElement).value.trim() || profile.name || 'Player';
   $('pname').textContent = name;
   const kd = t.deaths ? (t.kills / t.deaths).toFixed(2) : t.kills.toFixed(0);
-  $('pstats').innerHTML = `<div><b>${t.matches}</b>matches</div><div><b>${t.wins}</b>wins${t.matches ? ` (${Math.round((t.wins / t.matches) * 100)}%)` : ''}</div><div><b>${t.kills}/${t.deaths}</b>kills / deaths</div><div><b>${kd}</b>K/D</div>`;
+  $('pstats').innerHTML = `<div><b>${profile.coins}</b>coins</div><div><b>${t.matches}</b>matches</div><div><b>${t.wins}</b>wins${t.matches ? ` (${Math.round((t.wins / t.matches) * 100)}%)` : ''}</div><div><b>${t.kills}/${t.deaths}</b>kills / deaths</div><div><b>${kd}</b>K/D</div>`;
   $('pskin').innerHTML = `<div class="skin sel" style="background-image:url(/models/kenney/thumb${profile.skin}.png)"></div>`;
   const pack = profile.pack;
   $('ppack').textContent = pack ? [...pack.weapons.map((i) => WEAPONS[i]?.name).filter(Boolean), ...(pack.armor ? ['Armor'] : [])].join(' + ') || 'Pistol only' : 'None yet. It is saved when a buy phase ends, and you can rebuy it with B.';
   $('phist').innerHTML = profile.history.length
-    ? '<table><tr><th>When</th><th>Result</th><th>Score</th><th>K/D</th><th>Side</th><th>Mode</th></tr>' + profile.history.map((m) =>
-      `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${esc(TEAM_INFO[m.team]?.name ?? m.team)}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
+    ? '<table><tr><th>When</th><th>Result</th><th>Score</th><th>K/D</th><th>Coins</th><th>Side</th><th>Mode</th></tr>' + profile.history.map((m) =>
+      `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${m.coins ?? '-'}</td><td>${esc(TEAM_INFO[m.team]?.name ?? m.team)}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
     : 'No fights saved yet. Finish a match (first to 6 rounds) and it shows up here.';
   $('profile').style.display = 'flex';
 }
 
+function showCoins() { $('coins').textContent = `Coins: ${profile.coins}`; }
+
 function initMenu() {
+  showCoins();
   ($('name') as HTMLInputElement).value = profile.name;
   buildSkinPicker();
   buildTeamPicker();

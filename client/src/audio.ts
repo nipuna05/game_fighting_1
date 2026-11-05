@@ -58,5 +58,6 @@ export const sfx = {
   roundStart() { tone(440, 0.1, 'triangle', 0.25); tone(660, 0.2, 'triangle', 0.25, 660, 0.12); },
   win() { tone(523, 0.14, 'triangle', 0.3); tone(659, 0.14, 'triangle', 0.3, 659, 0.15); tone(784, 0.3, 'triangle', 0.3, 784, 0.3); },
   lose() { tone(330, 0.25, 'triangle', 0.3, 300); tone(247, 0.4, 'triangle', 0.3, 200, 0.25); },
+  cash() { tone(1200, 0.07, 'square', 0.18); tone(1800, 0.16, 'square', 0.18, 1800, 0.07); },
   buy() { tone(900, 0.06, 'square', 0.15); tone(1300, 0.08, 'square', 0.15, 1300, 0.06); },
 };
