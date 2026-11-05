@@ -1,7 +1,7 @@
 // Map and weapon graphics, all generated in code (no image or model files).
 // Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
-import { WALLS, WEAPONS, TEAM_INFO, SITES, SPAWN_ZONES, PICKUP_SPOTS, WORLD_W, WORLD_H, type Rect, type Team } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, type MapDef, type Rect, type Team } from '@fight/shared';
 
 // ---------- texture helpers ----------
 type Draw = (g: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -109,11 +109,11 @@ const woodC = () => canvas(128, 128, (g, w, h) => {
 });
 
 /** Front of the fountain wall: red plaster upper part and a stone arched niche with a spout. */
-const fountainFaceC = () => canvas(256, 128, (g, w, h) => {
-  g.fillStyle = '#b5483a'; g.fillRect(0, 0, w, h);
+const fountainFaceC = (upper = '#b5483a', lower = '#cdb48a') => canvas(256, 128, (g, w, h) => {
+  g.fillStyle = upper; g.fillRect(0, 0, w, h);
   noise(g, w, h, 600, 90, 200, 0.12);
   g.fillStyle = '#d9cdb6'; g.fillRect(0, h * 0.52, w, 6);                                   // cornice
-  g.fillStyle = '#cdb48a'; g.fillRect(0, h * 0.52 + 6, w, h);                               // stone lower half
+  g.fillStyle = lower; g.fillRect(0, h * 0.52 + 6, w, h);                               // stone lower half
   const cx = w / 2, top = h * 0.5;
   g.fillStyle = '#e7dcc4'; g.beginPath(); g.moveTo(cx - 44, h); g.lineTo(cx - 44, top + 30); g.arc(cx, top + 30, 44, Math.PI, 0); g.lineTo(cx + 44, h); g.fill(); // arch frame
   g.fillStyle = '#3a342d'; g.beginPath(); g.moveTo(cx - 34, h); g.lineTo(cx - 34, top + 32); g.arc(cx, top + 32, 34, Math.PI, 0); g.lineTo(cx + 34, h); g.fill(); // recess
@@ -122,6 +122,59 @@ const fountainFaceC = () => canvas(256, 128, (g, w, h) => {
 });
 
 const floorC = paverC;
+
+// ---- dock / desert textures ----
+const concreteC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#7f8a9a'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 1500, 90, 200, 0.25);
+  g.strokeStyle = '#5d6676'; g.lineWidth = 3; g.strokeRect(1, 1, w - 2, h - 2);
+  g.beginPath(); g.moveTo(w / 2, 0); g.lineTo(w / 2, h); g.stroke();
+  g.fillStyle = 'rgba(30,35,45,0.18)';
+  for (let i = 0; i < 6; i++) g.fillRect(rnd(0, w), rnd(0, 30), rnd(3, 9), rnd(30, 110));
+});
+const brickC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#c9c0b2'; g.fillRect(0, 0, w, h);
+  const bw = 64, bh = 32;
+  for (let row = 0; row < h / bh; row++) for (let col = -1; col < w / bw + 1; col++) {
+    g.fillStyle = `rgb(${150 + rnd(-18, 18)},${78 + rnd(-10, 10)},${62 + rnd(-8, 8)})`;
+    g.fillRect(col * bw + (row % 2 ? bw / 2 : 0) + 2, row * bh + 2, bw - 4, bh - 4);
+  }
+  noise(g, w, h, 600, 40, 120, 0.18);
+});
+const ribbedC = (color: number) => canvas(128, 128, (g, w, h) => {
+  g.fillStyle = hex(color); g.fillRect(0, 0, w, h);
+  for (let x = 0; x < w; x += 8) { g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x, 0, 3, h); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x + 3, 0, 2, h); }
+  g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, w, 6); g.fillRect(0, h - 6, w, 6);
+  g.fillStyle = 'rgba(110,60,20,0.25)';
+  for (let i = 0; i < 5; i++) g.fillRect(rnd(0, w), rnd(0, h), rnd(4, 14), rnd(10, 40));
+});
+const hazardC = () => canvas(128, 128, (g, w, h) => {
+  g.fillStyle = '#f2c230'; g.fillRect(0, 0, w, h); g.fillStyle = '#1b1b1b';
+  for (let i = -h; i < w + h; i += 32) { g.beginPath(); g.moveTo(i, h); g.lineTo(i + 16, h); g.lineTo(i + 16 + h, 0); g.lineTo(i + h, 0); g.closePath(); g.fill(); }
+});
+const sandstoneC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#a98a5c'; g.fillRect(0, 0, w, h);
+  const bw = 64, bh = 42;
+  for (let row = 0; row < h / bh + 1; row++) for (let col = -1; col < w / bw + 1; col++) {
+    const v = rnd(-16, 16);
+    g.fillStyle = `rgb(${222 + v},${186 + v},${132 + v})`;
+    g.fillRect(col * bw + (row % 2 ? bw / 2 : 0) + 2, row * bh + 2, bw - 4, bh - 4);
+  }
+  noise(g, w, h, 800, 100, 220, 0.14);
+});
+const dockFloorC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#59606b'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 1800, 70, 150, 0.3);
+  g.strokeStyle = '#3a4048'; g.lineWidth = 3; g.strokeRect(0, 0, w, h);
+  g.fillStyle = 'rgba(15,15,20,0.25)';
+  for (let i = 0; i < 4; i++) { g.beginPath(); g.ellipse(rnd(30, 226), rnd(30, 226), rnd(10, 40), rnd(6, 20), rnd(0, 3), 0, Math.PI * 2); g.fill(); } // oil stains
+});
+const sandFloorC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#d9b97d'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 2200, 160, 245, 0.28);
+  g.strokeStyle = 'rgba(150,110,60,0.18)'; g.lineWidth = 3;
+  for (let y = 10; y < h; y += 26) { g.beginPath(); for (let x = 0; x <= w; x += 8) g.lineTo(x, y + Math.sin(x * 0.08 + y) * 3); g.stroke(); } // wind ripples
+});
 
 // ---------- walls by kind ----------
 function faceMats(factory: () => HTMLCanvasElement, w: number, h: number, d: number, tile: number, top: THREE.Material): THREE.Material[] {
@@ -143,7 +196,7 @@ const PLASTERS = [0xc8553d, 0xd9a441, 0xe8dcc0, 0xc4793f]; // red, ochre, cream,
 const SHUTTERS = [0x3f6b4a, 0x2f5f86, 0x6b3b2a, 0x3f6b4a];
 const roofMat = () => new THREE.MeshStandardMaterial({ map: tex(roofTileC(), 3, 1), roughness: 0.8 });
 
-function buildWall(scene: THREE.Scene, r: Rect, index: number) {
+function buildWallTown(scene: THREE.Scene, r: Rect, index: number) {
   const cx = r.x + r.w / 2, cz = r.y + r.h / 2;
   const std = (c: number, rough = 0.8, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
   switch (r.kind) {
@@ -197,6 +250,95 @@ function buildWall(scene: THREE.Scene, r: Rect, index: number) {
   }
 }
 
+const CONTAINER_COLORS = [0xb5483a, 0x2f6fb5, 0x3a8f5a, 0xc98a2e];
+
+function buildWallDock(scene: THREE.Scene, r: Rect, index: number) {
+  const cx = r.x + r.w / 2, cz = r.y + r.h / 2;
+  const std = (c: number, rough = 0.8, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
+  const metal = (c: number) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.35 });
+  switch (r.kind) {
+    case 'outer': {
+      const H = 110;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(concreteC, r.w, H, r.h, 110, std(0x6b7686)));
+      addBox(scene, r.w + 2, 6, r.h + 2, cx, H + 3, cz, new THREE.MeshStandardMaterial({ map: tex(hazardC(), Math.max(1, Math.round(Math.max(r.w, r.h) / 28)), 1), roughness: 0.7 }), false);
+      break;
+    }
+    case 'shop': { // shipping containers
+      const H = 64, color = CONTAINER_COLORS[index % CONTAINER_COLORS.length];
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(() => ribbedC(color), r.w, H, r.h, 64, metal(0x50545c)));
+      addBox(scene, r.w + 2, 3, r.h + 2, cx, H + 1.5, cz, metal(0x2b2e34), false);
+      for (const sx of [-1, 1]) addBox(scene, 2, H - 8, r.h - 6, cx + sx * (r.w / 2 + 0.5), H / 2, cz, metal(0x23262b), false);
+      break;
+    }
+    case 'fountain': { // brick warehouse
+      const H = 92;
+      const roof = new THREE.MeshStandardMaterial({ map: tex(roofTileC(), 2, 3), roughness: 0.9 });
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(brickC, r.w, H, r.h, 96, roof));
+      addBox(scene, r.w + 10, 6, r.h + 10, cx, H + 3, cz, std(0x3b4048, 0.9));
+      addBox(scene, 28, 14, 28, cx - 14, H + 13, cz - 20, metal(0x9aa3ad));
+      const glow = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+      for (const sx of [-1, 1]) {
+        addBox(scene, 2, 44, 28, cx + sx * (r.w / 2 + 0.5), 22, cz, std(0x3b2a1b), false);
+        for (const dz of [-r.h / 3, r.h / 3]) addBox(scene, 2, 16, 22, cx + sx * (r.w / 2 + 0.5), 62, cz + dz, glow, false);
+      }
+      break;
+    }
+    case 'barrier': {
+      const H = 44;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(concreteC, r.w, H, r.h, 80, std(0x8a95a5)));
+      addBox(scene, r.w + 1.5, 10, r.h + 1.5, cx, H - 12, cz, new THREE.MeshStandardMaterial({ map: tex(hazardC(), Math.max(1, Math.round(Math.max(r.w, r.h) / 30)), 1), roughness: 0.7 }), false);
+      break;
+    }
+    default: buildWallTown(scene, r, index);
+  }
+}
+
+function buildWallDesert(scene: THREE.Scene, r: Rect, index: number) {
+  const cx = r.x + r.w / 2, cz = r.y + r.h / 2;
+  const std = (c: number, rough = 0.9) => new THREE.MeshStandardMaterial({ color: c, roughness: rough });
+  switch (r.kind) {
+    case 'outer': {
+      const H = 100;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(sandstoneC, r.w, H, r.h, 100, std(0xc9a46a)));
+      addBox(scene, r.w + 6, 8, r.h + 6, cx, H + 4, cz, std(0xb08850));
+      break;
+    }
+    case 'shop': { // adobe house with a flat roof and wooden beam ends
+      const H = 68;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(() => plasterC(0xd9b98a, true, 0x7a4a2a), r.w, H, r.h, 90, std(0xc4a070)));
+      addBox(scene, r.w + 8, 6, r.h + 8, cx, H + 3, cz, std(0xb8925c));
+      const beam = std(0x5a3a1c);
+      for (let i = 0; i < 3; i++) for (const sz of [-1, 1]) addBox(scene, 4, 4, 14, cx - r.w / 3 + i * (r.w / 3), H - 10, cz + sz * (r.h / 2 + 6), beam, false);
+      break;
+    }
+    case 'fountain': { // stone well / shrine
+      const H = 84;
+      const face = new THREE.MeshStandardMaterial({ map: tex(fountainFaceC('#c79a5b', '#d8c08c')), roughness: 0.9 });
+      const side = new THREE.MeshStandardMaterial({ map: tex(sandstoneC(), 1, 1), roughness: 0.9 });
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, [side, side, std(0x9a7a4a), std(0x6e5a44), face, face]);
+      addBox(scene, r.w + 8, 8, r.h + 8, cx, H + 4, cz, std(0xb08850));
+      for (const sz of [-1, 1]) {
+        addBox(scene, 60, 14, 26, cx, 7, cz + sz * (r.h / 2 + 14), std(0xd8c08c));
+        addBox(scene, 52, 2, 20, cx, 13, cz + sz * (r.h / 2 + 14), new THREE.MeshStandardMaterial({ color: 0x5aa0d8, roughness: 0.15 }), false);
+      }
+      break;
+    }
+    case 'barrier': {
+      const H = 36;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(sandstoneC, r.w, H, r.h, 80, std(0xe0c690)));
+      addBox(scene, r.w + 4, 5, r.h + 4, cx, H + 2.5, cz, std(0xe8d3a0), false);
+      break;
+    }
+    default: buildWallTown(scene, r, index);
+  }
+}
+
+function buildWall(scene: THREE.Scene, r: Rect, index: number, theme: MapDef['theme']) {
+  if (theme === 'dock') buildWallDock(scene, r, index);
+  else if (theme === 'desert') buildWallDesert(scene, r, index);
+  else buildWallTown(scene, r, index);
+}
+
 function makeScooter(): THREE.Group {
   const g = new THREE.Group();
   const paint = new THREE.MeshStandardMaterial({ color: 0xe6b422, roughness: 0.35, metalness: 0.3 });
@@ -215,7 +357,7 @@ function makeScooter(): THREE.Group {
 }
 
 // ---------- painted floor markings (one big transparent decal) ----------
-function decalCanvas(): HTMLCanvasElement {
+function decalCanvas(map: MapDef): HTMLCanvasElement {
   return canvas(WORLD_W, WORLD_H, (g) => {
     for (let i = 0; i < 30; i++) { // worn patches
       g.fillStyle = `rgba(40,20,10,${rnd(0.02, 0.05)})`;
@@ -227,12 +369,12 @@ function decalCanvas(): HTMLCanvasElement {
     line(800, 340, 800, 490); line(800, 710, 800, 860);
     g.setLineDash([]);
 
-    for (const sp of PICKUP_SPOTS) {
+    for (const sp of map.heal) {
       g.strokeStyle = 'rgba(61,220,132,0.7)'; g.lineWidth = 4;
       g.beginPath(); g.arc(sp.x, sp.y, 30, 0, Math.PI * 2); g.stroke();
     }
 
-    for (const s of SITES) { // bomb sites: hazard-bordered pad with a big letter
+    for (const s of map.sites) { // bomb sites: hazard-bordered pad with a big letter
       const half = 112;
       g.fillStyle = 'rgba(255,225,120,0.12)'; g.fillRect(s.x - half, s.y - half, half * 2, half * 2);
       g.save();
@@ -246,8 +388,8 @@ function decalCanvas(): HTMLCanvasElement {
       g.fillText(s.id, s.x, s.y + 6);
     }
 
-    (Object.keys(SPAWN_ZONES) as Team[]).forEach((t) => {
-      const z = SPAWN_ZONES[t];
+    (Object.keys(map.spawns) as Team[]).forEach((t) => {
+      const z = map.spawns[t];
       const col = t === 'CT' ? '63,140,255' : '235,140,40';
       g.fillStyle = `rgba(${col},0.28)`; g.fillRect(z.x, z.y, z.w, z.h);
       g.strokeStyle = `rgba(${col},0.9)`; g.lineWidth = 5; g.strokeRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4);
@@ -291,13 +433,19 @@ function bunting(a: THREE.Vector3, b: THREE.Vector3): THREE.Object3D {
 }
 
 // ---------- the whole map ----------
-export function buildWorld(scene: THREE.Scene) {
-  const SKY = 0xa9ccee;
-  scene.background = new THREE.Color(SKY);
-  scene.fog = new THREE.Fog(SKY, 1300, 3600);
+const THEMES = {
+  town:   { sky: 0xa9ccee, fogNear: 1300, fogFar: 3600, hemi: [0xdcecff, 0x9a7456, 1.9], sun: [0xfff0d2, 2.8], ground: 0x8a6a4e, bunting: true },
+  dock:   { sky: 0x8ea1b5, fogNear: 1000, fogFar: 2800, hemi: [0xd5deea, 0x5a5f66, 1.6], sun: [0xe3ecff, 2.1], ground: 0x4a5058, bunting: false },
+  desert: { sky: 0xe9cf9f, fogNear: 1400, fogFar: 3800, hemi: [0xfff0d8, 0xb08a5a, 2.1], sun: [0xffe2b0, 3.1], ground: 0xcfa96c, bunting: false },
+} as const;
 
-  scene.add(new THREE.HemisphereLight(0xdcecff, 0x9a7456, 1.9));
-  const sun = new THREE.DirectionalLight(0xfff0d2, 2.8);
+export function buildWorld(scene: THREE.Scene, map: MapDef) {
+  const T = THEMES[map.theme];
+  scene.background = new THREE.Color(T.sky);
+  scene.fog = new THREE.Fog(T.sky, T.fogNear, T.fogFar);
+
+  scene.add(new THREE.HemisphereLight(T.hemi[0], T.hemi[1], T.hemi[2]));
+  const sun = new THREE.DirectionalLight(T.sun[0], T.sun[1]);
   const cx = WORLD_W / 2, cz = WORLD_H / 2;
   sun.position.set(cx - 500, 900, cz + 400);
   sun.target.position.set(cx, 0, cz);
@@ -307,39 +455,41 @@ export function buildWorld(scene: THREE.Scene) {
   sun.shadow.bias = -0.0005;
   scene.add(sun, sun.target);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), new THREE.MeshStandardMaterial({ color: 0x8a6a4e, roughness: 1 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), new THREE.MeshStandardMaterial({ color: T.ground, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -1, cz);
   scene.add(ground);
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_W, WORLD_H),
-    new THREE.MeshStandardMaterial({ map: tex(floorC(), WORLD_W / 110, WORLD_H / 110), roughness: 0.95 }),
-  );
+  const floorMap = map.theme === 'dock' ? tex(dockFloorC(), WORLD_W / 160, WORLD_H / 160)
+    : map.theme === 'desert' ? tex(sandFloorC(), WORLD_W / 220, WORLD_H / 220)
+    : tex(floorC(), WORLD_W / 110, WORLD_H / 110);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshStandardMaterial({ map: floorMap, roughness: 0.95 }));
   floor.rotation.x = -Math.PI / 2; floor.position.set(cx, 0, cz); floor.receiveShadow = true;
   scene.add(floor);
 
-  const decal = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshBasicMaterial({ map: tex(decalCanvas()), transparent: true, depthWrite: false }));
+  const decal = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshBasicMaterial({ map: tex(decalCanvas(map)), transparent: true, depthWrite: false }));
   decal.rotation.x = -Math.PI / 2; decal.position.set(cx, 0.5, cz);
   scene.add(decal);
 
-  WALLS.forEach((w, i) => buildWall(scene, w, i));
+  map.walls.forEach((w, i) => buildWall(scene, w, i, map.theme));
 
-  // iron street lamps around each bomb site, bunting between them, and a warm light over the site
+  // lamp posts around each bomb site (and bunting on the town map), with a warm light over the site itself
   const iron = new THREE.MeshStandardMaterial({ color: 0x1c1d21, metalness: 0.6, roughness: 0.45 });
   const glass = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
-  for (const s of SITES) {
+  for (const s of map.sites) {
     const tops: THREE.Vector3[] = [];
     for (const dx of [-120, 120]) for (const dz of [-100, 100]) {
       const x = s.x + dx, z = s.y + dz;
-      if (WALLS.some((w) => x > w.x - 6 && x < w.x + w.w + 6 && z > w.y - 6 && z < w.y + w.h + 6)) continue;
+      if (map.walls.some((w) => x > w.x - 6 && x < w.x + w.w + 6 && z > w.y - 6 && z < w.y + w.h + 6)) continue;
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.4, 110, 8), iron);
       pole.position.set(x, 55, z); pole.castShadow = true; scene.add(pole);
       const lantern = new THREE.Mesh(new THREE.BoxGeometry(9, 12, 9), glass); lantern.position.set(x, 116, z); scene.add(lantern);
       const cap = new THREE.Mesh(new THREE.ConeGeometry(8, 7, 4), iron); cap.position.set(x, 125, z); cap.rotation.y = Math.PI / 4; scene.add(cap);
       tops.push(new THREE.Vector3(x, 108, z));
     }
-    for (const [i, j] of [[0, 2], [1, 3]]) if (tops[i] && tops[j] && Math.abs(tops[i].x - tops[j].x) < 1) scene.add(bunting(tops[i], tops[j]));
-    for (const [i, j] of [[0, 1], [2, 3]]) if (tops[i] && tops[j] && Math.abs(tops[i].z - tops[j].z) < 1) scene.add(bunting(tops[i], tops[j]));
+    if (T.bunting) {
+      for (const [i, j] of [[0, 2], [1, 3]]) if (tops[i] && tops[j] && Math.abs(tops[i].x - tops[j].x) < 1) scene.add(bunting(tops[i], tops[j]));
+      for (const [i, j] of [[0, 1], [2, 3]]) if (tops[i] && tops[j] && Math.abs(tops[i].z - tops[j].z) < 1) scene.add(bunting(tops[i], tops[j]));
+    }
     const light = new THREE.PointLight(0xffd9a0, 9000, 420, 2);
     light.position.set(s.x, 130, s.y);
     scene.add(light);

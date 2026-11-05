@@ -1,6 +1,9 @@
 // Shared game simulation. Runs in the browser (single player) and on the server (multiplayer).
 // Two modes: 'dm' (free-for-all deathmatch, used by tests) and 'rounds' (CS-style bomb defusal).
 
+import { getMap, type MapDef, type Rect, type Site } from './maps';
+export * from './maps';
+
 export const WORLD_W = 1600;
 export const WORLD_H = 1200;
 export const PLAYER_R = 18;
@@ -37,10 +40,6 @@ export const ARMOR_COST = 650;
 export const PICKUP_RESPAWN = 15;
 export const PICKUP_R = 16;
 export const HEAL_AMOUNT = 40;
-// cash loot on the map, mirrored about the centre; they refill every round
-export const LOOT_SPOTS = [{ x: 330, y: 170 }, { x: 1270, y: 1030 }, { x: 660, y: 600 }, { x: 940, y: 600 }, { x: 480, y: 720 }, { x: 1120, y: 480 }];
-export const PICKUP_SPOTS = [{ x: 500, y: 600 }, { x: 1100, y: 600 }, { x: 800, y: 430 }, { x: 800, y: 770 }];
-
 // ---- round / bomb rules ----
 export type Team = 'T' | 'CT';
 // 'CT' / 'T' are internal ids (network protocol, saved profiles). Players only ever see these names.
@@ -67,41 +66,6 @@ export const PLANT_TIME = 3;
 export const DEFUSE_TIME = 5;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
-
-export interface Site { id: string; x: number; y: number; r: number }
-export const SITES: Site[] = [{ id: 'A', x: 800, y: 200, r: 90 }, { id: 'B', x: 800, y: 1000, r: 90 }];
-export const SPAWN_ZONES: Record<Team, Rect> = {
-  T: { x: 70, y: 420, w: 120, h: 360 },
-  CT: { x: 1410, y: 420, w: 120, h: 360 },
-};
-
-export type WallKind = 'outer' | 'shop' | 'fountain' | 'barrier' | 'crate' | 'scooter';
-export interface Rect { x: number; y: number; w: number; h: number; kind?: WallKind }
-
-// Every rect blocks movement and bullets. `kind` only changes how the client draws it.
-export const WALLS: Rect[] = [
-  { x: 0, y: 0, w: WORLD_W, h: 20, kind: 'outer' },
-  { x: 0, y: WORLD_H - 20, w: WORLD_W, h: 20, kind: 'outer' },
-  { x: 0, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
-  { x: WORLD_W - 20, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
-  { x: 400, y: 300, w: 200, h: 40, kind: 'shop' },
-  { x: 1000, y: 300, w: 200, h: 40, kind: 'shop' },
-  { x: 400, y: 860, w: 200, h: 40, kind: 'shop' },
-  { x: 1000, y: 860, w: 200, h: 40, kind: 'shop' },
-  { x: 740, y: 500, w: 120, h: 200, kind: 'fountain' },
-  { x: 250, y: 560, w: 40, h: 160, kind: 'barrier' },
-  { x: 1310, y: 560, w: 40, h: 160, kind: 'barrier' },
-  // crates: cover around the bomb sites and in the middle lanes (symmetric about the map centre)
-  { x: 620, y: 150, w: 44, h: 44, kind: 'crate' },
-  { x: 936, y: 206, w: 44, h: 44, kind: 'crate' },
-  { x: 936, y: 1006, w: 44, h: 44, kind: 'crate' },
-  { x: 620, y: 950, w: 44, h: 44, kind: 'crate' },
-  { x: 560, y: 580, w: 44, h: 44, kind: 'crate' },
-  { x: 996, y: 576, w: 44, h: 44, kind: 'crate' },
-  // parked scooters (a mirrored pair)
-  { x: 520, y: 230, w: 34, h: 16, kind: 'scooter' },
-  { x: 1046, y: 954, w: 34, h: 16, kind: 'scooter' },
-];
 
 export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean }
 
@@ -147,22 +111,22 @@ function circleRectPush(p: { x: number; y: number }, r: number, rect: Rect) {
   p.y = cy + (dy / d) * r;
 }
 
-export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number): boolean {
+export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number, walls: Rect[]): boolean {
   // sample along the segment; coarse but cheap and good enough for bot line-of-sight
   const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 16);
   for (let i = 1; i < steps; i++) {
     const x = x1 + ((x2 - x1) * i) / steps, y = y1 + ((y2 - y1) * i) / steps;
-    for (const w of WALLS) if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return true;
+    for (const w of walls) if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return true;
   }
   return false;
 }
 
-export function siteAt(x: number, y: number): Site | null {
-  for (const s of SITES) if (Math.hypot(x - s.x, y - s.y) <= s.r) return s;
+export function siteAt(x: number, y: number, sites: Site[]): Site | null {
+  for (const s of sites) if (Math.hypot(x - s.x, y - s.y) <= s.r) return s;
   return null;
 }
 
-export interface SimOptions { rounds?: boolean }
+export interface SimOptions { rounds?: boolean; map?: string }
 
 export class Sim {
   time = 0;
@@ -171,8 +135,9 @@ export class Sim {
   private bullets: Bullet[] = [];
   private nextBullet = 1;
   private nextBot = 1;
-  private pickupReadyAt = PICKUP_SPOTS.map(() => 0);
-  private lootTaken = LOOT_SPOTS.map(() => false);
+  readonly map: MapDef;
+  private pickupReadyAt: number[] = [];
+  private lootTaken: boolean[] = [];
   private drops: { id: number; x: number; y: number; amount: number }[] = [];
   private nextDrop = 1;
 
@@ -189,6 +154,9 @@ export class Sim {
 
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
+    this.map = getMap(opts.map);
+    this.pickupReadyAt = this.map.heal.map(() => 0);
+    this.lootTaken = this.map.loot.map(() => false);
     if (this.rounds) this.startRound();
   }
 
@@ -209,7 +177,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * SITES.length),
+      botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
     this.spawn(p);
@@ -277,7 +245,7 @@ export class Sim {
   // ---------- spawning ----------
   private spawn(p: Player) {
     if (this.rounds) {
-      const z = SPAWN_ZONES[p.team];
+      const z = this.map.spawns[p.team];
       for (let tries = 0; tries < 30; tries++) {
         p.x = z.x + Math.random() * z.w;
         p.y = z.y + Math.random() * z.h;
@@ -291,7 +259,7 @@ export class Sim {
         p.x = 80 + Math.random() * (WORLD_W - 160);
         p.y = 80 + Math.random() * (WORLD_H - 160);
         const q = { x: p.x, y: p.y };
-        for (const w of WALLS) circleRectPush(q, PLAYER_R + 40, w);
+        for (const w of this.map.walls) circleRectPush(q, PLAYER_R + 40, w);
         if (Math.hypot(q.x - p.x, q.y - p.y) < 0.5) break;
       }
     }
@@ -313,7 +281,7 @@ export class Sim {
       if (!keep) { p.owned = 1 << p.sidearm; p.weapon = p.sidearm; p.armor = 0; }
       this.spawn(p);
       p.input = { mx: 0, my: 0, angle: p.angle, fire: false };
-      p.botGoal = Math.floor(Math.random() * SITES.length);
+      p.botGoal = Math.floor(Math.random() * this.map.sites.length);
       p.stuckT = 0; p.unstickUntil = 0;
     }
     this.freshMatch = false;
@@ -369,7 +337,7 @@ export class Sim {
         this.bomb = { ...b, status: 'dropped', carrier: null, progress: 0, actor: null };
       } else {
         b.x = c.x; b.y = c.y;
-        if (c.input.use && standing(c) && siteAt(c.x, c.y)) {
+        if (c.input.use && standing(c) && siteAt(c.x, c.y, this.map.sites)) {
           b.progress += dt / PLANT_TIME; b.actor = c.id;
           if (b.progress >= 1) { this.bomb = { status: 'planted', x: c.x, y: c.y, carrier: null, fuse: BOMB_FUSE, progress: 0, actor: null }; }
         } else { b.progress = 0; b.actor = null; }
@@ -416,7 +384,7 @@ export class Sim {
         const px = p.x, py = p.y;
         p.x += p.input.mx * PLAYER_SPEED * dt;
         p.y += p.input.my * PLAYER_SPEED * dt;
-        for (const w of WALLS) circleRectPush(p, PLAYER_R, w);
+        for (const w of this.map.walls) circleRectPush(p, PLAYER_R, w);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -440,14 +408,14 @@ export class Sim {
           });
         }
       }
-      PICKUP_SPOTS.forEach((sp, i) => {
+      this.map.heal.forEach((sp, i) => {
         if (this.time >= this.pickupReadyAt[i] && p.hp < MAX_HP && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + PICKUP_R) {
           p.hp = Math.min(MAX_HP, p.hp + HEAL_AMOUNT);
           this.pickupReadyAt[i] = this.time + PICKUP_RESPAWN;
         }
       });
       if (this.rounds && this.phase === 'live') { // cash loot: stacks on the map and bags dropped by fallen players
-        LOOT_SPOTS.forEach((sp, i) => {
+        this.map.loot.forEach((sp, i) => {
           if (!this.lootTaken[i] && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + 18) { this.lootTaken[i] = true; p.money = Math.min(MAX_MONEY, p.money + LOOT_AMOUNT); }
         });
         this.drops = this.drops.filter((d) => {
@@ -462,7 +430,7 @@ export class Sim {
     for (const b of this.bullets) {
       b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
       if (b.life <= 0) continue;
-      if (WALLS.some((w) => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h)) continue;
+      if (this.map.walls.some((w) => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h)) continue;
       let hit = false;
       for (const p of this.players.values()) {
         if (!p.alive || p.id === b.owner) continue;
@@ -495,7 +463,7 @@ export class Sim {
       const d = Math.hypot(o.x - p.x, o.y - p.y);
       if (d < best) { best = d; target = o; }
     }
-    const visible = !!target && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y);
+    const visible = !!target && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y, this.map.walls);
 
     if (target && (visible || !this.rounds)) {
       const ang = Math.atan2(target.y - p.y, target.x - p.x);
@@ -520,7 +488,7 @@ export class Sim {
   private botObjective(p: Player) {
     if (this.phase === 'live' && !(p.team === 'CT' && this.bomb.status === 'planted')) { // grab loot that is close by
       let best: { x: number; y: number } | null = null, bd = 190;
-      LOOT_SPOTS.forEach((sp, i) => { const d = Math.hypot(sp.x - p.x, sp.y - p.y); if (!this.lootTaken[i] && d < bd) { bd = d; best = sp; } });
+      this.map.loot.forEach((sp, i) => { const d = Math.hypot(sp.x - p.x, sp.y - p.y); if (!this.lootTaken[i] && d < bd) { bd = d; best = sp; } });
       for (const dr of this.drops) { const d = Math.hypot(dr.x - p.x, dr.y - p.y); if (d < bd) { bd = d; best = dr; } }
       if (best) {
         const t = best as { x: number; y: number };
@@ -531,7 +499,7 @@ export class Sim {
     }
     const b = this.bomb;
     let gx: number, gy: number, stopR = 40, use = false;
-    const site = SITES[p.botGoal];
+    const site = this.map.sites[p.botGoal];
     if (p.team === 'T') {
       if (b.status === 'carried' && b.carrier === p.id) {
         gx = site.x; gy = site.y; stopR = 6;
@@ -561,8 +529,8 @@ export class Sim {
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y) })),
       pickups: [
-        ...PICKUP_SPOTS.map((sp, i) => ({ id: i, x: sp.x, y: sp.y, kind: 'heal' as const })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
-        ...(this.rounds ? LOOT_SPOTS.map((sp, i) => ({ id: 100 + i, x: sp.x, y: sp.y, kind: 'cash' as const, amount: LOOT_AMOUNT })).filter((_, i) => !this.lootTaken[i]) : []),
+        ...this.map.heal.map((sp, i) => ({ id: i, x: sp.x, y: sp.y, kind: 'heal' as const })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
+        ...(this.rounds ? this.map.loot.map((sp, i) => ({ id: 100 + i, x: sp.x, y: sp.y, kind: 'cash' as const, amount: LOOT_AMOUNT })).filter((_, i) => !this.lootTaken[i]) : []),
         ...this.drops.map((d) => ({ id: 1000 + d.id, x: Math.round(d.x), y: Math.round(d.y), kind: 'cash' as const, amount: d.amount })),
       ],
       round: this.rounds ? {
@@ -576,11 +544,11 @@ export class Sim {
 
 // ---- network protocol ----
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto' }
+  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number };
 export type ServerMsg =
-  | { type: 'welcome'; id: string; room: string }
+  | { type: 'welcome'; id: string; room: string; map: string }
   | { type: 'snap'; snap: Snapshot };
 
 export { other as otherTeam };

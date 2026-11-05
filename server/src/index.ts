@@ -7,9 +7,9 @@ const MAX_PER_ROOM = 6; // matches 2 teams of TEAM_SIZE; bots are replaced as hu
 interface Room { code: string; sim: Sim; clients: Map<string, WebSocket> }
 const rooms = new Map<string, Room>();
 
-function getRoom(code: string): Room {
+function getRoom(code: string, mapId?: string): Room {
   let r = rooms.get(code);
-  if (!r) { r = { code, sim: new Sim({ rounds: true }), clients: new Map() }; rooms.set(code, r); }
+  if (!r) { r = { code, sim: new Sim({ rounds: true, map: mapId }), clients: new Map() }; rooms.set(code, r); } // the first player picks the room's map
   return r;
 }
 
@@ -27,13 +27,13 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(String(raw)); } catch { return; }
     if (msg.type === 'join' && !room) {
       const code = String(msg.room || 'public').slice(0, 16).replace(/[^\w-]/g, '') || 'public';
-      const r = getRoom(code);
+      const r = getRoom(code, msg.map);
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
       r.clients.set(id, ws);
       r.sim.join(id, String(msg.name || 'Player').slice(0, 14), Number(msg.skin) || 0, Number(msg.sidearm) || 0, msg.team === 'CT' || msg.team === 'T' ? msg.team : 'auto');
       r.sim.fillBots(TEAM_SIZE);
-      send(ws, { type: 'welcome', id, room: code });
+      send(ws, { type: 'welcome', id, room: code, map: r.sim.map.id });
     } else if (msg.type === 'input' && room) {
       room.sim.setInput(id, msg.input);
     } else if (msg.type === 'buy' && room) {

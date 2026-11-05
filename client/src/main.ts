@@ -7,7 +7,7 @@ import { buildWorld, makeWeaponModel } from './world';
 import { loadProfile, saveProfile, addMatch, clearHistory, type TeamPref } from './profile';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO,
+  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -257,7 +257,7 @@ function makePickup(): THREE.Group {
 }
 
 // ---------- game ----------
-interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref }
+interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string }
 interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
@@ -311,7 +311,7 @@ class Game {
     window.addEventListener('mouseup', () => { mouse.down = false; });
     this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    this.buildWorld();
+    if (cfg.mode === 'single') this.buildWorld(getMap(cfg.map)); // multiplayer builds it when the server says which map the room uses
     const bg = new THREE.SphereGeometry(5, 6, 4);
     this.bullets = new THREE.InstancedMesh(bg, new THREE.MeshBasicMaterial({ color: 0xffd34d }), 600);
     this.bullets.frustumCulled = false;
@@ -323,7 +323,7 @@ class Game {
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
-      this.sim = new Sim({ rounds: true });
+      this.sim = new Sim({ rounds: true, map: cfg.map });
       this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team);
       this.sim.fillBots(TEAM_SIZE);
     } else {
@@ -336,10 +336,10 @@ class Game {
     this.status = 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:8080`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team }));
+    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map }));
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
-      if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; }
+      if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; this.buildWorld(getMap(m.map)); }
       else this.snap = m.snap;
     };
     this.ws.onclose = () => { this.status = 'Disconnected (is the server running?)'; };
@@ -428,8 +428,8 @@ class Game {
     else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'buy', item }));
   }
 
-  private buildWorld() {
-    buildWorld(this.scene);
+  private buildWorld(map: MapDef) {
+    buildWorld(this.scene, map);
   }
 
   private resize() {
@@ -852,7 +852,8 @@ async function start(mode: 'single' | 'multi') {
   initAudio();
   if (isTouch) bindTouch();
   await loadTemplate();
-  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team });
+  const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
+  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map });
 }
 $('single').addEventListener('click', () => void start('single'));
 $('multi').addEventListener('click', () => void start('multi'));
