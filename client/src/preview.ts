@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { retargetClip, bakeRetarget } from './retarget';
 
 const q = new URLSearchParams(location.search);
 const file = q.get('file') ?? '';
@@ -59,6 +60,36 @@ async function main() {
   camera.position.set(0, h * 0.55, h * 2.1); camera.lookAt(0, h * 0.5, 0);
   const floor = new THREE.Mesh(new THREE.CircleGeometry(h * 0.6, 32), new THREE.MeshStandardMaterial({ color: 0x59606b }));
   floor.rotation.x = -Math.PI / 2; scene.add(floor);
+
+  // ?retarget=1&anim=run&t=0.2&mode=0 : play a Cole animation on this Mixamo character, next to Cole himself
+  if (q.has('retarget')) {
+    const cole = await new GLTFLoader().loadAsync('/models/cole/cole.glb');
+    const anims = (await (await fetch('/models/cole/anims.json')).json()) as Record<string, object>;
+    const name = q.get('anim') ?? 'run', time = Number(q.get('t') ?? 0.2), mode = Number(q.get('mode') ?? 3);
+    const src = THREE.AnimationClip.parse(anims[name] as Parameters<typeof THREE.AnimationClip.parse>[0]);
+    const clip = mode === 3 ? bakeRetarget(src, cole.scene, obj) : retargetClip(src, cole.scene, obj, mode as 0 | 1 | 2);
+    log(`retarget ${name} mode ${mode} t=${time}: ${src.tracks.length} source tracks -> ${clip.tracks.length}`);
+    const ch = cole.scene.getObjectByName('Hips'), srcHipsTrack = src.tracks.find((t) => t.name === 'Hips.position');
+    log(`cole rest hips ${ch?.position.toArray().map((n) => n.toFixed(3)).join(', ')} | cole anim hips y samples ${Array.from(srcHipsTrack?.values.slice(0, 9) ?? []).map((n) => n.toFixed(3)).join(', ')} | soldier rest hips ${obj.getObjectByName('mixamorigHips')?.position.toArray().map((n) => n.toFixed(1)).join(', ')} | soldier parent scale ${obj.getObjectByName('mixamorigHips')?.parent?.scale.toArray().map((n) => n.toFixed(3)).join(', ')} (${obj.getObjectByName('mixamorigHips')?.parent?.name})`);
+    const mx = new THREE.AnimationMixer(obj); mx.clipAction(clip).play(); mx.setTime(time);
+    const k = h / 1.7;                      // Cole is in metres: scale him up to the same height and stand him beside
+    const cs = cole.scene; cs.scale.setScalar(k); cs.position.set(h * 0.55, 0, 0); holder.add(cs);
+    const mc = new THREE.AnimationMixer(cs); mc.clipAction(src).play(); mc.setTime(time);
+    obj.position.x -= h * 0.25;
+    obj.updateMatrixWorld(true);
+    const wp = (n: string) => { const o = obj.getObjectByName(n); const v = new THREE.Vector3(); o?.getWorldPosition(v); return o ? `(${v.x.toFixed(1)}, ${v.y.toFixed(1)}, ${v.z.toFixed(1)})` : 'missing'; };
+    log(`soldier hips ${wp('mixamorigHips')}  head ${wp('mixamorigHead')}  left foot ${wp('mixamorigLeftFoot')}  right hand ${wp('mixamorigRightHand')}`);
+    const hips = obj.getObjectByName('mixamorigHips');
+    log(`hips local position ${hips?.position.toArray().map((n) => n.toFixed(1)).join(', ')}  rest quaternion ${hips?.quaternion.toArray().map((n) => n.toFixed(2)).join(', ')}`);
+    log(`clip first tracks: ${clip.tracks.slice(0, 4).map((t) => `${t.name}[${t.values.length}]`).join(' | ')}  hips pos track sample: ${Array.from(clip.tracks.find((t) => t.name === 'mixamorigHips.position')?.values.slice(0, 3) ?? []).map((n) => n.toFixed(1)).join(', ')}`);
+    if (q.has('solo')) cs.visible = false;
+  }
+
+  if (q.has('portrait')) { // head-and-shoulders view for the menu thumbnails
+    floor.visible = false; info.style.display = 'none';
+    camera.fov = 22; camera.updateProjectionMatrix();
+    camera.position.set(0, h * 0.8, h * 1.5); camera.lookAt(0, h * 0.77, 0);
+  }
 
   const turn = Number(q.get('turn') ?? 0.4);
   let t = 0;

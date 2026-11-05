@@ -1,5 +1,6 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
-import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK } from '@fight/shared';
+import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
 import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, type Profile, type TeamPref } from './profile';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -100,6 +101,10 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   };
 
   // ---------- Costume tab ----------
+  let portraits = false; // true once the soldier portraits (client/public/models/thumbs) are known to exist
+  const probe = new Image();
+  probe.onload = () => { portraits = true; renderSkins(); };
+  probe.src = '/models/thumbs/skin0.png';
   const renderSkins = () => {
     const box = $('skins');
     box.innerHTML = '';
@@ -107,7 +112,8 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       const owned = profile.unlocks.skins.includes(i);
       const d = document.createElement('div');
       d.className = `skin${profile.skin === i ? ' sel' : ''}${owned ? '' : ' locked'}`;
-      d.style.backgroundImage = `url(/models/kenney/thumb${i}.png)`;
+      d.style.backgroundImage = `url(${portraits ? `/models/thumbs/skin${i}.png` : `/models/kenney/thumb${i}.png`})`;
+      if (portraits) d.classList.add('p');
       if (!owned) d.innerHTML = `<em>${SKIN_PRICES[i]} coins</em>`;
       d.addEventListener('click', () => {
         if (owned) { profile.skin = i; save(); hooks.onSkin(i); renderSkins(); return; }
@@ -124,6 +130,10 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     $('pname').textContent = ($('name') as HTMLInputElement).value.trim() || profile.name || 'Player';
     const kd = t.deaths ? (t.kills / t.deaths).toFixed(2) : t.kills.toFixed(0);
     $('pstats').innerHTML = `<div><b>${profile.coins}</b>coins</div><div><b>${t.matches}</b>matches</div><div><b>${t.wins}</b>wins${t.matches ? ` (${Math.round((t.wins / t.matches) * 100)}%)` : ''}</div><div><b>${t.kills}/${t.deaths}</b>kills / deaths</div><div><b>${kd}</b>K/D</div>`;
+    const earned = TITLE_RANK.filter((n) => (profile.titles[n] ?? 0) > 0);
+    $('ptitles').innerHTML = earned.length
+      ? `<div class="best">Top title: <b>${esc(earned[0])}</b></div>` + earned.map((n) => `<span class="ttl">${esc(n)} <i>&times;${profile.titles[n]}</i></span>`).join('')
+      : 'No titles yet. Get two kills in quick succession, take the first kill of a round, or be the top fragger of a match.';
     const pack = profile.pack;
     $('ppack').textContent = pack ? [...pack.weapons.map((i) => WEAPONS[i]?.name).filter(Boolean), ...(pack.armor ? ['Armor'] : [])].join(' + ') || 'Sidearm only' : 'None yet. It is saved when a buy phase ends, and you can rebuy it with B.';
     $('phist').innerHTML = profile.history.length
@@ -132,6 +142,58 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       : 'No fights saved yet. Finish a match (first to 6 rounds) and it shows up here.';
     $('pclear').textContent = confirmClear ? 'Click again to confirm' : 'Clear history';
   };
+
+  // ---------- Controls tab: rebind the keyboard shortcuts ----------
+  let capturing: { act: string; slot: number } | null = null;
+  const renderHint = () => { const h = document.getElementById('hint'); if (h) h.textContent = hintText(); };
+  const renderControls = () => {
+    const box = $('controls');
+    box.innerHTML = '';
+    let group = '';
+    for (const a of ACTIONS) {
+      if (a.group !== group) { group = a.group; const h = document.createElement('h4'); h.textContent = group; box.appendChild(h); }
+      const row = document.createElement('div');
+      row.className = 'krow';
+      row.innerHTML = `<span>${esc(a.label)}</span>`;
+      for (let slot = 0; slot < 2; slot++) {
+        const code = binds()[a.id][slot];
+        const b = document.createElement('button');
+        const waiting = capturing?.act === a.id && capturing.slot === slot;
+        b.className = `kb${waiting ? ' wait' : ''}${code ? '' : ' empty'}`;
+        b.textContent = waiting ? 'press a key...' : code ? keyLabel(code) : 'none';
+        b.dataset.act = a.id; b.dataset.slot = String(slot);
+        b.addEventListener('click', () => { capturing = { act: a.id, slot }; renderControls(); });
+        row.appendChild(b);
+      }
+      box.appendChild(row);
+    }
+    renderHint();
+  };
+  const saveBinds = (next: Record<string, string[]>) => {
+    profile.keybinds = next;
+    applyBinds(next);
+    saveProfile(profile);
+  };
+  // captured before the game's own key handler, so the key you press to rebind never also triggers an action
+  window.addEventListener('keydown', (e) => {
+    if (!capturing) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const { act, slot } = capturing;
+    capturing = null;
+    if (e.code === 'Escape') { renderControls(); return; }
+    const next = resolveBinds(profile.keybinds);
+    if (e.code === 'Backspace' || e.code === 'Delete') {
+      next[act][slot] = '';
+    } else {
+      for (const a of ACTIONS) next[a.id] = next[a.id].map((c) => (c === e.code ? '' : c)); // a key can only do one thing: move it here
+      next[act][slot] = e.code;
+    }
+    for (const a of ACTIONS) { next[a.id] = [next[a.id][0] ?? '', next[a.id][1] ?? '']; }
+    saveBinds(next);
+    renderControls();
+    say(e.code === 'Backspace' || e.code === 'Delete' ? 'Key cleared.' : `${keyLabel(e.code)} is now set.`);
+  }, true);
+  $('resetkeys').addEventListener('click', () => { saveBinds({}); renderControls(); say('Keys reset to the defaults.'); });
 
   // ---------- tabs and buttons ----------
   const showTab = (name: string) => {
@@ -151,5 +213,5 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   armor.addEventListener('change', () => { profile.autoBuy.armor = armor.checked; save(); });
   ($('name') as HTMLInputElement).value = profile.name;
 
-  renderCoins(); renderMaps(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins();
+  renderCoins(); renderMaps(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
 }

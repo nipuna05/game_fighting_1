@@ -58,6 +58,9 @@ export const sfx = {
   roundStart() { tone(440, 0.1, 'triangle', 0.25); tone(660, 0.2, 'triangle', 0.25, 660, 0.12); },
   win() { tone(523, 0.14, 'triangle', 0.3); tone(659, 0.14, 'triangle', 0.3, 659, 0.15); tone(784, 0.3, 'triangle', 0.3, 784, 0.3); },
   lose() { tone(330, 0.25, 'triangle', 0.3, 300); tone(247, 0.4, 'triangle', 0.3, 200, 0.25); },
+  multi(level: number) { for (let i = 0; i <= Math.min(level, 5); i++) tone(520 + i * 130, 0.16, 'triangle', 0.28, 520 + i * 130, i * 0.09); tone(1040 + level * 80, 0.35, 'sine', 0.22, 1040 + level * 80, Math.min(level, 5) * 0.09 + 0.05); },
+  scope(on: boolean) { if (on) { tone(300, 0.07, 'square', 0.12, 700); tone(900, 0.05, 'sine', 0.1, 900, 0.07); } else tone(700, 0.08, 'square', 0.1, 300); },
+  kill() { tone(180, 0.09, 'square', 0.22, 110); },
   cash() { tone(1200, 0.07, 'square', 0.18); tone(1800, 0.16, 'square', 0.18, 1800, 0.07); },
   buy() { tone(900, 0.06, 'square', 0.15); tone(1300, 0.08, 'square', 0.15, 1300, 0.06); },
 };

@@ -44,3 +44,6 @@ client/public/models/accessories/
 
 # Soldier Cole (licence: do not redistribute raw files): keep out of git
 client/public/models/cole/
+
+# portraits rendered from the (non-redistributable) soldier models
+client/public/models/thumbs/

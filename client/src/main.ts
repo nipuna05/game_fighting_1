@@ -4,12 +4,13 @@ import { buildWorld, makeWeaponModel, loadGunModels } from './world';
 import {
   QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
 } from './characters';
-import { loadProfile, saveProfile, addMatch, type TeamPref } from './profile';
+import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
+import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
 import {
-  Sim, movePlayer, PLAYER_SPEED, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, getMap, MAP_IDS, type MapDef,
+  Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
+  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -17,12 +18,12 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
-const keys = { up: false, down: false, left: false, right: false, use: false };
-const BUY_KEYS: Record<string, number> = { KeyV: ARMOR_ITEM };
+const keys = { up: false, down: false, left: false, right: false, use: false, scope: false };
 const profile = loadProfile();
+applyBinds(profile.keybinds); // the player's own key bindings (Controls tab in the menu)
 let game: Game | null = null;
 const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false };
-const mouse = { x: 0, y: 0, down: false };
+const mouse = { x: 0, y: 0, down: false, right: false };
 
 function bindTouch() {
   const layer = $('touch');
@@ -54,21 +55,29 @@ function bindTouch() {
   });
 }
 
-window.addEventListener('keydown', (e) => setKey(e.code, true));
-window.addEventListener('keyup', (e) => setKey(e.code, false));
-function setKey(code: string, v: boolean) {
-  const m = /^Digit(\d)$/.exec(code);
-  if (m && v) game?.selectSlot(Number(m[1]));
-  if (v && code === 'KeyQ') game?.lastWeapon();
-  if (v && code === 'KeyB') game?.rebuy();
-  if (v && code in BUY_KEYS) game?.buy(BUY_KEYS[code]);
-  if (code === 'KeyE') keys.use = v;
-  if (v && code === 'KeyM') toggleMute();
-  if (v && code === 'F3') game?.togglePerf();
-  if (code === 'KeyW' || code === 'ArrowUp') keys.up = v;
-  if (code === 'KeyS' || code === 'ArrowDown') keys.down = v;
-  if (code === 'KeyA' || code === 'ArrowLeft') keys.left = v;
-  if (code === 'KeyD' || code === 'ArrowRight') keys.right = v;
+const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement | null)?.tagName ?? '');
+window.addEventListener('keydown', (e) => { if (typing(e) || e.repeat) return; if (setKey(e.code, true) && game) e.preventDefault(); });
+window.addEventListener('keyup', (e) => { setKey(e.code, false); });
+/** Handles one key press / release using the current bindings. Returns true if the key is bound to something. */
+function setKey(code: string, v: boolean): boolean {
+  const act = actionFor(code);
+  switch (act) {
+    case 'up': keys.up = v; break;
+    case 'down': keys.down = v; break;
+    case 'left': keys.left = v; break;
+    case 'right': keys.right = v; break;
+    case 'use': keys.use = v; break;
+    case 'scope': keys.scope = v; break;
+    case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
+    case 'rebuy': if (v) game?.rebuy(); break;
+    case 'sidearm': if (v) game?.selectSlot(1); break;
+    case 'primary': if (v) game?.selectSlot(2); break;
+    case 'lastWeapon': if (v) game?.lastWeapon(); break;
+    case 'mute': if (v) toggleMute(); break;
+    case 'perf': if (v) game?.togglePerf(); break;
+    default: return false;
+  }
+  return true;
 }
 window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 window.addEventListener('wheel', (e) => { if (e.deltaY !== 0) game?.cycleWeapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
@@ -101,6 +110,24 @@ function makePickup(): THREE.Group {
   return g;
 }
 
+// ---------- bullet tracers and effects ----------
+const TRACER = { Sniper: [46, 2.4, 0xdff2ff], Shotgun: [7, 1.7, 0xffc766], LMG: [22, 2.2, 0xff9d3d], Rifle: [18, 1.8, 0xffcf5a], SMG: [12, 1.5, 0xffd980], Sidearm: [13, 1.6, 0xffe9a8] } as const;
+const tracerCache: { len: number; th: number; color: THREE.Color }[] = [];
+function tracerStyle(w: number) {
+  return tracerCache[w] ??= (() => { const t = TRACER[(WEAPONS[w]?.cat ?? 'Sidearm') as keyof typeof TRACER] ?? TRACER.Sidearm; return { len: t[0], th: t[1], color: new THREE.Color(t[2]) }; })();
+}
+const FLASH_SIZE: Record<string, number> = { Sniper: 46, Shotgun: 36, LMG: 32, Rifle: 28, SMG: 22, Sidearm: 20 };
+
+function glowTexture(inner: string, outer: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, inner); grad.addColorStop(0.35, inner); grad.addColorStop(1, outer);
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+interface Particle { s: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; size: number; grav: number }
+
 // ---------- game ----------
 interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string }
 interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
@@ -121,8 +148,18 @@ class Game {
   private prevWeapon = 0;
   private tp = { phase: '', recorded: false };
   private prevCash = new Map<number, { x: number; y: number; amount: number }>();
+  private lastKill = -1;
+  // bullet effects and the sniper scope
+  private lastBulletFx = -1;
+  private lastImpactFx = -1;
+  private fxParts: Particle[] = [];
+  private fxMat: Record<'flash' | 'spark' | 'blood' | 'dust', THREE.SpriteMaterial> | null = null;
+  private scopeT = 0;                                   // 0 = not scoped, 1 = fully zoomed (animated)
+  private wasScoped = false;
+  private aimPoint = { x: 0, y: 0 };                     // the ground point under the mouse (used to shift the camera while scoped)
   private matchLoot = 0;
   private lastCoins = 0;
+  private lastMvp = false;
   private ev = { maxBullet: 0, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
@@ -165,13 +202,12 @@ class Game {
     this.camera = new THREE.PerspectiveCamera(45, 1, 10, 4000);
     this.resize();
     window.addEventListener('resize', () => this.resize());
-    this.renderer.domElement.addEventListener('mousedown', (e) => { if (e.button === 0 && !isTouch) mouse.down = true; });
-    window.addEventListener('mouseup', () => { mouse.down = false; });
+    this.renderer.domElement.addEventListener('mousedown', (e) => { if (e.button === 0 && !isTouch) mouse.down = true; if (e.button === 2) mouse.right = true; });
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) mouse.down = false; if (e.button === 2) mouse.right = false; });
     this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
     if (cfg.mode === 'single') this.buildWorld(getMap(cfg.map)); // multiplayer builds it when the server says which map the room uses
-    const bg = new THREE.SphereGeometry(5, 6, 4);
-    this.bullets = new THREE.InstancedMesh(bg, new THREE.MeshBasicMaterial({ color: 0xffd34d }), 600);
+    this.bullets = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), 600); // stretched into tracers below
     this.bullets.frustumCulled = false;
     this.scene.add(this.bullets);
     this.bombMesh = new THREE.Mesh(new THREE.BoxGeometry(16, 9, 12), new THREE.MeshStandardMaterial({ color: 0xc0392b, emissive: 0xff2200, emissiveIntensity: 0.5 }));
@@ -264,11 +300,11 @@ class Game {
     gear.innerHTML = '<h4>Gear</h4>';
     const armor = document.createElement('button');
     armor.dataset.item = String(ARMOR_ITEM);
-    armor.innerHTML = `[V] Armor<small>$${ARMOR_COST}</small>`;
+    armor.innerHTML = `[${keyLabel(currentBinds().buyArmor[0])}] Armor<small>$${ARMOR_COST}</small>`;
     armor.addEventListener('click', () => this.buy(ARMOR_ITEM));
     const rebuy = document.createElement('button');
     rebuy.id = 'rebuy';
-    rebuy.innerHTML = '[B] Rebuy<small>last pack</small>';
+    rebuy.innerHTML = `[${keyLabel(currentBinds().rebuy[0])}] Rebuy<small>last pack</small>`;
     rebuy.addEventListener('click', () => this.rebuy());
     gear.append(armor, rebuy);
     grid.appendChild(gear);
@@ -321,12 +357,13 @@ class Game {
     const frozen = !me.alive || this.snap?.round?.phase === 'buy' || !walls;
     if (!this.pred || frozen) { this.pred = { x: me.x, y: me.y }; return; }
     const len = Math.hypot(input.mx, input.my), k = len > 1 ? 1 / len : 1;
-    movePlayer(this.pred, input.mx * k, input.my * k, dt, walls);
+    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1);
+    movePlayer(this.pred, input.mx * k, input.my * k, dt, walls, speed);
     // The server's copy is a little behind (network delay + tick). Aim at where it will be by now, so the correction is
     // gentle while running and settles exactly onto the server position once the player stops.
     const lag = this.ws ? Math.min(0.25, this.pingMs / 2000 + 1 / TICK_RATE) : 1 / TICK_RATE;
     const moving = len > 0.05;
-    const tx = me.x + input.mx * k * PLAYER_SPEED * lag, ty = me.y + input.my * k * PLAYER_SPEED * lag;
+    const tx = me.x + input.mx * k * speed * lag, ty = me.y + input.my * k * speed * lag;
     const ex = tx - this.pred.x, ey = ty - this.pred.y;
     if (Math.hypot(ex, ey) > 140) { this.pred.x = tx; this.pred.y = ty; }            // far off (respawn, lag spike): snap
     else { const f = Math.min(1, dt * (moving ? 5 : 14)); this.pred.x += ex * f; this.pred.y += ey * f; }
@@ -350,9 +387,11 @@ class Game {
     } else if (me) {
       const ndc = new THREE.Vector2((mouse.x / window.innerWidth) * 2 - 1, -(mouse.y / window.innerHeight) * 2 + 1);
       this.raycaster.setFromCamera(ndc, this.camera);
-      if (this.raycaster.ray.intersectPlane(this.aimPlane, this.tmp)) angle = Math.atan2(this.tmp.z - me.y, this.tmp.x - me.x);
+      if (this.raycaster.ray.intersectPlane(this.aimPlane, this.tmp)) { angle = Math.atan2(this.tmp.z - me.y, this.tmp.x - me.x); this.aimPoint = { x: this.tmp.x, y: this.tmp.z }; }
     }
-    return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use };
+    const myP = this.me();
+    const scoped = (mouse.right || keys.scope) && !isTouch && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
+    return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped };
   }
 
   private frame() {
@@ -506,12 +545,19 @@ class Game {
     // bullets
     const n = Math.min(s.bullets.length, 600);
     for (let i = 0; i < n; i++) {
-      this.dummy.position.set(s.bullets[i].x, AIM_HEIGHT, s.bullets[i].y);
+      const b = s.bullets[i], st = tracerStyle(b.w);
+      this.dummy.position.set(b.x - Math.cos(b.a) * st.len / 2, AIM_HEIGHT, b.y - Math.sin(b.a) * st.len / 2); // the head of the tracer is at the bullet
+      this.dummy.rotation.set(0, -b.a, 0);
+      this.dummy.scale.set(st.len, st.th, st.th);
       this.dummy.updateMatrix();
       this.bullets.setMatrixAt(i, this.dummy.matrix);
+      this.bullets.setColorAt(i, st.color);
     }
     this.bullets.count = n;
     this.bullets.instanceMatrix.needsUpdate = true;
+    if (this.bullets.instanceColor) this.bullets.instanceColor.needsUpdate = true;
+    this.dummy.rotation.set(0, 0, 0); this.dummy.scale.set(1, 1, 1);
+    this.fxEvents(s, dt);
 
     // pickups
     const live = new Set(s.pickups.map((k) => k.id));
@@ -531,8 +577,20 @@ class Game {
       if (mate) camId = mate.id;
     }
     const me = this.shown.get(camId);
+    // sniper scope: zoom in with an ease, and look toward where the player aims
+    const wantScope = !!this.localInput?.scoped && camId === this.myId;
+    this.scopeT += ((wantScope ? 1 : 0) - this.scopeT) * Math.min(1, dt * 9);
+    if (Math.abs(this.scopeT - (wantScope ? 1 : 0)) < 0.002) this.scopeT = wantScope ? 1 : 0;
+    if (wantScope !== this.wasScoped) { sfx.scope(wantScope); this.wasScoped = wantScope; }
+    const ease = this.scopeT * this.scopeT * (3 - 2 * this.scopeT);
+    const fov = 45 - 25 * ease;
+    if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
+    const sc = $('scope');
+    sc.style.opacity = String(Math.min(1, ease * 1.4));
+    sc.style.transform = `scale(${(1.5 - 0.5 * ease).toFixed(3)})`;
+    this.renderer.domElement.style.cursor = ease > 0.4 ? 'none' : '';
     if (me) {
-      if (camId === this.myId) this.camTarget.set(me.x, 0, me.y); // rigid follow: a lagging camera would move the aim point while running
+      if (camId === this.myId) this.camTarget.set(me.x + (this.aimPoint.x - me.x) * 0.5 * ease, 0, me.y + (this.aimPoint.y - me.y) * 0.5 * ease); // rigid follow: a lagging camera would move the aim point while running
       else this.camTarget.lerp(this.tmp.set(me.x, 0, me.y), Math.min(1, dt * 8));
     }
 
@@ -576,7 +634,101 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
-    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); this.lootEvents(s); }
+    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); this.lootEvents(s); this.killEvents(s); }
+  }
+
+  private spawnFx(kind: 'flash' | 'spark' | 'blood' | 'dust', x: number, z: number, y: number, vx: number, vy: number, vz: number, life: number, size: number, grav = 0) {
+    if (!this.fxMat) {
+      const mk = (map: THREE.Texture, additive: boolean) => new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
+      this.fxMat = {
+        flash: mk(glowTexture('rgba(255,244,200,1)', 'rgba(255,150,30,0)'), true), spark: mk(glowTexture('rgba(255,235,160,1)', 'rgba(255,140,20,0)'), true),
+        blood: mk(glowTexture('rgba(190,25,25,1)', 'rgba(120,10,10,0)'), false), dust: mk(glowTexture('rgba(190,175,150,0.8)', 'rgba(150,135,110,0)'), false),
+      };
+    }
+    let p = this.fxParts.find((q) => q.life <= 0);
+    if (!p) {
+      if (this.fxParts.length > 160) return;
+      p = { s: new THREE.Sprite(this.fxMat[kind]), vx: 0, vy: 0, vz: 0, life: 0, max: 1, size: 1, grav: 0 };
+      this.scene.add(p.s);
+      this.fxParts.push(p);
+    }
+    p.s.material = this.fxMat[kind];
+    p.s.position.set(x, y, z);
+    Object.assign(p, { vx, vy, vz, life, max: life, size, grav });
+    p.s.visible = true; p.s.scale.set(size, size, 1);
+  }
+
+  /** Muzzle flashes for new shots and sparks / dust / blood where bullets land. */
+  private fxEvents(s: Snapshot, dt: number) {
+    const maxB = s.bullets.reduce((m, b) => Math.max(m, b.id), 0);
+    if (this.lastBulletFx < 0) this.lastBulletFx = maxB;
+    const flashed: { x: number; y: number }[] = [];
+    for (const b of s.bullets) {
+      if (b.id <= this.lastBulletFx) continue;
+      if (flashed.some((f) => Math.hypot(f.x - b.x, f.y - b.y) < 14)) continue; // one flash per shot, even for 7 shotgun pellets
+      flashed.push(b);
+      const size = FLASH_SIZE[WEAPONS[b.w]?.cat ?? 'Sidearm'] ?? 20;
+      this.spawnFx('flash', b.x - Math.cos(b.a) * 18, b.y - Math.sin(b.a) * 18, AIM_HEIGHT, 0, 0, 0, 0.07, size);
+    }
+    this.lastBulletFx = Math.max(this.lastBulletFx, maxB);
+
+    const maxI = s.impacts.reduce((m, e) => Math.max(m, e.id), 0);
+    if (this.lastImpactFx < 0) this.lastImpactFx = maxI;
+    for (const e of s.impacts) {
+      if (e.id <= this.lastImpactFx) continue;
+      const wall = e.kind === 'wall';
+      for (let i = 0; i < (wall ? 6 : 5); i++) {
+        const a = Math.random() * Math.PI * 2, sp = 50 + Math.random() * 110;
+        this.spawnFx(wall ? 'spark' : 'blood', e.x, e.y, AIM_HEIGHT, Math.cos(a) * sp, 30 + Math.random() * 70, Math.sin(a) * sp, 0.22 + Math.random() * 0.2, wall ? 4 : 5, -380);
+      }
+      if (wall) this.spawnFx('dust', e.x, e.y, AIM_HEIGHT, 0, 12, 0, 0.5, 16);
+    }
+    this.lastImpactFx = Math.max(this.lastImpactFx, maxI);
+
+    for (const p of this.fxParts) { // animate
+      if (p.life <= 0) continue;
+      p.life -= dt;
+      if (p.life <= 0) { p.s.visible = false; continue; }
+      const k = p.life / p.max;
+      p.vy += p.grav * dt;
+      p.s.position.x += p.vx * dt; p.s.position.y = Math.max(1, p.s.position.y + p.vy * dt); p.s.position.z += p.vz * dt;
+      const sz = p.size * (p.grav ? k : 0.5 + 0.5 * k);
+      p.s.scale.set(sz, sz, 1);
+      p.s.material.opacity = Math.min(1, k * 1.6);
+    }
+  }
+
+  /** Kill feed (who killed whom, with what) and the multi-kill banner. */
+  private killEvents(s: Snapshot) {
+    const maxId = s.kills.reduce((m, k) => Math.max(m, k.id), 0);
+    if (this.lastKill < 0) { this.lastKill = maxId; return; } // first snapshot: skip events from before we joined
+    for (const k of s.kills) {
+      if (k.id <= this.lastKill) continue;
+      const mine = k.killer === this.myId, victimIsMe = k.victim === this.myId;
+      const multiName = k.multi >= 2 ? MULTI_NAMES[Math.min(k.multi, 6)] : '';
+      const tag = multiName || (k.first ? FIRST_BLOOD : '');   // a multi-kill name wins over first blood in the feed
+      const row = document.createElement('div');
+      row.className = `k${mine ? ' me' : ''}${victimIsMe ? ' you' : ''}`;
+      row.innerHTML = `<span class="${k.killerTeam === 'CT' ? 'ct' : 't'}">${esc(k.killerName)}</span><span class="w">${esc(WEAPONS[k.weapon]?.name ?? '')}</span><span class="${k.victimTeam === 'CT' ? 'ct' : 't'}">${esc(k.victimName)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}`;
+      const feed = $('feed');
+      feed.appendChild(row);
+      while (feed.children.length > 6) feed.firstElementChild!.remove();
+      window.setTimeout(() => row.remove(), 6200);
+      if (mine) {
+        sfx.kill();
+        // every title you earn is counted in your saved profile
+        if (k.first) addTitle(profile, FIRST_BLOOD);
+        if (multiName) addTitle(profile, multiName);
+        if (multiName || k.first) {
+          const b = $('multi');
+          $('multit').textContent = tag;
+          $('multis').textContent = multiName ? `${k.multi} kills in a row${k.first ? ' - and first blood!' : ''}` : 'first kill of the round';
+          b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+          sfx.multi(multiName ? k.multi : 1);
+        }
+      }
+    }
+    this.lastKill = maxId;
   }
 
   private toast(text: string) {
@@ -614,7 +766,11 @@ class Game {
       this.tp.recorded = true;
       const won = r.winner === me.team;
       // coins: 50 for finishing, +100 for winning, +5 per kill, +1 per $100 of loot you collected
-      this.lastCoins = 50 + (won ? 100 : 0) + me.score * 5 + Math.floor(this.matchLoot / 100);
+      const top = Math.max(...s.players.map((p) => p.score));
+      const mvp = me.score > 0 && me.score >= top; // top fragger of the match (ties count)
+      this.lastMvp = mvp;
+      if (mvp) addTitle(profile, MVP_TITLE);
+      this.lastCoins = 50 + (won ? 100 : 0) + me.score * 5 + Math.floor(this.matchLoot / 100) + (mvp ? 50 : 0);
       addMatch(profile, { t: Date.now(), mode: this.cfg.mode, room: this.cfg.room || 'public', team: me.team, won, tWins: r.tWins, ctWins: r.ctWins, kills: me.score, deaths: me.deaths, coins: this.lastCoins });
       this.matchLoot = 0;
     }
@@ -683,7 +839,7 @@ class Game {
     let big = '', sub = '', prog = 0;
     if (r.phase === 'post' || r.phase === 'over') {
       big = `${TEAM_INFO[r.winner ?? 'CT'].name.toUpperCase()} WIN${r.phase === 'over' ? ' THE MATCH' : ''}`;
-      sub = r.phase === 'over' ? `${r.reason}  -  +${this.lastCoins} coins saved to your profile` : r.reason;
+      sub = r.phase === 'over' ? `${r.reason}  -  +${this.lastCoins} coins saved to your profile${this.tp.recorded && this.lastMvp ? '  (MATCH MVP!)' : ''}` : r.reason;
     } else if (r.bomb.progress > 0) {
       big = r.bomb.status === 'carried' ? 'PLANTING...' : 'DEFUSING...';
       prog = r.bomb.progress;

@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Team } from '@fight/shared';
+import { bakeRetarget } from './retarget';
 
 export interface Character {
   root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
@@ -28,11 +29,14 @@ export const TURN_RATE = 9;                                     // rad/s, how fa
 export const TWIST_SIGN = QS.has('twist') ? Number(QS.get('twist')) : -1; // spine twist direction for this rig (dev: ?twist=1)
 export const AXIS_Y = new THREE.Vector3(0, 1, 0);
 export const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));       // world units; the model is auto-scaled to this height
-interface Template { rig: 'cole' | 'kenney' | 'other'; scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
+interface Template { rig: 'cole' | 'mixamo' | 'kenney' | 'other'; scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
 export let rigName: Template['rig'] | null = null; // which character is loaded (the menu uses this to pick costume thumbnails)
-// "Soldier Cole" (realistic soldier): costumes are colour tints of its camo texture
+// Costumes 0..3 are four different soldiers: 0 = Soldier Cole, 1..3 = Mixamo soldiers (Ch15, Ch35, Ch18) wearing Cole's animations.
+// A costume whose model file is missing falls back to Cole with a colour tint of his camo.
 const COLE_TINTS = [0xffffff, 0xaec0d6, 0xe6d3a2, 0x80838c];
-export let template: Template | null = null;
+const MIXAMO_SKINS: [number, string][] = [[1, 'ch15'], [2, 'ch35'], [3, 'ch18']];
+const templates: Record<number, Template> = {};
+export let template: Template | null = null; // the default (costume 0) template; null means: use the blocky soldier
 
 function finishTemplate(rig: Template['rig'], scene: THREE.Object3D, clips: THREE.AnimationClip[], skins?: Template['skins']): Template {
   const box = new THREE.Box3().setFromObject(scene);
@@ -45,6 +49,7 @@ function finishTemplate(rig: Template['rig'], scene: THREE.Object3D, clips: THRE
 export async function loadTemplate(): Promise<void> {
   template = null;
   rigName = null;
+  for (const k of Object.keys(templates)) delete templates[Number(k)];
   try { // 1) a user-supplied glb
     const gltf = await new GLTFLoader().loadAsync(MODEL_GLB);
     template = finishTemplate('other', gltf.scene, gltf.animations);
@@ -61,8 +66,19 @@ export async function loadTemplate(): Promise<void> {
       const clips = order.filter((n) => anims[n]).map((n) => THREE.AnimationClip.parse(anims[n] as Parameters<typeof THREE.AnimationClip.parse>[0]));
       if (!clips.some((c) => c.name === 'idle') || !clips.some((c) => c.name === 'run')) throw new Error('idle/run missing');
       template = finishTemplate('cole', gltf.scene, clips);
+      templates[0] = template;
       rigName = 'cole';
       console.info(`Loaded Soldier Cole, animations: ${clips.map((c) => c.name).join(', ')}`);
+      // the other three costumes: Mixamo soldiers (optional files), animated by re-targeting Cole's clips onto their skeleton
+      await Promise.all(MIXAMO_SKINS.map(async ([skin, file]) => {
+        try {
+          const mg = await new GLTFLoader().loadAsync(`/models/mixamo/${file}.glb`);
+          const baked = clips.filter((c) => ['idle', 'run', 'walk', 'death', 'jump'].includes(c.name)).map((c) => bakeRetarget(c, gltf.scene, mg.scene));
+          if (!baked.some((c) => c.name === 'idle' && c.tracks.length) || !baked.some((c) => c.name === 'run' && c.tracks.length)) throw new Error('retarget produced no tracks');
+          templates[skin] = finishTemplate('mixamo', mg.scene, baked);
+          console.info(`Loaded ${file} for costume ${skin}`);
+        } catch { /* file missing: this costume uses a tinted Cole */ }
+      }));
       return;
     } catch { /* not available: fall back to the Kenney character */ }
   }
@@ -103,7 +119,7 @@ export async function loadTemplate(): Promise<void> {
 }
 
 export function makeModelCharacter(skinIdx: number, color: number): Character {
-  const t = template!;
+  const t = templates[skinIdx] ?? template!;
   const root = new THREE.Group();
   const model = SkeletonUtils.clone(t.scene) as THREE.Group;
   model.scale.setScalar(t.scale);
@@ -147,9 +163,11 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
   const pick = (name: string, k: number) => { const bone = model.getObjectByName(name); return bone ? [{ bone, k }] : []; };
   const twistBones = t.rig === 'cole'
     ? [...pick('Spine01', 0.5), ...pick('Spine', 0.35), ...pick('neck', 0.1)]
-    : [...pick('Spine', 0.8), ...pick('Neck', 0.15)];
+    : t.rig === 'mixamo'
+      ? [...pick('mixamorigSpine1', 0.5), ...pick('mixamorigSpine2', 0.35), ...pick('mixamorigNeck', 0.1)]
+      : [...pick('Spine', 0.8), ...pick('Neck', 0.15)];
   const dummy = () => new THREE.Group();
-  const cole = t.rig === 'cole';
+  const cole = t.rig === 'cole' || t.rig === 'mixamo';
   return {
     root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, death, ring,
     runBase: cole ? 0.8 : 0.6, runGain: cole ? 0.5 : 0.8,

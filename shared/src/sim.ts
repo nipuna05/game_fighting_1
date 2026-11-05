@@ -67,7 +67,7 @@ export const DEFUSE_TIME = 5;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
 
-export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean }
+export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean }
 
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
@@ -75,7 +75,8 @@ export interface PlayerState {
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
   skin: number; // costume index, 0..SKIN_COUNT-1
 }
-export interface BulletState { id: number; x: number; y: number }
+export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
+export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
 export interface PickupState { id: number; x: number; y: number; kind: 'heal' | 'cash'; amount?: number }
 export type BombStatus = 'none' | 'carried' | 'dropped' | 'planted';
 export interface BombState {
@@ -88,13 +89,28 @@ export interface RoundState {
   phase: Phase; timeLeft: number; tWins: number; ctWins: number; roundNo: number;
   winner: Team | null; reason: string; bomb: BombState;
 }
-export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[]; pickups: PickupState[]; round: RoundState | null }
+export interface KillEvent {
+  id: number; t: number;
+  killer: string; killerName: string; killerTeam: Team;
+  victim: string; victimName: string; victimTeam: Team;
+  weapon: number;   // index into WEAPONS
+  multi: number;    // how many kills in a row the killer has made within MULTI_WINDOW seconds (1 = a single kill)
+  first: boolean;   // the first kill of the round
+}
+// Titles: a different name for every multi-kill level, plus first blood of a round and the match MVP.
+export const MULTI_NAMES = ['', '', 'DOUBLE STRIKE', 'TRIPLE THREAT', 'RAMPAGE', 'UNSTOPPABLE', 'LEGENDARY'];
+export const FIRST_BLOOD = 'FIRST BLOOD';
+export const MVP_TITLE = 'MATCH MVP';
+/** Best title first (used to pick the title shown on a profile). */
+export const TITLE_RANK = [...MULTI_NAMES.filter(Boolean).reverse(), MVP_TITLE, FIRST_BLOOD];
+export const MULTI_WINDOW = 7;
+export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[]; pickups: PickupState[]; round: RoundState | null; kills: KillEvent[]; impacts: ImpactEvent[] }
 
 interface Player extends PlayerState {
   sidearm: number; input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
-interface Bullet extends BulletState { owner: string; team: Team; vx: number; vy: number; life: number; dmg: number }
+interface Bullet extends Omit<BulletState, 'a' | 'w'> { owner: string; team: Team; vx: number; vy: number; life: number; dmg: number; wid: number }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const other = (t: Team): Team => (t === 'T' ? 'CT' : 'T');
@@ -122,9 +138,10 @@ export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number,
 }
 
 /** Moves a player one step with wall collision. The server and the client's prediction use this same function. */
-export function movePlayer(p: { x: number; y: number }, mx: number, my: number, dt: number, walls: Rect[]) {
-  p.x += mx * PLAYER_SPEED * dt;
-  p.y += my * PLAYER_SPEED * dt;
+export const SCOPED_SPEED = 0.5; // movement multiplier while scoped with a sniper
+export function movePlayer(p: { x: number; y: number }, mx: number, my: number, dt: number, walls: Rect[], speed = PLAYER_SPEED) {
+  p.x += mx * speed * dt;
+  p.y += my * speed * dt;
   for (const w of walls) circleRectPush(p, PLAYER_R, w);
 }
 
@@ -148,6 +165,16 @@ export class Sim {
   private lootTaken: boolean[] = [];
   private drops: { id: number; x: number; y: number; amount: number }[] = [];
   private nextDrop = 1;
+  private killLog: KillEvent[] = [];
+  private firstBloodDone = false;
+  private impactLog: ImpactEvent[] = [];
+  private nextImpact = 1;
+  private addImpact(x: number, y: number, kind: 'wall' | 'body') {
+    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind });
+    if (this.impactLog.length > 40) this.impactLog.shift();
+  }
+  private nextKill = 1;
+  private streaks = new Map<string, { n: number; t: number }>();
 
   // round state
   private phase: Phase = 'buy';
@@ -179,7 +206,7 @@ export class Sim {
     this.addPlayer(id, name, false, team, skin, sidearm);
   }
 
-  addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 0 : 1) : 0, sidearm = bot ? Math.floor(Math.random() * SIDEARM_COUNT) : 0) {
+  addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 2 : 0) + Math.floor(Math.random() * 2) : 0, sidearm = bot ? Math.floor(Math.random() * SIDEARM_COUNT) : 0) {
     sidearm = Math.max(0, Math.min(SIDEARM_COUNT - 1, Math.floor(sidearm) || 0));
     const p: Player = {
       id, name, x: 0, y: 0, angle: 0, hp: MAX_HP, score: 0, deaths: 0, bot, alive: true,
@@ -229,7 +256,7 @@ export class Sim {
     if (!p) return;
     const len = Math.hypot(i.mx, i.my);
     const k = len > 1 ? 1 / len : 1;
-    p.input = { mx: i.mx * k, my: i.my * k, angle: Number.isFinite(i.angle) ? i.angle : 0, fire: !!i.fire, use: !!i.use };
+    p.input = { mx: i.mx * k, my: i.my * k, angle: Number.isFinite(i.angle) ? i.angle : 0, fire: !!i.fire, use: !!i.use, scoped: !!i.scoped };
     if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1) p.weapon = i.weapon!;
   }
 
@@ -285,6 +312,7 @@ export class Sim {
     this.pickupReadyAt.fill(0);
     this.lootTaken.fill(false);
     this.drops = [];
+    this.firstBloodDone = false;
     for (const p of this.players.values()) {
       const keep = p.alive && !this.freshMatch; // survivors keep their gear
       if (!keep) { p.owned = 1 << p.sidearm; p.weapon = p.sidearm; p.armor = 0; }
@@ -391,7 +419,8 @@ export class Sim {
       if (p.bot) this.thinkBot(p, dt);
       if (!frozen) {
         const px = p.x, py = p.y;
-        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls);
+        const scoped = !!p.input.scoped && WEAPONS[p.weapon].cat === 'Sniper';
+        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * (scoped ? SCOPED_SPEED : 1));
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -407,9 +436,10 @@ export class Sim {
         const w = WEAPONS[p.weapon];
         p.cooldown = w.cooldown;
         for (let i = 0; i < w.pellets; i++) {
-          const a = p.angle + (Math.random() - 0.5) * 2 * w.spread;
+          const spread = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
+          const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
-            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg,
+            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon,
             x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
             vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life,
           });
@@ -437,12 +467,13 @@ export class Sim {
     for (const b of this.bullets) {
       b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
       if (b.life <= 0) continue;
-      if (this.map.walls.some((w) => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h)) continue;
+      if (this.map.walls.some((w) => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h)) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall'); continue; }
       let hit = false;
       for (const p of this.players.values()) {
         if (!p.alive || p.id === b.owner) continue;
         if (this.rounds && p.team === b.team) continue; // no friendly fire
         if (Math.hypot(p.x - b.x, p.y - b.y) <= PLAYER_R) {
+          this.addImpact(b.x, b.y, 'body');
           if (this.invincible.has(p.id)) { hit = true; break; }
           let dmg = b.dmg;
           if (p.armor > 0) { const soaked = Math.min(p.armor, dmg * 0.5); p.armor -= soaked; dmg -= soaked; }
@@ -452,6 +483,15 @@ export class Sim {
             if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT });
             const killer = this.players.get(b.owner);
             if (killer) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
+            const st = this.streaks.get(b.owner);
+            const multi = st && this.time - st.t <= MULTI_WINDOW ? st.n + 1 : 1; // kills in quick succession build a multi-kill
+            this.streaks.set(b.owner, { n: multi, t: this.time });
+            this.killLog.push({
+              id: this.nextKill++, t: this.time, killer: b.owner, killerName: killer?.name ?? '?', killerTeam: b.team,
+              victim: p.id, victimName: p.name, victimTeam: p.team, weapon: b.wid, multi, first: this.rounds && !this.firstBloodDone,
+            });
+            this.firstBloodDone = true;
+            if (this.killLog.length > 24) this.killLog.shift();
           }
           break;
         }
@@ -535,12 +575,14 @@ export class Sim {
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
         team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin,
       })),
-      bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y) })),
+      bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid })),
       pickups: [
         ...this.map.heal.map((sp, i) => ({ id: i, x: sp.x, y: sp.y, kind: 'heal' as const })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
         ...(this.rounds ? this.map.loot.map((sp, i) => ({ id: 100 + i, x: sp.x, y: sp.y, kind: 'cash' as const, amount: LOOT_AMOUNT })).filter((_, i) => !this.lootTaken[i]) : []),
         ...this.drops.map((d) => ({ id: 1000 + d.id, x: Math.round(d.x), y: Math.round(d.y), kind: 'cash' as const, amount: d.amount })),
       ],
+      kills: this.killLog.filter((k) => this.time - k.t < 10),
+      impacts: this.impactLog.filter((e) => this.time - e.t < 0.5),
       round: this.rounds ? {
         phase: this.phase, timeLeft: Math.max(0, this.phaseEndsAt - this.time),
         tWins: this.tWins, ctWins: this.ctWins, roundNo: this.roundNo,
