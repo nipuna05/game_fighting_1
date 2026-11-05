@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { initAudio, sfx, toggleMute } from './audio';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   ARMOR_ITEM, ARMOR_COST,
@@ -53,6 +54,7 @@ function setKey(code: string, v: boolean) {
   if (m && v) { const n = Number(m[1]) - 1; if (n >= 0 && n < WEAPONS.length) weapon = n; }
   if (v && code in BUY_KEYS) game?.buy(BUY_KEYS[code]);
   if (code === 'KeyE') keys.use = v;
+  if (v && code === 'KeyM') toggleMute();
   if (code === 'KeyW' || code === 'ArrowUp') keys.up = v;
   if (code === 'KeyS' || code === 'ArrowDown') keys.down = v;
   if (code === 'KeyA' || code === 'ArrowLeft') keys.left = v;
@@ -156,6 +158,7 @@ class Game {
   private bullets: THREE.InstancedMesh;
   private bombMesh: THREE.Mesh;
   private lastBuyState = '';
+  private ev = { maxBullet: 0, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -222,6 +225,7 @@ class Game {
   }
 
   buy(item: number) {
+    sfx.buy();
     if (this.sim) this.sim.buy(this.myId, item);
     else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'buy', item }));
   }
@@ -442,7 +446,43 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
-    if (s.round) this.updateHud(s);
+    if (s.round) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); }
+  }
+
+  private audioEvents(s: Snapshot, time: number) {
+    const r = s.round!;
+    const me = s.players.find((p) => p.id === this.myId);
+    const ev = this.ev;
+    if (me) {
+      // gunshots: any bullet we have not seen before; louder when closer
+      let fresh = 0, nearest = Infinity;
+      for (const b of s.bullets) {
+        if (b.id > ev.maxBullet) { fresh++; nearest = Math.min(nearest, Math.hypot(b.x - me.x, b.y - me.y)); }
+      }
+      if (fresh > 0) sfx.shot(Math.max(0, 1 - nearest / 1000), fresh >= 4);
+      if (me.hp < ev.hp && me.alive) {
+        sfx.hurt();
+        const el = $('hurt'); el.style.transition = 'none'; el.style.opacity = '0.9';
+        void el.offsetWidth; el.style.transition = 'opacity .35s ease-out'; el.style.opacity = '0';
+      }
+      if (ev.alive && !me.alive) sfx.death();
+      ev.hp = me.hp; ev.alive = me.alive;
+    }
+    for (const b of s.bullets) if (b.id > ev.maxBullet) ev.maxBullet = b.id;
+    if (r.phase !== ev.phase) {
+      if (r.phase === 'buy') sfx.roundStart();
+      if ((r.phase === 'post' || r.phase === 'over') && me) (r.winner === me.team ? sfx.win : sfx.lose)();
+      ev.phase = r.phase;
+    }
+    if (r.bomb.status !== ev.bomb) {
+      if (r.bomb.status === 'planted') sfx.plant();
+      if (ev.bomb === 'planted') (r.phase === 'live' ? sfx.explode : sfx.defuse)();
+      ev.bomb = r.bomb.status;
+    }
+    if (r.bomb.status === 'planted' && r.phase === 'live' && time >= ev.nextBeep) {
+      sfx.beep();
+      ev.nextBeep = time + (r.bomb.fuse > 10 ? 1 : r.bomb.fuse > 5 ? 0.5 : 0.2);
+    }
   }
 
   private updateHud(s: Snapshot) {
@@ -513,6 +553,7 @@ function start(mode: 'single' | 'multi') {
   const name = ($('name') as HTMLInputElement).value.trim() || 'Player';
   const room = ($('room') as HTMLInputElement).value.trim();
   $('menu').style.display = 'none';
+  initAudio();
   if (isTouch) bindTouch();
   game = new Game({ mode, name, room });
 }

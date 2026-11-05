@@ -28,6 +28,7 @@
     #buy button { font: 14px system-ui; color: #e8eef5; background: #1c2735; border: 1px solid #2f3d52; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
     #buy button:hover:not(:disabled) { background: #2f6fed; } #buy button:disabled { opacity: .4; cursor: default; }
     .lbl.ct span { color: #8fc0ff; } .lbl.t span { color: #ffbe73; }
+    #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -37,6 +38,7 @@
 <body>
   <div id="game"></div>
   <div id="labels"></div>
+  <div id="hurt"></div>
   <div id="hud"></div>
   <div id="topbar"><span class="ct" id="ctw"></span><span class="tm" id="tm"></span><span class="t" id="tw"></span></div>
   <div id="banner"><div class="big" id="bigtxt"></div><div class="sub" id="subtxt"></div><div id="bar"><b></b></div></div>
@@ -53,7 +55,7 @@
     <button id="single">Single player (vs bots)</button>
     <input id="room" maxlength="16" placeholder="Room code (blank = public)" />
     <button id="multi" class="alt">Multiplayer</button>
-    <small>Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy, 1-4 weapon. Mobile: left stick moves, right stick aims and shoots.</small>
+    <small>Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy, 1-4 weapon, M mute. Mobile: left stick moves, right stick aims and shoots.</small>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
