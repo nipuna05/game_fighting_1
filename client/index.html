@@ -7,12 +7,6 @@
   <style>
     html, body { margin: 0; height: 100%; background: #0b0f14; color: #e8eef5; font-family: system-ui, sans-serif; overflow: hidden; overscroll-behavior: none; }
     #game { position: fixed; inset: 0; }
-    #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; box-sizing: border-box; background: #0b0f14; z-index: 10; }
-    #menu h1 { margin: 0 0 8px; font-size: 40px; letter-spacing: 2px; }
-    #menu input, #menu button { font-size: 18px; padding: 12px 16px; border-radius: 10px; border: 1px solid #2a3544; background: #151c26; color: inherit; width: min(320px, 100%); box-sizing: border-box; }
-    #menu button { background: #2f6fed; border-color: #2f6fed; font-weight: 600; cursor: pointer; }
-    #menu button.alt { background: #1e8e5a; border-color: #1e8e5a; }
-    #menu small { color: #8795a8; max-width: 320px; text-align: center; }
     #labels { position: fixed; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
     .lbl { position: absolute; left: 0; top: 0; font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; white-space: nowrap; }
     .lbl i { display: block; width: 44px; height: 5px; margin: 2px auto 0; background: #000a; border-radius: 3px; overflow: hidden; }
@@ -33,32 +27,58 @@
     #buy button:hover:not(:disabled) { background: #2f6fed; } #buy button:disabled { opacity: .4; cursor: default; }
     .lbl.ct span { color: #8fc0ff; } .lbl.t span { color: #ffbe73; }
     #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
-    #skins { display: flex; gap: 8px; }
-    .skin { width: 64px; height: 92px; border-radius: 10px; border: 2px solid #2a3544; background: #1f2a38 center / auto 130% no-repeat; cursor: pointer; }
-    .skin.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8466; }
-    #menu button.ghost { background: #151c26; border-color: #2a3544; font-weight: 500; }
-    #profile { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: #000b; padding: 16px; box-sizing: border-box; }
-    #profile .card { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: #10161f; border: 1px solid #2a3544; border-radius: 14px; padding: 18px 20px; }
-    #profile h2 { margin: 0 0 4px; } #profile h3 { margin: 16px 0 6px; font-size: 13px; letter-spacing: 1px; color: #8795a8; text-transform: uppercase; }
-    #profile .stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 15px; } #profile .stats b { font-size: 20px; display: block; }
-    #profile table { width: 100%; border-collapse: collapse; font-size: 14px; } #profile td, #profile th { padding: 5px 6px; text-align: left; border-bottom: 1px solid #1f2a38; }
-    #profile .w { color: #3ddc84; font-weight: 700; } #profile .l { color: #ff6b6b; font-weight: 700; }
-    #profile button { font: 600 15px system-ui; padding: 10px 14px; border-radius: 10px; border: 1px solid #2f6fed; background: #2f6fed; color: #e8eef5; cursor: pointer; }
-    #profile button.ghost { background: #151c26; border-color: #2a3544; font-weight: 500; }
-    #profile .row { display: flex; gap: 10px; margin-top: 14px; } #profile .row button { flex: 1; width: auto; }
     #wbar { position: fixed; left: 10px; bottom: 14px; z-index: 4; display: flex; gap: 6px; }
     #wbar button { font: 13px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; min-width: 74px; }
     #wbar button b { display: block; font: 11px ui-monospace, monospace; color: #8795a8; }
     #wbar button.off { opacity: .35; cursor: default; } #wbar button.cur { border-color: #3ddc84; background: #1b3a2c; }
-    #teams { display: flex; gap: 8px; width: min(320px, 100%); }
-    .chip { flex: 1; text-align: center; padding: 9px 6px; border-radius: 10px; border: 2px solid #2a3544; background: #151c26; cursor: pointer; font-size: 14px; line-height: 1.25; }
-    .chip small { display: block; color: #8795a8; font-size: 11px; }
-    .chip.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8455; }
-    .chip.ct { border-bottom-color: #3f8cff; } .chip.t { border-bottom-color: #e08a2c; }
     #toast { position: fixed; left: 50%; top: 34%; transform: translateX(-50%); z-index: 6; pointer-events: none; font: 800 30px system-ui, sans-serif; color: #7dff9c; text-shadow: 0 2px 10px #000; opacity: 0; }
     #toast.show { animation: pop 1.1s ease-out forwards; }
     @keyframes pop { 0% { opacity: 0; transform: translate(-50%, 10px) scale(.8); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.1); } 100% { opacity: 0; transform: translate(-50%, -40px) scale(1); } }
-    #coins { color: #ffd34d; font: 700 15px ui-monospace, monospace; }
+    /* ---------- landing page ---------- */
+    #menu { position: fixed; inset: 0; z-index: 10; overflow: hidden; background: radial-gradient(ellipse at 30% 40%, #5a3a22 0%, #1a1d25 55%, #090b0f 100%); }
+    #hero { position: absolute; inset: 0; } #hero canvas { display: block; width: 100%; height: 100%; }
+    #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 36% 52%, transparent 30%, rgba(4,6,10,.78) 100%), linear-gradient(90deg, rgba(4,6,10,.5) 0%, transparent 42%, rgba(4,6,10,.65) 100%); }
+    #shell { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 28px 44px; box-sizing: border-box; pointer-events: none; }
+    #shell > * { pointer-events: auto; }
+    #shell header { display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+    .logo { font: 900 clamp(56px, 9vw, 124px)/0.92 Impact, 'Arial Black', system-ui, sans-serif; letter-spacing: .06em; background: linear-gradient(180deg, #fff 18%, #ffd27a 55%, #ff8a3d 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 28px rgba(255,140,60,.5)); }
+    .tag { letter-spacing: .55em; font-size: 12px; color: #d3dcea; text-transform: uppercase; margin: 8px 0 0 6px; text-shadow: 0 2px 8px #000; }
+    #coins { pointer-events: auto; color: #ffd34d; font: 800 15px ui-monospace, monospace; background: rgba(12,17,25,.7); border: 1px solid rgba(255,211,77,.35); padding: 8px 14px; border-radius: 999px; backdrop-filter: blur(8px); }
+    #panel { margin: auto 0 auto auto; width: min(470px, 100%); background: rgba(12,17,25,.74); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; box-shadow: 0 24px 90px rgba(0,0,0,.65); overflow: hidden; }
+    #tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,.08); }
+    #tabs button { flex: 1; padding: 14px 4px; background: transparent; border: 0; border-bottom: 2px solid transparent; color: #9fb0c4; font: 700 12px system-ui; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+    #tabs button:hover { color: #fff; } #tabs button.on { color: #fff; border-bottom-color: #ff9a3d; background: rgba(255,255,255,.04); }
+    .pane { display: none; padding: 14px 18px 16px; max-height: calc(100vh - 200px); overflow: auto; } .pane.on { display: block; }
+    .pane h4 { margin: 12px 0 7px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #8fa0b5; } .pane h4:first-child { margin-top: 0; }
+    .pane input[type=text], #name, #room { width: 100%; box-sizing: border-box; font-size: 16px; padding: 11px 14px; border-radius: 10px; border: 1px solid #2a3544; background: rgba(21,28,38,.85); color: inherit; }
+    .btn { font: 700 16px system-ui; padding: 12px 18px; border-radius: 10px; border: 1px solid #2a3544; background: #1c2735; color: #e8eef5; cursor: pointer; }
+    .btn:hover { filter: brightness(1.15); } .btn.go { width: 100%; background: linear-gradient(180deg, #ffa94a, #e5701a); border-color: #ff9a3d; color: #1c1004; font-size: 18px; letter-spacing: .06em; box-shadow: 0 8px 28px rgba(255,130,40,.35); }
+    .btn.alt { background: #1e8e5a; border-color: #1e8e5a; } .btn.ghost { background: rgba(21,28,38,.8); }
+    .row { display: flex; gap: 8px; margin-top: 10px; } .row input { flex: 1; width: auto; }
+    .cards { display: grid; gap: 8px; } .cards.three { grid-template-columns: repeat(3, 1fr); } .cards.four { grid-template-columns: repeat(4, 1fr); } .cards.maps { grid-template-columns: 1fr; }
+    .card { padding: 10px; border-radius: 10px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; font-size: 13px; position: relative; }
+    .card b { display: block; font-size: 14px; } .card span { display: block; color: #8fa0b5; font-size: 11px; margin-top: 3px; }
+    .card.sel, .mapcard.sel, .skin.sel, .chip.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8455; }
+    .card.locked { opacity: .55; } .card em, .skin em { display: block; font-style: normal; color: #ffd34d; font-size: 11px; margin-top: 4px; }
+    .mapcard { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 12px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; }
+    .mapprev { flex: 0 0 78px; height: 44px; border-radius: 8px; }
+    .mapprev.town { background: repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 2px, transparent 2px 10px), linear-gradient(135deg, #e0825a, #c9a86e); }
+    .mapprev.dock { background: repeating-linear-gradient(90deg, rgba(0,0,0,.2) 0 3px, transparent 3px 9px), linear-gradient(135deg, #6c7e96, #3d4856); }
+    .mapprev.desert { background: repeating-linear-gradient(15deg, rgba(150,100,40,.18) 0 2px, transparent 2px 9px), linear-gradient(135deg, #efcf93, #cf9d58); }
+    .mi b { display: block; font-size: 14px; } .mi span { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; color: #8fa0b5; font-size: 11px; margin-top: 2px; line-height: 1.3; }
+    #teams { display: flex; gap: 8px; }
+    .chip { flex: 1; text-align: center; padding: 9px 6px; border-radius: 10px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; font-size: 14px; line-height: 1.25; }
+    .chip small { display: block; color: #8fa0b5; font-size: 11px; } .chip.ct { border-bottom-color: #3f8cff; } .chip.t { border-bottom-color: #e08a2c; }
+    #skins { display: grid; }
+    .skin { height: 124px; border-radius: 10px; border: 2px solid #2a3544; background: #1f2a38 center 20% / auto 135% no-repeat; cursor: pointer; position: relative; overflow: hidden; }
+    .skin.locked { filter: grayscale(.85) brightness(.7); } .skin em { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 4px; background: rgba(0,0,0,.65); text-align: center; }
+    .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; color: #cdd7e4; } .note { color: #8fa0b5; font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
+    #menumsg { display: none; margin: 0 18px 14px; padding: 9px 12px; border-radius: 8px; background: rgba(255,211,77,.12); border: 1px solid rgba(255,211,77,.35); color: #ffe39a; font-size: 13px; } #menumsg.on { display: block; }
+    #pname { margin: 0 0 8px; font-size: 22px; } #pstats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: #aebccd; } #pstats b { display: block; font-size: 20px; color: #fff; }
+    #phist table { width: 100%; border-collapse: collapse; font-size: 12px; } #phist td, #phist th { padding: 5px 4px; text-align: left; border-bottom: 1px solid #1f2a38; }
+    #phist .w { color: #3ddc84; font-weight: 700; } #phist .l { color: #ff6b6b; font-weight: 700; } #ppack { font-size: 14px; }
+    #hint { margin-top: auto; color: #9fb0c4; font-size: 12px; max-width: 760px; text-shadow: 0 1px 6px #000; pointer-events: none; }
+    @media (max-width: 820px) { #shell { padding: 14px; } #panel { margin: auto 0 0 0; width: 100%; } .pane { max-height: 52vh; } #hint { display: none; } #vignette { background: linear-gradient(0deg, rgba(4,6,10,.8) 0%, transparent 60%); } }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -79,24 +99,46 @@
     <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
     <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
   </div>
-  <div id="profile"><div class="card">
-    <h2 id="pname"></h2><div class="stats" id="pstats"></div>
-    <h3>Costume</h3><div id="pskin"></div>
-    <h3>Last weapon pack</h3><div id="ppack"></div>
-    <h3>Recent fights</h3><div id="phist"></div>
-    <div class="row"><button id="pclear" class="ghost">Clear history</button><button id="pclose">Close</button></div>
-  </div></div>
   <div id="menu">
-    <h1>FIGHT</h1>
-    <div id="coins"></div>
-    <input id="name" maxlength="14" placeholder="Your name" />
-    <div id="skins" title="Choose your costume"></div>
-    <div id="teams" title="Choose your team"></div>
-    <button id="single">Single player (vs bots)</button>
-    <input id="room" maxlength="16" placeholder="Room code (blank = public)" />
-    <button id="multi" class="alt">Multiplayer</button>
-    <button id="profileBtn" class="ghost">Profile &amp; recent fights</button>
-    <small>Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, click the buy menu (V = armor, B = rebuy), 1 sidearm / 2 primary / wheel / Q switch weapon, M mute. Mobile: left stick moves, right stick aims and shoots.</small>
+    <div id="hero"></div>
+    <div id="vignette"></div>
+    <div id="shell">
+      <header>
+        <div><div class="logo">FIGHT</div><div class="tag">Tactical arena</div></div>
+        <div id="coins"></div>
+      </header>
+      <section id="panel">
+        <nav id="tabs">
+          <button data-tab="play" class="on">Play</button><button data-tab="loadout">Loadout</button>
+          <button data-tab="costume">Costume</button><button data-tab="profile">Profile</button>
+        </nav>
+        <div class="pane on" id="tab-play">
+          <h4>Callsign</h4><input id="name" type="text" maxlength="14" placeholder="Your name" />
+          <h4>Map</h4><div id="maps" class="cards maps"></div>
+          <h4>Team</h4><div id="teams"></div>
+          <div class="row"><button id="single" class="btn go">Play single player</button></div>
+          <div class="row"><input id="room" type="text" maxlength="16" placeholder="Room code (blank = public)" /><button id="multi" class="btn alt">Multiplayer</button></div>
+        </div>
+        <div class="pane" id="tab-loadout">
+          <h4>Sidearm</h4><div id="sidearms" class="cards three"></div>
+          <h4>Primary weapon (bought automatically each round)</h4><div id="primaries" class="cards three"></div>
+          <label class="check"><input type="checkbox" id="autoarmor" /> Also buy armor automatically</label>
+          <p class="note">Auto-buy happens at the start of every buy phase if you can afford it. Your sidearm is free and always yours. Locked sidearms cost coins.</p>
+        </div>
+        <div class="pane" id="tab-costume">
+          <h4>Costume</h4><div id="skins" class="cards four"></div>
+          <p class="note">Other players see your costume. Locked costumes unlock with coins, which you earn after every finished match.</p>
+        </div>
+        <div class="pane" id="tab-profile">
+          <h2 id="pname"></h2><div id="pstats"></div>
+          <h4>Last weapon pack</h4><div id="ppack"></div>
+          <h4>Recent fights</h4><div id="phist"></div>
+          <div class="row"><button id="pclear" class="btn ghost">Clear history</button></div>
+        </div>
+        <div id="menumsg"></div>
+      </section>
+      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; hold E plant / defuse &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
+    </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

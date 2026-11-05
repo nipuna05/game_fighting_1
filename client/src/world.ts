@@ -481,9 +481,9 @@ export function buildWorld(scene: THREE.Scene, map: MapDef) {
       const x = s.x + dx, z = s.y + dz;
       if (map.walls.some((w) => x > w.x - 6 && x < w.x + w.w + 6 && z > w.y - 6 && z < w.y + w.h + 6)) continue;
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.4, 110, 8), iron);
-      pole.position.set(x, 55, z); pole.castShadow = true; scene.add(pole);
-      const lantern = new THREE.Mesh(new THREE.BoxGeometry(9, 12, 9), glass); lantern.position.set(x, 116, z); scene.add(lantern);
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(8, 7, 4), iron); cap.position.set(x, 125, z); cap.rotation.y = Math.PI / 4; scene.add(cap);
+      pole.position.set(x, 55, z); pole.castShadow = true; pole.userData.lamp = true; scene.add(pole);
+      const lantern = new THREE.Mesh(new THREE.BoxGeometry(9, 12, 9), glass); lantern.position.set(x, 116, z); lantern.userData.lamp = true; scene.add(lantern);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(8, 7, 4), iron); cap.position.set(x, 125, z); cap.rotation.y = Math.PI / 4; cap.userData.lamp = true; scene.add(cap);
       tops.push(new THREE.Vector3(x, 108, z));
     }
     if (T.bunting) {

@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { initAudio, sfx, toggleMute } from './audio';
 import { buildWorld, makeWeaponModel } from './world';
-import { loadProfile, saveProfile, addMatch, clearHistory, type TeamPref } from './profile';
+import {
+  QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
+} from './characters';
+import { loadProfile, saveProfile, addMatch, type TeamPref } from './profile';
+import { initMenu } from './menu';
+import { startLanding, type Landing } from './landing';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, getMap, MAP_IDS, type MapDef,
@@ -72,164 +74,6 @@ window.addEventListener('wheel', (e) => { if (e.deltaY !== 0) game?.cycleWeapon(
 
 // ---------- 3D building blocks ----------
 const AIM_HEIGHT = 34; // height of the gun, used when turning the mouse position into an aim direction
-
-interface Character {
-  root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
-  gunHolder: THREE.Group; gunIdx: number; // the weapon model currently shown in the hands
-  holder?: THREE.Group; spine?: THREE.Object3D; neck?: THREE.Object3D; legYaw?: number; // loaded models: lower-body facing + torso bones
-  mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
-}
-
-// ---- real character model (Kenney "Animated Characters 2", CC0). Falls back to the blocky soldier if missing. ----
-const MODEL_GLB = '/models/character.glb';                       // optional: a rigged, animated glb overrides everything below
-const KENNEY = '/models/kenney';
-// costume index -> texture (same order as the menu thumbnails)
-const SKIN_URLS = ['survivorMaleB', 'survivorFemaleA', 'zombieA', 'zombieC'].map((n) => `${KENNEY}/${n}.png`);
-const QS = new URLSearchParams(location.search); // dev overrides: ?yaw=<radians>&zoom=<0.2..1>
-const MODEL_YAW = QS.has('yaw') ? Number(QS.get('yaw')) : Math.PI / 2; // the model faces +Z; the game faces +X. Change if a model faces the wrong way.
-const MODEL_HEIGHT = 58;
-const MAX_TWIST = 1.31;                                  // 75 degrees: how far the torso may turn away from the legs
-const TURN_RATE = 9;                                     // rad/s, how fast the body can turn (about 515 degrees/s)
-const TWIST_SIGN = QS.has('twist') ? Number(QS.get('twist')) : -1; // spine twist direction for this rig (dev: ?twist=1)
-const AXIS_Y = new THREE.Vector3(0, 1, 0);
-const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));       // world units; the model is auto-scaled to this height
-interface Template { scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: THREE.Material[] }
-let template: Template | null = null;
-
-function finishTemplate(scene: THREE.Object3D, clips: THREE.AnimationClip[], skins?: Template['skins']): Template {
-  const box = new THREE.Box3().setFromObject(scene);
-  const h = box.max.y - box.min.y;
-  if (!(h > 0)) throw new Error('empty model');
-  const scale = MODEL_HEIGHT / h;
-  return { scene, clips, scale, offsetY: -box.min.y * scale, skins };
-}
-
-async function loadTemplate(): Promise<void> {
-  template = null;
-  try { // 1) a user-supplied glb
-    const gltf = await new GLTFLoader().loadAsync(MODEL_GLB);
-    template = finishTemplate(gltf.scene, gltf.animations);
-    return;
-  } catch { /* none, try the bundled FBX pack */ }
-  try { // 2) bundled Kenney FBX model + separate idle/run animation files + per-team skins
-    const loader = new FBXLoader();
-    const [model, idle, run] = await Promise.all([
-      loader.loadAsync(`${KENNEY}/characterMedium.fbx`),
-      loader.loadAsync(`${KENNEY}/idle.fbx`),
-      loader.loadAsync(`${KENNEY}/run.fbx`),
-    ]);
-    const clips: THREE.AnimationClip[] = [];
-    // each file also holds a one-frame "Targeting Pose" clip, so take the longest clip, which is the real animation
-    const longest = (f: THREE.Object3D) => f.animations.reduce<THREE.AnimationClip | null>((a, b) => (!a || b.duration > a.duration ? b : a), null);
-    const idleClip = longest(idle), runClip = longest(run);
-    if (idleClip) { idleClip.name = 'idle'; clips.push(idleClip); }
-    if (runClip) { runClip.name = 'run'; clips.push(runClip); }
-    const skins: THREE.Material[] = [];
-    const tl = new THREE.TextureLoader();
-    for (const url of SKIN_URLS) {
-      const tex = await tl.loadAsync(url);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      skins.push(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }));
-    }
-    template = finishTemplate(model, clips, skins);
-    console.info(`Loaded character model, animations: ${clips.map((c) => c.name).join(', ')}`);
-    if (QS.has('debuganim')) {
-      const bones: string[] = [];
-      model.traverse((o) => { if ((o as THREE.Bone).isBone) bones.push(o.name); });
-      console.info('DEBUG bones:', bones.filter((n) => /hips|spine|neck|head|shoulder|arm/i.test(n)).join(' | '), `(total ${bones.length})`);
-      for (const [label, f] of [['idle.fbx', idle], ['run.fbx', run], ['model', model]] as const) console.info('DEBUG file', label, 'animations:', f.animations.map((c) => `${c.name}(${c.duration.toFixed(2)}s,${c.tracks.length})`).join(', ') || 'none');
-      for (const c of clips) console.info('DEBUG clip', c.name, 'dur', c.duration.toFixed(2), 'tracks', c.tracks.length, c.tracks.slice(0, 6).map((t) => t.name).join(' | '));
-    }
-  } catch (e) {
-    console.info('Character model not loaded, using blocky soldier', e);
-    template = null;
-  }
-}
-
-function makeModelCharacter(skinIdx: number, color: number): Character {
-  const t = template!;
-  const root = new THREE.Group();
-  const model = SkeletonUtils.clone(t.scene) as THREE.Group;
-  model.scale.setScalar(t.scale);
-  model.position.y = t.offsetY;
-  model.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    m.castShadow = true;
-    const skin = t.skins?.[skinIdx];
-    if (skin) m.material = skin;
-  });
-  const holder = new THREE.Group();
-  holder.rotation.y = MODEL_YAW;
-  holder.add(model);
-  root.add(holder);
-
-  // team-coloured ring under the feet, so teams read clearly whatever the model looks like
-  const ring = new THREE.Mesh(new THREE.RingGeometry(15, 21, 28), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 1;
-  root.add(ring);
-  const gunHolder = new THREE.Group();
-  gunHolder.position.set(8, 33, 9);
-  root.add(gunHolder);
-
-  const mixer = new THREE.AnimationMixer(model);
-  const find = (re: RegExp) => t.clips.find((c) => re.test(c.name));
-  const idleClip = find(/idle/i) ?? t.clips[0];
-  const runClip = find(/run|jog|walk/i) ?? idleClip;
-  const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
-  const run = runClip ? mixer.clipAction(runClip) : undefined;
-  idle?.play(); run?.play();
-  const dummy = () => new THREE.Group();
-  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, spine: model.getObjectByName('Spine') ?? undefined, neck: model.getObjectByName('Neck') ?? undefined, mixer, idle, run };
-}
-
-function makeCharacter(color: number): Character {
-  const root = new THREE.Group();
-  const mat = (c: number) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, metalness: 0.05 });
-  const part = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    return mesh;
-  };
-  const body = mat(color), dark = mat(0x2a2f3a), skin = mat(0xf0c8a0), metal = mat(0x16181d);
-
-  // character faces +x
-  root.add(part(new THREE.BoxGeometry(12, 22, 20), body, 0, 33, 0));      // torso
-  root.add(part(new THREE.SphereGeometry(8.5, 16, 12), skin, 0, 53, 0));   // head
-  const helmet = part(new THREE.SphereGeometry(9.2, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), dark, 0, 54, 0);
-  root.add(helmet);
-  root.add(part(new THREE.BoxGeometry(2, 4, 12), dark, 8, 53, 0));         // visor band
-
-  const leg = (z: number) => {
-    const g = new THREE.Group();
-    g.position.set(0, 22, z);
-    g.add(part(new THREE.BoxGeometry(8, 22, 8), dark, 0, -11, 0));
-    root.add(g);
-    return g;
-  };
-  const legL = leg(-5), legR = leg(5);
-
-  const arm = (z: number) => {
-    const g = new THREE.Group();
-    g.position.set(0, 42, z);
-    g.add(part(new THREE.BoxGeometry(6, 6, 18), body, 0, 0, 0));
-    root.add(g);
-    return g;
-  };
-  const armL = arm(-13), armR = arm(13);
-  armL.rotation.y = 0; armR.rotation.y = 0;
-  // arms reach forward to hold the weapon
-  armL.children[0].position.set(8, -4, 3); armL.children[0].rotation.y = -0.5;
-  armR.children[0].position.set(8, -4, -3); armR.children[0].rotation.y = 0.5;
-
-  const gunHolder = new THREE.Group();
-  gunHolder.position.set(10, 34, 0);
-  root.add(gunHolder);
-  void metal;
-
-  return { root, legL, legR, armL, armR, phase: Math.random() * 6, gunHolder, gunIdx: -1 };
-}
 
 function makeCash(): THREE.Group {
   const g = new THREE.Group();
@@ -783,67 +627,14 @@ class Game {
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
-// ---------- menu, costume picker and profile ----------
-function buildSkinPicker() {
-  const box = $('skins');
-  box.innerHTML = '';
-  for (let i = 0; i < SKIN_COUNT; i++) {
-    const d = document.createElement('div');
-    d.className = 'skin' + (profile.skin === i ? ' sel' : '');
-    d.style.backgroundImage = `url(/models/kenney/thumb${i}.png)`;
-    d.addEventListener('click', () => { profile.skin = i; saveProfile(profile); buildSkinPicker(); });
-    box.appendChild(d);
-  }
-}
-
-const TEAM_CHOICES: { id: TeamPref; label: string; sub: string; cls: string }[] = [
-  { id: 'auto', label: 'Auto', sub: 'balanced', cls: '' },
-  { id: 'CT', label: TEAM_INFO.CT.name, sub: TEAM_INFO.CT.role, cls: 'ct' },
-  { id: 'T', label: TEAM_INFO.T.name, sub: TEAM_INFO.T.role, cls: 't' },
-];
-function buildTeamPicker() {
-  const box = $('teams');
-  box.innerHTML = '';
-  for (const c of TEAM_CHOICES) {
-    const d = document.createElement('div');
-    d.className = `chip ${c.cls}${profile.team === c.id ? ' sel' : ''}`;
-    d.innerHTML = `${esc(c.label)}<small>${esc(c.sub)}</small>`;
-    d.addEventListener('click', () => { profile.team = c.id; saveProfile(profile); buildTeamPicker(); });
-    box.appendChild(d);
-  }
-}
-
-function openProfile() {
-  const t = profile.totals;
-  const name = ($('name') as HTMLInputElement).value.trim() || profile.name || 'Player';
-  $('pname').textContent = name;
-  const kd = t.deaths ? (t.kills / t.deaths).toFixed(2) : t.kills.toFixed(0);
-  $('pstats').innerHTML = `<div><b>${profile.coins}</b>coins</div><div><b>${t.matches}</b>matches</div><div><b>${t.wins}</b>wins${t.matches ? ` (${Math.round((t.wins / t.matches) * 100)}%)` : ''}</div><div><b>${t.kills}/${t.deaths}</b>kills / deaths</div><div><b>${kd}</b>K/D</div>`;
-  $('pskin').innerHTML = `<div class="skin sel" style="background-image:url(/models/kenney/thumb${profile.skin}.png)"></div>`;
-  const pack = profile.pack;
-  $('ppack').textContent = pack ? [...pack.weapons.map((i) => WEAPONS[i]?.name).filter(Boolean), ...(pack.armor ? ['Armor'] : [])].join(' + ') || 'Pistol only' : 'None yet. It is saved when a buy phase ends, and you can rebuy it with B.';
-  $('phist').innerHTML = profile.history.length
-    ? '<table><tr><th>When</th><th>Result</th><th>Score</th><th>K/D</th><th>Coins</th><th>Side</th><th>Mode</th></tr>' + profile.history.map((m) =>
-      `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${m.coins ?? '-'}</td><td>${esc(TEAM_INFO[m.team]?.name ?? m.team)}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
-    : 'No fights saved yet. Finish a match (first to 6 rounds) and it shows up here.';
-  $('profile').style.display = 'flex';
-}
-
-function showCoins() { $('coins').textContent = `Coins: ${profile.coins}`; }
-
-function initMenu() {
-  showCoins();
-  ($('name') as HTMLInputElement).value = profile.name;
-  buildSkinPicker();
-  buildTeamPicker();
-  $('profileBtn').addEventListener('click', openProfile);
-  $('pclose').addEventListener('click', () => { $('profile').style.display = 'none'; });
-  $('pclear').addEventListener('click', () => { if (confirm('Clear your saved fights and weapon pack?')) { clearHistory(profile); openProfile(); } });
-}
-initMenu();
-
 // ---------- boot ----------
+let landing: Landing | null = null;
+let started = false;
+
 async function start(mode: 'single' | 'multi') {
+  started = true;
+  landing?.stop();
+  landing = null;
   const name = ($('name') as HTMLInputElement).value.trim() || 'Player';
   const room = ($('room') as HTMLInputElement).value.trim();
   profile.name = name === 'Player' ? profile.name : name;
@@ -851,12 +642,24 @@ async function start(mode: 'single' | 'multi') {
   $('menu').style.display = 'none';
   initAudio();
   if (isTouch) bindTouch();
-  await loadTemplate();
+  if (!template) await loadTemplate();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
   game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map });
 }
-$('single').addEventListener('click', () => void start('single'));
-$('multi').addEventListener('click', () => void start('multi'));
+initMenu(profile, {
+  onPlay: (mode) => void start(mode),
+  onMap: (id) => landing?.setMap(id),
+  onSkin: (i) => landing?.setSkin(i),
+  onPrimary: (w) => landing?.setPrimary(w),
+});
+
+// the landing page: load the soldier model, then start the live 3D background (unless the game was started already)
+void (async () => {
+  if (new URLSearchParams(location.search).get('gallery')) return;
+  await loadTemplate();
+  if (started) return;
+  landing = startLanding($('hero'), { map: profile.map, skin: profile.skin, primary: profile.autoBuy.primary });
+})();
 
 // dev shortcut: http://localhost:5173/?mode=single (or multi) skips the menu
 const auto = new URLSearchParams(location.search).get('mode');
