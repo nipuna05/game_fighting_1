@@ -8,7 +8,7 @@ import { loadProfile, saveProfile, addMatch, type TeamPref } from './profile';
 import { initMenu } from './menu';
 import { startLanding, type Landing } from './landing';
 import {
-  Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
+  Sim, movePlayer, PLAYER_SPEED, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
@@ -64,6 +64,7 @@ function setKey(code: string, v: boolean) {
   if (v && code in BUY_KEYS) game?.buy(BUY_KEYS[code]);
   if (code === 'KeyE') keys.use = v;
   if (v && code === 'KeyM') toggleMute();
+  if (v && code === 'F3') game?.togglePerf();
   if (code === 'KeyW' || code === 'ArrowUp') keys.up = v;
   if (code === 'KeyS' || code === 'ArrowDown') keys.down = v;
   if (code === 'KeyA' || code === 'ArrowLeft') keys.left = v;
@@ -136,6 +137,17 @@ class Game {
   private snap: Snapshot | null = null;
   private acc = 0;
   private sendAcc = 0;
+  // smoothness: client-side prediction of the local player, adaptive quality, performance overlay
+  private pred: { x: number; y: number } | null = null;   // predicted position of the local player (no waiting for the server)
+  private localInput: Input | null = null;
+  private mapDef: MapDef | null = null;
+  private frameMs = 16;                                    // smoothed frame time
+  private slowFor = 0;                                     // seconds spent below ~40 fps
+  private quality = 0;                                     // 0 full, 1 lower resolution, 2 smaller shadows, 3 no shadows
+  private pingMs = 0;
+  private pingAcc = 0;
+  private perfOn = false;
+  private perfAcc = 0;
   private last = performance.now();
   private status = '';
   private tmp = new THREE.Vector3();
@@ -144,10 +156,12 @@ class Game {
   constructor(private cfg: Config) {
     const host = $('game');
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.appendChild(this.renderer.domElement);
+    if (QS.has('debug')) (window as unknown as { __game: Game }).__game = this; // dev: inspect the game from the console
+    if (QS.has('lowq')) { this.quality = Number(QS.get('lowq')); }
     this.camera = new THREE.PerspectiveCamera(45, 1, 10, 4000);
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -183,6 +197,7 @@ class Game {
     this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map }));
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
+      if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
       if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; this.buildWorld(getMap(m.map)); }
       else this.snap = m.snap;
     };
@@ -273,7 +288,48 @@ class Game {
   }
 
   private buildWorld(map: MapDef) {
+    this.mapDef = map;
     buildWorld(this.scene, map);
+    if (this.quality > 0) this.applyQuality();
+  }
+
+  togglePerf() { this.perfOn = !this.perfOn; $('perf').style.display = this.perfOn ? 'block' : 'none'; }
+
+  /** Lower the graphics cost one step at a time when the frame rate stays low (never raises it again, to avoid flicker). */
+  private applyQuality() {
+    const q = this.quality;
+    if (q >= 1) this.renderer.setPixelRatio(1);
+    this.scene.traverse((o) => {
+      const l = o as THREE.DirectionalLight;
+      if (l.isDirectionalLight) {
+        if (q >= 3) l.castShadow = false;
+        else if (q >= 2) { l.shadow.mapSize.set(1024, 1024); l.shadow.map?.dispose(); l.shadow.map = null; }
+      }
+    });
+    if (q >= 3) {
+      this.renderer.shadowMap.enabled = false;
+      this.scene.traverse((o) => { const m = (o as THREE.Mesh).material; if (m) for (const mm of ([] as THREE.Material[]).concat(m)) mm.needsUpdate = true; });
+    }
+    this.resize();
+  }
+
+  /** Move the local player right away using the same movement code as the server, and drift back if it strays far from the server's copy. */
+  private predict(dt: number, input: Input) {
+    const me = this.me();
+    if (!me) return;
+    const walls = this.mapDef?.walls;
+    const frozen = !me.alive || this.snap?.round?.phase === 'buy' || !walls;
+    if (!this.pred || frozen) { this.pred = { x: me.x, y: me.y }; return; }
+    const len = Math.hypot(input.mx, input.my), k = len > 1 ? 1 / len : 1;
+    movePlayer(this.pred, input.mx * k, input.my * k, dt, walls);
+    // The server's copy is a little behind (network delay + tick). Aim at where it will be by now, so the correction is
+    // gentle while running and settles exactly onto the server position once the player stops.
+    const lag = this.ws ? Math.min(0.25, this.pingMs / 2000 + 1 / TICK_RATE) : 1 / TICK_RATE;
+    const moving = len > 0.05;
+    const tx = me.x + input.mx * k * PLAYER_SPEED * lag, ty = me.y + input.my * k * PLAYER_SPEED * lag;
+    const ex = tx - this.pred.x, ey = ty - this.pred.y;
+    if (Math.hypot(ex, ey) > 140) { this.pred.x = tx; this.pred.y = ty; }            // far off (respawn, lag spike): snap
+    else { const f = Math.min(1, dt * (moving ? 5 : 14)); this.pred.x += ex * f; this.pred.y += ey * f; }
   }
 
   private resize() {
@@ -284,7 +340,7 @@ class Game {
   }
 
   private readInput(): Input {
-    const me = this.shown.get(this.myId);
+    const me = this.pred ?? this.shown.get(this.myId);
     const mx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0) + stick.mx;
     const my = (keys.down ? 1 : 0) - (keys.up ? 1 : 0) + stick.my;
     let angle = this.snap?.players.find((p) => p.id === this.myId)?.angle ?? 0;
@@ -305,6 +361,9 @@ class Game {
     this.last = now;
 
     const input = this.readInput();
+    this.localInput = input;
+    this.predict(delta / 1000, input);
+    this.monitor(delta);
     if (this.sim) {
       this.sim.setInput(this.myId, input);
       this.pendingWeapon = null;
@@ -313,6 +372,8 @@ class Game {
       while (this.acc >= dt) { this.sim.step(dt); this.acc -= dt; }
       this.snap = this.sim.snapshot();
     } else if (this.ws?.readyState === WebSocket.OPEN) {
+      this.pingAcc += delta;
+      if (this.pingAcc >= 2000) { this.pingAcc = 0; this.ws.send(JSON.stringify({ type: 'ping', t: performance.now() })); }
       this.sendAcc += delta;
       if (this.sendAcc >= 1000 / TICK_RATE) {
         this.sendAcc = 0;
@@ -324,6 +385,20 @@ class Game {
     requestAnimationFrame(() => this.frame());
   }
 
+  /** Frame-rate watchdog (drops graphics quality when slow) and the F3 overlay. */
+  private monitor(deltaMs: number) {
+    this.frameMs += (deltaMs - this.frameMs) * 0.05;
+    if (!QS.has('noadapt')) {
+      if (this.frameMs > 26) this.slowFor += deltaMs / 1000; else this.slowFor = Math.max(0, this.slowFor - deltaMs / 1000);
+      if (this.slowFor > 3 && this.quality < 3) { this.quality++; this.slowFor = 0; this.applyQuality(); }
+    }
+    this.perfAcc += deltaMs;
+    if (this.perfOn && this.perfAcc > 500) {
+      this.perfAcc = 0;
+      $('perf').textContent = `${Math.round(1000 / Math.max(1, this.frameMs))} fps   ${this.ws ? `ping ${Math.round(this.pingMs)} ms` : 'single player'}\nquality ${['full', 'lower resolution', 'smaller shadows', 'no shadows'][this.quality]}`;
+    }
+  }
+
   private draw(dt: number, time: number) {
     const s = this.snap;
     if (s) this.updateScene(s, dt, time);
@@ -332,17 +407,22 @@ class Game {
   }
 
   private updateScene(s: Snapshot, dt: number, time: number) {
-    const smooth = 1 - Math.pow(0.0001, dt); // frame-rate independent, hides 30Hz network snapshots
+    const smooth = 1 - Math.exp(-dt / 0.05);  // frame-rate independent; hides 30Hz snapshots for other players and bots
     const seen = new Set<string>();
     for (const p of s.players) {
       seen.add(p.id);
       let d = this.shown.get(p.id);
-      if (!d || (!this.sim && Math.hypot(d.x - p.x, d.y - p.y) > 200)) d = { x: p.x, y: p.y, angle: p.angle, moved: 0, vx: 0, vy: 0 };
+      const local = p.id === this.myId && !!this.pred && !!this.localInput && p.alive;
+      if (!d || Math.hypot(d.x - p.x, d.y - p.y) > 200) d = { x: p.x, y: p.y, angle: p.angle, moved: 0, vx: 0, vy: 0 };
       const px = d.x, py = d.y;
-      if (this.sim) { d.x = p.x; d.y = p.y; } else { d.x += (p.x - d.x) * smooth; d.y += (p.y - d.y) * smooth; }
-      let da = p.angle - d.angle;
-      da = Math.atan2(Math.sin(da), Math.cos(da));
-      d.angle += da * Math.min(1, dt * 20);
+      if (local) { // the local player is drawn where the player's own input put it, with no wait for the server
+        d.x = this.pred!.x; d.y = this.pred!.y; d.angle = this.localInput!.angle;
+      } else {
+        d.x += (p.x - d.x) * smooth; d.y += (p.y - d.y) * smooth;
+        let da = p.angle - d.angle;
+        da = Math.atan2(Math.sin(da), Math.cos(da));
+        d.angle += da * Math.min(1, dt * 20);
+      }
       const inst = Math.hypot(d.x - px, d.y - py) / Math.max(dt, 1e-3);   // units/sec this frame
       d.moved += (inst - d.moved) * Math.min(1, dt * 12);                  // smoothed: sim ticks at 30Hz, frames at 60Hz
       const k = Math.min(1, dt * 12);
@@ -432,7 +512,10 @@ class Game {
       if (mate) camId = mate.id;
     }
     const me = this.shown.get(camId);
-    if (me) this.camTarget.lerp(this.tmp.set(me.x, 0, me.y), Math.min(1, dt * 8));
+    if (me) {
+      if (camId === this.myId) this.camTarget.set(me.x, 0, me.y); // rigid follow: a lagging camera would move the aim point while running
+      else this.camTarget.lerp(this.tmp.set(me.x, 0, me.y), Math.min(1, dt * 8));
+    }
 
     // bomb: on the carrier's back, dropped on the floor, or armed at the site
     const bomb = s.round?.bomb;

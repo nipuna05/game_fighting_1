@@ -25,6 +25,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (raw) => {
     let msg: ClientMsg;
     try { msg = JSON.parse(String(raw)); } catch { return; }
+    if (msg.type === 'ping') { send(ws, { type: 'pong', t: Number(msg.t) || 0 }); return; }
     if (msg.type === 'join' && !room) {
       const code = String(msg.room || 'public').slice(0, 16).replace(/[^\w-]/g, '') || 'public';
       const r = getRoom(code, msg.map);

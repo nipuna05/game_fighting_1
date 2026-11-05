@@ -79,6 +79,7 @@
     #phist .w { color: #3ddc84; font-weight: 700; } #phist .l { color: #ff6b6b; font-weight: 700; } #ppack { font-size: 14px; }
     #hint { margin-top: auto; color: #9fb0c4; font-size: 12px; max-width: 760px; text-shadow: 0 1px 6px #000; pointer-events: none; }
     @media (max-width: 820px) { #shell { padding: 14px; } #panel { margin: auto 0 0 0; width: 100%; } .pane { max-height: 52vh; } #hint { display: none; } #vignette { background: linear-gradient(0deg, rgba(4,6,10,.8) 0%, transparent 60%); } }
+    #perf { position: fixed; right: 10px; bottom: 10px; z-index: 6; display: none; font: 12px/1.4 ui-monospace, monospace; background: #000a; color: #9dffb5; padding: 6px 10px; border-radius: 6px; pointer-events: none; white-space: pre; }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -91,6 +92,7 @@
   <div id="hurt"></div>
   <div id="toast"></div>
   <div id="hud"></div>
+  <div id="perf"></div>
   <div id="wbar"></div>
   <div id="topbar"><span class="ct" id="ctw"></span><span class="tm" id="tm"></span><span class="t" id="tw"></span></div>
   <div id="banner"><div class="big" id="bigtxt"></div><div class="sub" id="subtxt"></div><div id="bar"><b></b></div></div>

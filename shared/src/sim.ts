@@ -121,6 +121,13 @@ export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number,
   return false;
 }
 
+/** Moves a player one step with wall collision. The server and the client's prediction use this same function. */
+export function movePlayer(p: { x: number; y: number }, mx: number, my: number, dt: number, walls: Rect[]) {
+  p.x += mx * PLAYER_SPEED * dt;
+  p.y += my * PLAYER_SPEED * dt;
+  for (const w of walls) circleRectPush(p, PLAYER_R, w);
+}
+
 export function siteAt(x: number, y: number, sites: Site[]): Site | null {
   for (const s of sites) if (Math.hypot(x - s.x, y - s.y) <= s.r) return s;
   return null;
@@ -382,9 +389,7 @@ export class Sim {
       if (p.bot) this.thinkBot(p, dt);
       if (!frozen) {
         const px = p.x, py = p.y;
-        p.x += p.input.mx * PLAYER_SPEED * dt;
-        p.y += p.input.my * PLAYER_SPEED * dt;
-        for (const w of this.map.walls) circleRectPush(p, PLAYER_R, w);
+        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -546,9 +551,11 @@ export class Sim {
 export type ClientMsg =
   | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string }
   | { type: 'input'; input: Input }
-  | { type: 'buy'; item: number };
+  | { type: 'buy'; item: number }
+  | { type: 'ping'; t: number };
 export type ServerMsg =
   | { type: 'welcome'; id: string; room: string; map: string }
-  | { type: 'snap'; snap: Snapshot };
+  | { type: 'snap'; snap: Snapshot }
+  | { type: 'pong'; t: number };
 
 export { other as otherTeam };
