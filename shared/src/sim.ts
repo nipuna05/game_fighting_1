@@ -50,20 +50,29 @@ export const SPAWN_ZONES: Record<Team, Rect> = {
   CT: { x: 1410, y: 420, w: 120, h: 360 },
 };
 
-export interface Rect { x: number; y: number; w: number; h: number }
+export type WallKind = 'outer' | 'container' | 'building' | 'barrier' | 'crate';
+export interface Rect { x: number; y: number; w: number; h: number; kind?: WallKind }
 
+// Every rect blocks movement and bullets. `kind` only changes how the client draws it.
 export const WALLS: Rect[] = [
-  { x: 0, y: 0, w: WORLD_W, h: 20 },
-  { x: 0, y: WORLD_H - 20, w: WORLD_W, h: 20 },
-  { x: 0, y: 0, w: 20, h: WORLD_H },
-  { x: WORLD_W - 20, y: 0, w: 20, h: WORLD_H },
-  { x: 400, y: 300, w: 200, h: 40 },
-  { x: 1000, y: 300, w: 200, h: 40 },
-  { x: 400, y: 860, w: 200, h: 40 },
-  { x: 1000, y: 860, w: 200, h: 40 },
-  { x: 740, y: 500, w: 120, h: 200 },
-  { x: 250, y: 560, w: 40, h: 160 },
-  { x: 1310, y: 560, w: 40, h: 160 },
+  { x: 0, y: 0, w: WORLD_W, h: 20, kind: 'outer' },
+  { x: 0, y: WORLD_H - 20, w: WORLD_W, h: 20, kind: 'outer' },
+  { x: 0, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
+  { x: WORLD_W - 20, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
+  { x: 400, y: 300, w: 200, h: 40, kind: 'container' },
+  { x: 1000, y: 300, w: 200, h: 40, kind: 'container' },
+  { x: 400, y: 860, w: 200, h: 40, kind: 'container' },
+  { x: 1000, y: 860, w: 200, h: 40, kind: 'container' },
+  { x: 740, y: 500, w: 120, h: 200, kind: 'building' },
+  { x: 250, y: 560, w: 40, h: 160, kind: 'barrier' },
+  { x: 1310, y: 560, w: 40, h: 160, kind: 'barrier' },
+  // crates: cover around the bomb sites and in the middle lanes (symmetric about the map centre)
+  { x: 620, y: 150, w: 44, h: 44, kind: 'crate' },
+  { x: 936, y: 206, w: 44, h: 44, kind: 'crate' },
+  { x: 936, y: 1006, w: 44, h: 44, kind: 'crate' },
+  { x: 620, y: 950, w: 44, h: 44, kind: 'crate' },
+  { x: 560, y: 580, w: 44, h: 44, kind: 'crate' },
+  { x: 996, y: 576, w: 44, h: 44, kind: 'crate' },
 ];
 
 export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean }

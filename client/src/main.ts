@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { initAudio, sfx, toggleMute } from './audio';
+import { buildWorld, makeWeaponModel } from './world';
 import {
   Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   ARMOR_ITEM, ARMOR_COST,
@@ -70,6 +71,7 @@ const AIM_HEIGHT = 34; // height of the gun, used when turning the mouse positio
 
 interface Character {
   root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
+  gunHolder: THREE.Group; gunIdx: number; // the weapon model currently shown in the hands
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
 }
 
@@ -145,10 +147,9 @@ function makeModelCharacter(team: Team, color: number): Character {
   const ring = new THREE.Mesh(new THREE.RingGeometry(15, 21, 28), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 1;
   root.add(ring);
-  // simple weapon so the aim direction is always visible
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(28, 5, 5), new THREE.MeshStandardMaterial({ color: 0x16181d }));
-  gun.position.set(18, 36, 8); gun.castShadow = true;
-  root.add(gun);
+  const gunHolder = new THREE.Group();
+  gunHolder.position.set(8, 33, 9);
+  root.add(gunHolder);
 
   const mixer = new THREE.AnimationMixer(model);
   const find = (re: RegExp) => t.clips.find((c) => re.test(c.name));
@@ -158,7 +159,7 @@ function makeModelCharacter(team: Team, color: number): Character {
   const run = runClip ? mixer.clipAction(runClip) : undefined;
   idle?.play(); run?.play();
   const dummy = () => new THREE.Group();
-  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, mixer, idle, run };
+  return { root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, mixer, idle, run };
 }
 
 function makeCharacter(color: number): Character {
@@ -201,12 +202,12 @@ function makeCharacter(color: number): Character {
   armL.children[0].position.set(8, -4, 3); armL.children[0].rotation.y = -0.5;
   armR.children[0].position.set(8, -4, -3); armR.children[0].rotation.y = 0.5;
 
-  const gun = new THREE.Group();
-  gun.add(part(new THREE.BoxGeometry(28, 5, 5), metal, 18, 36, 0));
-  gun.add(part(new THREE.BoxGeometry(8, 8, 4), metal, 10, 32, 0));
-  root.add(gun);
+  const gunHolder = new THREE.Group();
+  gunHolder.position.set(10, 34, 0);
+  root.add(gunHolder);
+  void metal;
 
-  return { root, legL, legR, armL, armR, phase: Math.random() * 6 };
+  return { root, legL, legR, armL, armR, phase: Math.random() * 6, gunHolder, gunIdx: -1 };
 }
 
 function makePickup(): THREE.Group {
@@ -217,25 +218,6 @@ function makePickup(): THREE.Group {
   a.castShadow = b.castShadow = true;
   g.add(a, b);
   return g;
-}
-
-function floorTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#44546a'; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 1200; i++) {
-    const v = 70 + Math.random() * 40;
-    g.fillStyle = `rgba(${v},${v + 8},${v + 18},0.30)`;
-    g.fillRect(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 3, 2 + Math.random() * 3);
-  }
-  g.strokeStyle = '#2b3646'; g.lineWidth = 3; g.strokeRect(0, 0, 256, 256);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(WORLD_W / 200, WORLD_H / 200);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
 }
 
 // ---------- game ----------
@@ -325,66 +307,7 @@ class Game {
   }
 
   private buildWorld() {
-    const s = this.scene;
-    s.background = new THREE.Color(0x0b0f14);
-    s.fog = new THREE.Fog(0x0b0f14, 900, 2200);
-
-    s.add(new THREE.HemisphereLight(0xdbe8ff, 0x3a4252, 1.6));
-    const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
-    const cx = WORLD_W / 2, cz = WORLD_H / 2;
-    sun.position.set(cx - 500, 900, cz + 400);
-    sun.target.position.set(cx, 0, cz);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -1100, right: 1100, top: 900, bottom: -900, near: 100, far: 2400 });
-    sun.shadow.bias = -0.0005;
-    s.add(sun, sun.target);
-
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(WORLD_W, WORLD_H),
-      new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 0.95 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(cx, 0, cz);
-    floor.receiveShadow = true;
-    s.add(floor);
-
-    // team spawn zones (tinted) and bomb sites (ringed letters)
-    (Object.keys(SPAWN_ZONES) as Team[]).forEach((t) => {
-      const z = SPAWN_ZONES[t];
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(z.w, z.h), new THREE.MeshBasicMaterial({ color: t === 'CT' ? 0x3f8cff : 0xd9822b, transparent: true, opacity: 0.18 }));
-      m.rotation.x = -Math.PI / 2; m.position.set(z.x + z.w / 2, 0.6, z.y + z.h / 2);
-      s.add(m);
-    });
-    for (const site of SITES) {
-      const ring = new THREE.Mesh(new THREE.RingGeometry(site.r - 8, site.r, 48), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.8 }));
-      ring.rotation.x = -Math.PI / 2; ring.position.set(site.x, 0.8, site.y);
-      const fill = new THREE.Mesh(new THREE.CircleGeometry(site.r - 8, 48), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.08 }));
-      fill.rotation.x = -Math.PI / 2; fill.position.set(site.x, 0.7, site.y);
-      const c = document.createElement('canvas'); c.width = c.height = 128;
-      const g = c.getContext('2d')!; g.fillStyle = '#ffd34d'; g.font = 'bold 100px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(site.id, 64, 70);
-      const letter = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.55 }));
-      letter.rotation.x = -Math.PI / 2; letter.position.set(site.x, 0.9, site.y);
-      s.add(ring, fill, letter);
-    }
-
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8a9bb5, roughness: 0.8 });
-    const edgeMat = new THREE.MeshStandardMaterial({ color: 0xb4c4dc, roughness: 0.6 });
-    const outerMat = new THREE.MeshStandardMaterial({ color: 0x56657c, roughness: 0.9 });
-    WALLS.forEach((w, i) => {
-      const outer = i < 4;
-      const h = outer ? 110 : 64;
-      const box = new THREE.Mesh(new THREE.BoxGeometry(w.w, h, w.h), outer ? outerMat : wallMat);
-      box.position.set(w.x + w.w / 2, h / 2, w.y + w.h / 2);
-      box.castShadow = box.receiveShadow = true;
-      s.add(box);
-      if (!outer) { // lighter cap so the shape reads clearly from above
-        const cap = new THREE.Mesh(new THREE.BoxGeometry(w.w + 2, 4, w.h + 2), edgeMat);
-        cap.position.set(w.x + w.w / 2, h + 2, w.y + w.h / 2);
-        cap.castShadow = true;
-        s.add(cap);
-      }
-    });
+    buildWorld(this.scene);
   }
 
   private resize() {
@@ -461,6 +384,11 @@ class Game {
         c = template ? makeModelCharacter(p.team, teamColor) : makeCharacter(teamColor);
         this.chars.set(p.id, c);
         this.scene.add(c.root);
+      }
+      if (c.gunIdx !== p.weapon) { // show the weapon this player currently holds
+        c.gunHolder.clear();
+        c.gunHolder.add(makeWeaponModel(p.weapon));
+        c.gunIdx = p.weapon;
       }
       c.root.visible = p.alive;
       c.root.position.set(d.x, 0, d.y);
@@ -667,3 +595,19 @@ $('multi').addEventListener('click', () => void start('multi'));
 // dev shortcut: http://localhost:5173/?mode=single (or multi) skips the menu
 const auto = new URLSearchParams(location.search).get('mode');
 if (auto === 'single' || auto === 'multi') void start(auto);
+
+// dev view: http://localhost:5173/?gallery=1 shows the four weapon models side by side
+if (QS.get('gallery')) {
+  $('menu').style.display = 'none';
+  const r = new THREE.WebGLRenderer({ antialias: true });
+  r.setSize(window.innerWidth, window.innerHeight);
+  $('game').appendChild(r.domElement);
+  const sc = new THREE.Scene();
+  sc.background = new THREE.Color(0x2a3140);
+  sc.add(new THREE.HemisphereLight(0xffffff, 0x445066, 2.4));
+  const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(40, 90, 80); sc.add(dl);
+  WEAPONS.forEach((_, i) => { const m = makeWeaponModel(i); m.position.set(0, -i * 20, 0); sc.add(m); });
+  const cam = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 500);
+  cam.position.set(14, -30, 95); cam.lookAt(14, -30, 0);
+  r.render(sc, cam);
+}
