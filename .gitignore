@@ -19,3 +19,25 @@ assets-src/characters/*.glb
 client/public/models/characters/
 assets-src/characters/*.zip
 client/public/models/characters/
+
+# map models: keep out of git until author/licence is recorded
+assets-src/maps/*/*.glb
+assets-src/maps/*/*.fbx
+assets-src/maps/*/*.obj
+assets-src/maps/*/textures/
+client/public/models/maps/
+
+# accessory kits and other downloaded packs: keep out of git until author/licence is recorded
+assets-src/accessories/*/
+client/public/models/accessories/
+
+# downloaded packs: keep everything in assets-src out of git except the README files and the (CC0) Kenney pack
+assets-src/maps/*
+!assets-src/maps/README.md
+assets-src/guns/*
+!assets-src/guns/README.md
+assets-src/accessories/*
+!assets-src/accessories/README.md
+assets-src/characters/*
+!assets-src/characters/README.md
+client/public/models/accessories/

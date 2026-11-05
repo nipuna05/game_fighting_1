@@ -133,7 +133,7 @@ export function siteAt(x: number, y: number, sites: Site[]): Site | null {
   return null;
 }
 
-export interface SimOptions { rounds?: boolean; map?: string }
+export interface SimOptions { rounds?: boolean; map?: string; invincible?: string[] } // invincible: dev/testing only
 
 export class Sim {
   time = 0;
@@ -143,6 +143,7 @@ export class Sim {
   private nextBullet = 1;
   private nextBot = 1;
   readonly map: MapDef;
+  private invincible: Set<string>;
   private pickupReadyAt: number[] = [];
   private lootTaken: boolean[] = [];
   private drops: { id: number; x: number; y: number; amount: number }[] = [];
@@ -162,6 +163,7 @@ export class Sim {
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
     this.map = getMap(opts.map);
+    this.invincible = new Set(opts.invincible ?? []);
     this.pickupReadyAt = this.map.heal.map(() => 0);
     this.lootTaken = this.map.loot.map(() => false);
     if (this.rounds) this.startRound();
@@ -441,6 +443,7 @@ export class Sim {
         if (!p.alive || p.id === b.owner) continue;
         if (this.rounds && p.team === b.team) continue; // no friendly fire
         if (Math.hypot(p.x - b.x, p.y - b.y) <= PLAYER_R) {
+          if (this.invincible.has(p.id)) { hit = true; break; }
           let dmg = b.dmg;
           if (p.armor > 0) { const soaked = Math.min(p.armor, dmg * 0.5); p.armor -= soaked; dmg -= soaked; }
           p.hp -= dmg; hit = true;

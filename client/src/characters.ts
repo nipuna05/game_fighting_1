@@ -8,7 +8,7 @@ import type { Team } from '@fight/shared';
 export interface Character {
   root: THREE.Group; legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group; phase: number;
   gunHolder: THREE.Group; gunIdx: number; // the weapon model currently shown in the hands
-  holder?: THREE.Group; spine?: THREE.Object3D; neck?: THREE.Object3D; legYaw?: number; // loaded models: lower-body facing + torso bones
+  holder?: THREE.Group; spine?: THREE.Object3D; neck?: THREE.Object3D; legYaw?: number; backward?: boolean; // loaded models: lower-body facing + torso bones
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
 }
 
@@ -20,7 +20,7 @@ const SKIN_URLS = ['survivorMaleB', 'survivorFemaleA', 'zombieA', 'zombieC'].map
 export const QS = new URLSearchParams(location.search); // dev overrides: ?yaw=<radians>&zoom=<0.2..1>
 export const MODEL_YAW = QS.has('yaw') ? Number(QS.get('yaw')) : Math.PI / 2; // the model faces +Z; the game faces +X. Change if a model faces the wrong way.
 const MODEL_HEIGHT = 58;
-export const MAX_TWIST = 1.31;                                  // 75 degrees: how far the torso may turn away from the legs
+export const MAX_TWIST = 1.75;                                  // 100 degrees: how far the torso may turn away from the legs
 export const TURN_RATE = 9;                                     // rad/s, how fast the body can turn (about 515 degrees/s)
 export const TWIST_SIGN = QS.has('twist') ? Number(QS.get('twist')) : -1; // spine twist direction for this rig (dev: ?twist=1)
 export const AXIS_Y = new THREE.Vector3(0, 1, 0);

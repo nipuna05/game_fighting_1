@@ -181,7 +181,7 @@ class Game {
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
-      this.sim = new Sim({ rounds: true, map: cfg.map });
+      this.sim = new Sim({ rounds: true, map: cfg.map, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
       this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team);
       this.sim.fillBots(TEAM_SIZE);
     } else {
@@ -450,23 +450,29 @@ class Game {
       if (c.mixer) { // loaded model: blend between its idle and run animations
         const w = Math.min(1, speed * 1.6);
         c.run?.setEffectiveWeight(w); c.idle?.setEffectiveWeight(1 - w);
-        if (c.run) c.run.timeScale = 0.6 + speed * 0.8;
-
-        // Realistic turning: the legs/body face the direction of travel and turn at a limited speed;
-        // the upper body twists to face the aim direction (up to MAX_TWIST away from the legs).
+        // Turning: the legs always line up with the direction of travel. When moving toward the aim they run forward;
+        // when moving away from it they backpedal (the run animation plays in reverse) facing the aim. The upper body
+        // twists to face the aim. The local player uses the keys pressed (instant); other players use their velocity.
         const aim = d.angle;
         c.legYaw ??= aim;
+        const li = this.localInput;
+        const dirX = local && li ? li.mx : d.vx, dirY = local && li ? li.my : d.vy;
+        const travelling = local && li ? Math.hypot(li.mx, li.my) > 0.05 && d.moved > 20 : d.moved > 40;
         let target = c.legYaw;
-        if (d.moved > 40) {
-          const diff = wrapAngle(aim - Math.atan2(d.vy, d.vx));
-          target = aim - Math.max(-MAX_TWIST, Math.min(MAX_TWIST, diff));
+        if (travelling) {
+          const md = Math.atan2(dirY, dirX);
+          const away = Math.abs(wrapAngle(aim - md));
+          c.backward = c.backward ? away > 1.66 : away > 1.83;   // hysteresis around 95 / 105 degrees, so it does not flicker
+          target = c.backward ? md + Math.PI : md;
         } else {
+          c.backward = false;
           const diff = wrapAngle(aim - c.legYaw);
           if (Math.abs(diff) > MAX_TWIST) target = aim - Math.sign(diff) * MAX_TWIST * 0.5; // feet shuffle round once the torso is twisted too far
         }
         const step = TURN_RATE * dt;
         c.legYaw += Math.max(-step, Math.min(step, wrapAngle(target - c.legYaw) * Math.min(1, dt * 14)));
-        const twist = Math.max(-1.7, Math.min(1.7, wrapAngle(aim - c.legYaw)));
+        const twist = Math.max(-MAX_TWIST - 0.2, Math.min(MAX_TWIST + 0.2, wrapAngle(aim - c.legYaw)));
+        if (c.run) c.run.timeScale = (c.backward ? -1 : 1) * (0.6 + speed * 0.8);
         if (c.holder) c.holder.rotation.y = MODEL_YAW + twist; // lower body faces c.legYaw, root faces the aim
         c.mixer.update(dt);
         if (c.spine) c.spine.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * 0.8); // after the animation pose is applied
@@ -528,8 +534,13 @@ class Game {
       (this.bombMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = blink * 2;
     }
     const zoom = QS.has('zoom') ? Number(QS.get('zoom')) : 1;
-    this.camera.position.set(this.camTarget.x, 560 * zoom, this.camTarget.z + 430 * zoom);
-    this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
+    if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
+      this.camera.position.set(this.camTarget.x, 640 * zoom, this.camTarget.z + 0.01);
+      this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z);
+    } else {
+      this.camera.position.set(this.camTarget.x, 560 * zoom, this.camTarget.z + 430 * zoom);
+      this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
+    }
   }
 
   private updateLabels(s: Snapshot) {
