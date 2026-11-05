@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  Sim, WALLS, WORLD_W, WORLD_H, PLAYER_R, MAX_HP, TICK_RATE,
+  Sim, WALLS, WEAPONS, WORLD_W, WORLD_H, PLAYER_R, PICKUP_R, MAX_HP, TICK_RATE,
   type Input, type Snapshot, type ServerMsg,
 } from '@fight/shared';
 
@@ -9,6 +9,7 @@ const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
 const keys = { up: false, down: false, left: false, right: false };
+let weapon = 0;
 const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false };
 
 function bindTouch() {
@@ -44,6 +45,8 @@ function bindTouch() {
 window.addEventListener('keydown', (e) => setKey(e.code, true));
 window.addEventListener('keyup', (e) => setKey(e.code, false));
 function setKey(code: string, v: boolean) {
+  const m = /^Digit(\d)$/.exec(code);
+  if (m && v) { const n = Number(m[1]) - 1; if (n >= 0 && n < WEAPONS.length) weapon = n; }
   if (code === 'KeyW' || code === 'ArrowUp') keys.up = v;
   if (code === 'KeyS' || code === 'ArrowDown') keys.down = v;
   if (code === 'KeyA' || code === 'ArrowLeft') keys.left = v;
@@ -111,7 +114,7 @@ class GameScene extends Phaser.Scene {
       const p = this.input.activePointer;
       angle = Math.atan2(p.y + cam.scrollY - me.y, p.x + cam.scrollX - me.x);
     }
-    return { mx, my, angle, fire };
+    return { mx, my, angle, fire, weapon };
   }
 
   update(_t: number, delta: number) {
@@ -146,6 +149,8 @@ class GameScene extends Phaser.Scene {
     const s = this.snap;
     if (!s) { this.hud.setText(this.status); return; }
 
+    g.fillStyle(0x3ddc84);
+    for (const k of s.pickups) { g.fillRect(k.x - PICKUP_R, k.y - 5, PICKUP_R * 2, 10); g.fillRect(k.x - 5, k.y - PICKUP_R, 10, PICKUP_R * 2); }
     g.fillStyle(0xffd34d);
     for (const b of s.bullets) g.fillCircle(b.x, b.y, 4);
 

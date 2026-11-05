@@ -4,10 +4,19 @@ export const WORLD_W = 1600;
 export const WORLD_H = 1200;
 export const PLAYER_R = 18;
 export const PLAYER_SPEED = 220;
-export const BULLET_SPEED = 700;
-export const BULLET_LIFE = 0.9;
-export const BULLET_DMG = 25;
-export const FIRE_COOLDOWN = 0.18;
+export interface WeaponDef { name: string; dmg: number; cooldown: number; speed: number; life: number; pellets: number; spread: number }
+export const WEAPONS: WeaponDef[] = [
+  { name: 'Pistol',  dmg: 20, cooldown: 0.28, speed: 700,  life: 0.9, pellets: 1, spread: 0.03 },
+  { name: 'Rifle',   dmg: 14, cooldown: 0.11, speed: 800,  life: 1.0, pellets: 1, spread: 0.07 },
+  { name: 'Shotgun', dmg: 12, cooldown: 0.8,  speed: 650,  life: 0.45, pellets: 6, spread: 0.30 },
+  { name: 'Sniper',  dmg: 80, cooldown: 1.2,  speed: 1400, life: 1.2, pellets: 1, spread: 0.0 },
+];
+export const PICKUP_RESPAWN = 15;
+export const PICKUP_R = 16;
+export const HEAL_AMOUNT = 40;
+export const PICKUP_SPOTS = [
+  { x: 800, y: 150 }, { x: 800, y: 1050 }, { x: 150, y: 600 }, { x: 1450, y: 600 }, { x: 800, y: 600 - 160 },
+];
 export const MAX_HP = 100;
 export const RESPAWN_TIME = 2.5;
 export const TICK_RATE = 30;
@@ -28,19 +37,20 @@ export const WALLS: Rect[] = [
   { x: 1310, y: 560, w: 40, h: 160 },
 ];
 
-export interface Input { mx: number; my: number; angle: number; fire: boolean }
+export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number }
 
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
-  hp: number; score: number; deaths: number; bot: boolean; alive: boolean;
+  hp: number; score: number; deaths: number; bot: boolean; alive: boolean; weapon: number;
 }
 export interface BulletState { id: number; x: number; y: number }
-export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[] }
+export interface PickupState { id: number; x: number; y: number }
+export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[]; pickups: PickupState[] }
 
 interface Player extends PlayerState {
   input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
 }
-interface Bullet extends BulletState { owner: string; vx: number; vy: number; life: number }
+interface Bullet extends BulletState { owner: string; vx: number; vy: number; life: number; dmg: number }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
@@ -71,10 +81,12 @@ export class Sim {
   private players = new Map<string, Player>();
   private bullets: Bullet[] = [];
   private nextBullet = 1;
+  private pickupReadyAt = PICKUP_SPOTS.map(() => 0);
 
   addPlayer(id: string, name: string, bot = false) {
     const p: Player = {
       id, name, x: 0, y: 0, angle: 0, hp: MAX_HP, score: 0, deaths: 0, bot, alive: true,
+      weapon: bot ? 1 + Math.floor(Math.random() * (WEAPONS.length - 1)) : 0,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
       botThink: 0, botDir: { x: 0, y: 0 },
     };
@@ -93,6 +105,7 @@ export class Sim {
     const len = Math.hypot(i.mx, i.my);
     const k = len > 1 ? 1 / len : 1;
     p.input = { mx: i.mx * k, my: i.my * k, angle: Number.isFinite(i.angle) ? i.angle : 0, fire: !!i.fire };
+    if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length) p.weapon = i.weapon!;
   }
 
   private spawn(p: Player) {
@@ -120,13 +133,23 @@ export class Sim {
       p.angle = p.input.angle;
       p.cooldown -= dt;
       if (p.input.fire && p.cooldown <= 0) {
-        p.cooldown = FIRE_COOLDOWN;
-        this.bullets.push({
-          id: this.nextBullet++, owner: p.id,
-          x: p.x + Math.cos(p.angle) * (PLAYER_R + 4), y: p.y + Math.sin(p.angle) * (PLAYER_R + 4),
-          vx: Math.cos(p.angle) * BULLET_SPEED, vy: Math.sin(p.angle) * BULLET_SPEED, life: BULLET_LIFE,
-        });
+        const w = WEAPONS[p.weapon];
+        p.cooldown = w.cooldown;
+        for (let i = 0; i < w.pellets; i++) {
+          const a = p.angle + (Math.random() - 0.5) * 2 * w.spread;
+          this.bullets.push({
+            id: this.nextBullet++, owner: p.id, dmg: w.dmg,
+            x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
+            vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life,
+          });
+        }
       }
+      PICKUP_SPOTS.forEach((sp, i) => {
+        if (this.time >= this.pickupReadyAt[i] && p.hp < MAX_HP && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + PICKUP_R) {
+          p.hp = Math.min(MAX_HP, p.hp + HEAL_AMOUNT);
+          this.pickupReadyAt[i] = this.time + PICKUP_RESPAWN;
+        }
+      });
     }
 
     const alive: Bullet[] = [];
@@ -138,7 +161,7 @@ export class Sim {
       for (const p of this.players.values()) {
         if (!p.alive || p.id === b.owner) continue;
         if (Math.hypot(p.x - b.x, p.y - b.y) <= PLAYER_R) {
-          p.hp -= BULLET_DMG; hit = true;
+          p.hp -= b.dmg; hit = true;
           if (p.hp <= 0) {
             p.alive = false; p.deaths++; p.respawnAt = this.time + RESPAWN_TIME;
             const killer = this.players.get(b.owner);
@@ -181,9 +204,10 @@ export class Sim {
       t: this.time,
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
-        hp: p.hp, score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive,
+        hp: p.hp, score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y) })),
+      pickups: PICKUP_SPOTS.map((sp, i) => ({ id: i, x: sp.x, y: sp.y })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
     };
   }
 }
