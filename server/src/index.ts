@@ -1,25 +1,16 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { Sim, TICK_RATE, type ClientMsg, type ServerMsg } from '@fight/shared';
+import { Sim, TICK_RATE, TEAM_SIZE, type ClientMsg, type ServerMsg } from '@fight/shared';
 
 const PORT = Number(process.env.PORT ?? 8080);
-const MAX_PER_ROOM = 8;
-const MIN_PLAYERS = 4; // bots fill empty slots so a lone player is never waiting
+const MAX_PER_ROOM = 6; // matches 2 teams of TEAM_SIZE; bots are replaced as humans join
 
 interface Room { code: string; sim: Sim; clients: Map<string, WebSocket> }
 const rooms = new Map<string, Room>();
 
 function getRoom(code: string): Room {
   let r = rooms.get(code);
-  if (!r) { r = { code, sim: new Sim(), clients: new Map() }; rooms.set(code, r); }
+  if (!r) { r = { code, sim: new Sim({ rounds: true }), clients: new Map() }; rooms.set(code, r); }
   return r;
-}
-
-function rebalanceBots(room: Room) {
-  const humans = room.sim.humanCount();
-  const want = Math.max(0, MIN_PLAYERS - humans);
-  let have = room.sim.botCount();
-  while (have < want) { room.sim.addPlayer(`bot${Date.now()}${have}`, `Bot ${have + 1}`, true); have++; }
-  // removing surplus bots is left to attrition: bots are dropped when a human joins a full room
 }
 
 const send = (ws: WebSocket, m: ServerMsg) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); };
@@ -40,11 +31,13 @@ wss.on('connection', (ws) => {
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
       r.clients.set(id, ws);
-      r.sim.addPlayer(id, String(msg.name || 'Player').slice(0, 14));
-      rebalanceBots(r);
+      r.sim.join(id, String(msg.name || 'Player').slice(0, 14));
+      r.sim.fillBots(TEAM_SIZE);
       send(ws, { type: 'welcome', id, room: code });
     } else if (msg.type === 'input' && room) {
       room.sim.setInput(id, msg.input);
+    } else if (msg.type === 'buy' && room) {
+      room.sim.buy(id, Number(msg.item));
     }
   });
 
@@ -53,6 +46,7 @@ wss.on('connection', (ws) => {
     room.sim.removePlayer(id);
     room.clients.delete(id);
     if (room.clients.size === 0) rooms.delete(room.code);
+    else room.sim.fillBots(TEAM_SIZE);
   });
 });
 

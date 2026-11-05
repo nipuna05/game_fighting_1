@@ -18,6 +18,16 @@
     .lbl i { display: block; width: 44px; height: 5px; margin: 2px auto 0; background: #000a; border-radius: 3px; overflow: hidden; }
     .lbl b { display: block; height: 100%; background: #3ddc84; }
     #hud { position: fixed; left: 10px; top: 10px; z-index: 4; font: 14px/1.4 ui-monospace, monospace; background: #0008; padding: 6px 10px; border-radius: 6px; pointer-events: none; }
+    #topbar { position: fixed; left: 50%; top: 10px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 14px; font: 600 18px ui-monospace, monospace; background: #000a; padding: 6px 16px; border-radius: 8px; pointer-events: none; white-space: nowrap; }
+    #topbar .ct { color: #7db4ff; } #topbar .t { color: #ffb15e; } #topbar .tm { min-width: 150px; text-align: center; font-size: 15px; }
+    #banner { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 4; text-align: center; pointer-events: none; text-shadow: 0 2px 8px #000; }
+    #banner .big { font-size: 44px; font-weight: 800; letter-spacing: 2px; } #banner .sub { font-size: 18px; margin-top: 4px; }
+    #bar { width: 260px; height: 10px; margin: 8px auto 0; background: #000a; border-radius: 5px; overflow: hidden; display: none; } #bar b { display: block; height: 100%; width: 0; background: #ffd34d; }
+    #buy { position: fixed; left: 50%; bottom: 8%; transform: translateX(-50%); z-index: 4; display: none; background: #0b0f14ee; border: 1px solid #2a3544; border-radius: 12px; padding: 12px 14px; text-align: center; }
+    #buy h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; } #buy .row { display: flex; gap: 8px; }
+    #buy button { font: 14px system-ui; color: #e8eef5; background: #1c2735; border: 1px solid #2f3d52; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    #buy button:hover:not(:disabled) { background: #2f6fed; } #buy button:disabled { opacity: .4; cursor: default; }
+    .lbl.ct span { color: #8fc0ff; } .lbl.t span { color: #ffbe73; }
     #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
     .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
     .stick.left { left: 6%; } .stick.right { right: 6%; }
@@ -28,6 +38,11 @@
   <div id="game"></div>
   <div id="labels"></div>
   <div id="hud"></div>
+  <div id="topbar"><span class="ct" id="ctw"></span><span class="tm" id="tm"></span><span class="t" id="tw"></span></div>
+  <div id="banner"><div class="big" id="bigtxt"></div><div class="sub" id="subtxt"></div><div id="bar"><b></b></div></div>
+  <div id="buy"><h3>BUY &mdash; <span id="buytime"></span></h3><div class="row">
+    <button data-item="2">[Z] Shotgun $1200</button><button data-item="1">[X] Rifle $2700</button>
+    <button data-item="3">[C] Sniper $4750</button><button data-item="4">[V] Armor $650</button></div></div>
   <div id="touch">
     <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
     <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
@@ -38,7 +53,7 @@
     <button id="single">Single player (vs bots)</button>
     <input id="room" maxlength="16" placeholder="Room code (blank = public)" />
     <button id="multi" class="alt">Multiplayer</button>
-    <small>Desktop: WASD to move, mouse to aim, click to shoot. Mobile: left stick moves, right stick aims and shoots.</small>
+    <small>Desktop: WASD move, mouse aim, click shoot, hold E plant/defuse, Z/X/C/V buy, 1-4 weapon. Mobile: left stick moves, right stick aims and shoots.</small>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

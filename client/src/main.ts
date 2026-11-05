@@ -1,14 +1,17 @@
 import * as THREE from 'three';
 import {
-  Sim, WALLS, WEAPONS, WORLD_W, WORLD_H, PLAYER_R, PICKUP_R, MAX_HP, TICK_RATE,
-  type Input, type Snapshot, type ServerMsg,
+  Sim, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
+  ARMOR_ITEM, ARMOR_COST,
+  type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
-const keys = { up: false, down: false, left: false, right: false };
+const keys = { up: false, down: false, left: false, right: false, use: false };
+const BUY_KEYS: Record<string, number> = { KeyZ: 2, KeyX: 1, KeyC: 3, KeyV: ARMOR_ITEM };
+let game: Game | null = null;
 const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false };
 const mouse = { x: 0, y: 0, down: false };
 let weapon = 0;
@@ -48,6 +51,8 @@ window.addEventListener('keyup', (e) => setKey(e.code, false));
 function setKey(code: string, v: boolean) {
   const m = /^Digit(\d)$/.exec(code);
   if (m && v) { const n = Number(m[1]) - 1; if (n >= 0 && n < WEAPONS.length) weapon = n; }
+  if (v && code in BUY_KEYS) game?.buy(BUY_KEYS[code]);
+  if (code === 'KeyE') keys.use = v;
   if (code === 'KeyW' || code === 'ArrowUp') keys.up = v;
   if (code === 'KeyS' || code === 'ArrowDown') keys.down = v;
   if (code === 'KeyA' || code === 'ArrowLeft') keys.left = v;
@@ -149,6 +154,8 @@ class Game {
   private labels = new Map<string, HTMLDivElement>();
   private pickupMeshes = new Map<number, THREE.Group>();
   private bullets: THREE.InstancedMesh;
+  private bombMesh: THREE.Mesh;
+  private lastBuyState = '';
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -186,11 +193,15 @@ class Game {
     this.bullets = new THREE.InstancedMesh(bg, new THREE.MeshBasicMaterial({ color: 0xffd34d }), 600);
     this.bullets.frustumCulled = false;
     this.scene.add(this.bullets);
+    this.bombMesh = new THREE.Mesh(new THREE.BoxGeometry(16, 9, 12), new THREE.MeshStandardMaterial({ color: 0xc0392b, emissive: 0xff2200, emissiveIntensity: 0.5 }));
+    this.bombMesh.castShadow = true; this.bombMesh.visible = false;
+    this.scene.add(this.bombMesh);
+    $('buy').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => this.buy(Number((b as HTMLElement).dataset.item))));
 
     if (cfg.mode === 'single') {
-      this.sim = new Sim();
-      this.sim.addPlayer(this.myId, cfg.name);
-      for (let i = 1; i <= 3; i++) this.sim.addPlayer(`bot${i}`, `Bot ${i}`, true);
+      this.sim = new Sim({ rounds: true });
+      this.sim.join(this.myId, cfg.name);
+      this.sim.fillBots(TEAM_SIZE);
     } else {
       this.connect();
     }
@@ -208,6 +219,11 @@ class Game {
       else this.snap = m.snap;
     };
     this.ws.onclose = () => { this.status = 'Disconnected (is the server running?)'; };
+  }
+
+  buy(item: number) {
+    if (this.sim) this.sim.buy(this.myId, item);
+    else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'buy', item }));
   }
 
   private buildWorld() {
@@ -234,6 +250,25 @@ class Game {
     floor.position.set(cx, 0, cz);
     floor.receiveShadow = true;
     s.add(floor);
+
+    // team spawn zones (tinted) and bomb sites (ringed letters)
+    (Object.keys(SPAWN_ZONES) as Team[]).forEach((t) => {
+      const z = SPAWN_ZONES[t];
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(z.w, z.h), new THREE.MeshBasicMaterial({ color: t === 'CT' ? 0x3f8cff : 0xd9822b, transparent: true, opacity: 0.18 }));
+      m.rotation.x = -Math.PI / 2; m.position.set(z.x + z.w / 2, 0.6, z.y + z.h / 2);
+      s.add(m);
+    });
+    for (const site of SITES) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(site.r - 8, site.r, 48), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.8 }));
+      ring.rotation.x = -Math.PI / 2; ring.position.set(site.x, 0.8, site.y);
+      const fill = new THREE.Mesh(new THREE.CircleGeometry(site.r - 8, 48), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.08 }));
+      fill.rotation.x = -Math.PI / 2; fill.position.set(site.x, 0.7, site.y);
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d')!; g.fillStyle = '#ffd34d'; g.font = 'bold 100px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(site.id, 64, 70);
+      const letter = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.55 }));
+      letter.rotation.x = -Math.PI / 2; letter.position.set(site.x, 0.9, site.y);
+      s.add(ring, fill, letter);
+    }
 
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x8a9bb5, roughness: 0.8 });
     const edgeMat = new THREE.MeshStandardMaterial({ color: 0xb4c4dc, roughness: 0.6 });
@@ -274,7 +309,7 @@ class Game {
       this.raycaster.setFromCamera(ndc, this.camera);
       if (this.raycaster.ray.intersectPlane(this.aimPlane, this.tmp)) angle = Math.atan2(this.tmp.z - me.y, this.tmp.x - me.x);
     }
-    return { mx, my, angle, fire, weapon };
+    return { mx, my, angle, fire, weapon, use: keys.use };
   }
 
   private frame() {
@@ -324,7 +359,7 @@ class Game {
 
       let c = this.chars.get(p.id);
       if (!c) {
-        c = makeCharacter(p.id === this.myId ? 0x3f8cff : p.bot ? 0xc24a4a : 0xe0a34d);
+        c = makeCharacter(p.team === 'CT' ? 0x3f8cff : 0xd9822b);
         this.chars.set(p.id, c);
         this.scene.add(c.root);
       }
@@ -364,8 +399,25 @@ class Game {
     for (const [id, m] of this.pickupMeshes) if (!live.has(id)) { this.scene.remove(m); this.pickupMeshes.delete(id); }
 
     // camera follows the player from an angled third-person view
-    const me = this.shown.get(this.myId);
+    const meP = s.players.find((q) => q.id === this.myId);
+    let camId = this.myId;
+    if (meP && !meP.alive) { // spectate a living teammate while dead
+      const mate = s.players.find((q) => q.alive && q.team === meP.team) ?? s.players.find((q) => q.alive);
+      if (mate) camId = mate.id;
+    }
+    const me = this.shown.get(camId);
     if (me) this.camTarget.lerp(this.tmp.set(me.x, 0, me.y), Math.min(1, dt * 8));
+
+    // bomb: on the carrier's back, dropped on the floor, or armed at the site
+    const bomb = s.round?.bomb;
+    this.bombMesh.visible = !!bomb && bomb.status !== 'none';
+    if (bomb && this.bombMesh.visible) {
+      const car = bomb.carrier ? this.shown.get(bomb.carrier) : undefined;
+      if (bomb.status === 'carried' && car) this.bombMesh.position.set(car.x - Math.cos(car.angle) * 12, 38, car.y - Math.sin(car.angle) * 12);
+      else this.bombMesh.position.set(bomb.x, 5, bomb.y);
+      const blink = bomb.status === 'planted' ? 0.4 + 0.6 * Math.abs(Math.sin(time * (bomb.fuse < 10 ? 10 : 4))) : 0.3;
+      (this.bombMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = blink * 2;
+    }
     this.camera.position.set(this.camTarget.x, 560, this.camTarget.z + 430);
     this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
   }
@@ -376,7 +428,7 @@ class Game {
       let el = this.labels.get(p.id);
       if (!el) {
         el = document.createElement('div');
-        el.className = 'lbl';
+        el.className = `lbl ${p.team === 'CT' ? 'ct' : 't'}`;
         el.innerHTML = '<span></span><i><b></b></i>';
         el.querySelector('span')!.textContent = p.name;
         this.labelLayer.appendChild(el);
@@ -390,14 +442,70 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
+    if (s.round) this.updateHud(s);
+  }
+
+  private updateHud(s: Snapshot) {
+    const r = s.round!;
     const me = s.players.find((p) => p.id === this.myId);
-    const board = [...s.players].sort((a, b) => b.score - a.score).slice(0, 6)
-      .map((p) => `${p.id === this.myId ? '&gt; ' : '&nbsp;&nbsp;'}${esc(p.name)}  ${p.score}/${p.deaths}`).join('<br>');
-    const wl = WEAPONS.map((x, i) => `${i + 1}:${x.name}`).join('  ');
-    this.hud.innerHTML = `${this.status ? esc(this.status) + '<br>' : ''}Weapon: ${me ? WEAPONS[me.weapon].name : ''} &nbsp;[${wl}]<br>${me && !me.alive ? 'Respawning...<br>' : ''}${board}`;
+    const myTeam: Team = me?.team ?? 'CT';
+    $('ctw').textContent = `CT ${r.ctWins}`;
+    $('tw').textContent = `${r.tWins} T`;
+    const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? 'BUY' : r.phase === 'live' ? fmt(r.timeLeft) : '';
+    $('tm').textContent = `R${r.roundNo}  ${clock}`;
+
+    // banner: round result, bomb actions, role hints
+    let big = '', sub = '', prog = 0;
+    if (r.phase === 'post' || r.phase === 'over') {
+      big = r.phase === 'over' ? `${r.winner} WIN THE MATCH` : `${r.winner === 'CT' ? 'COUNTER-TERRORISTS' : 'TERRORISTS'} WIN`;
+      sub = r.reason;
+    } else if (r.bomb.progress > 0) {
+      big = r.bomb.status === 'carried' ? 'PLANTING...' : 'DEFUSING...';
+      prog = r.bomb.progress;
+    } else if (me && !me.alive && r.phase === 'live') {
+      sub = 'You are dead - spectating';
+    } else if (me?.alive && r.phase === 'buy') {
+      sub = myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, hold E to plant' : 'Escort the bomb carrier') : 'Defend sites A and B';
+    } else if (me?.alive && r.bomb.status === 'carried' && r.bomb.carrier === me.id) {
+      sub = 'You carry the bomb - hold E inside a site to plant';
+    } else if (r.bomb.status === 'planted') {
+      sub = myTeam === 'CT' ? 'Bomb planted! Hold E next to it to defuse' : 'Bomb planted - protect it';
+    } else if (r.bomb.status === 'dropped') {
+      sub = 'The bomb was dropped';
+    }
+    $('bigtxt').textContent = big;
+    $('subtxt').textContent = sub;
+    const bar = $('bar');
+    bar.style.display = prog > 0 ? 'block' : 'none';
+    (bar.firstElementChild as HTMLElement).style.width = `${Math.min(1, prog) * 100}%`;
+
+    // buy panel: only in the buy phase while alive
+    const showBuy = !!me && me.alive && r.phase === 'buy';
+    $('buy').style.display = showBuy ? 'block' : 'none';
+    if (showBuy && me) {
+      $('buytime').textContent = `${Math.ceil(r.timeLeft)}s   $${me.money}`;
+      const key = `${me.money}|${me.owned}|${me.armor}`;
+      if (key !== this.lastBuyState) {
+        this.lastBuyState = key;
+        $('buy').querySelectorAll('button').forEach((btn) => {
+          const item = Number((btn as HTMLElement).dataset.item);
+          const cost = item === ARMOR_ITEM ? ARMOR_COST : WEAPONS[item].cost;
+          const have = item === ARMOR_ITEM ? me.armor >= 100 : ((me.owned >> item) & 1) === 1;
+          (btn as HTMLButtonElement).disabled = have || me.money < cost;
+        });
+      }
+    }
+
+    const owned = WEAPONS.map((w, i) => (((me?.owned ?? 1) >> i) & 1 ? `${i + 1}:${w.name}` : '')).filter(Boolean).join('  ');
+    const board = [...s.players]
+      .sort((a, b) => (a.team === b.team ? b.score - a.score : a.team === 'CT' ? -1 : 1))
+      .map((p) => `${p.id === this.myId ? '&gt;' : '&nbsp;'}${p.team === 'CT' ? 'CT' : 'T&nbsp;'} ${esc(p.name)} ${p.score}/${p.deaths}${p.alive ? '' : ' x'}`)
+      .join('<br>');
+    this.hud.innerHTML = `${this.status ? esc(this.status) + '<br>' : ''}$${me?.money ?? 0} &nbsp;HP ${me?.hp ?? 0} &nbsp;Armor ${me?.armor ?? 0}<br>Weapon: ${me ? WEAPONS[me.weapon].name : ''} [${owned}]<br>${board}`;
   }
 }
 
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 // ---------- boot ----------
@@ -406,7 +514,7 @@ function start(mode: 'single' | 'multi') {
   const room = ($('room') as HTMLInputElement).value.trim();
   $('menu').style.display = 'none';
   if (isTouch) bindTouch();
-  new Game({ mode, name, room });
+  game = new Game({ mode, name, room });
 }
 $('single').addEventListener('click', () => start('single'));
 $('multi').addEventListener('click', () => start('multi'));
