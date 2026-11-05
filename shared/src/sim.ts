@@ -9,14 +9,29 @@ export const MAX_HP = 100;
 export const RESPAWN_TIME = 2.5; // dm only
 export const TICK_RATE = 30;
 
-export interface WeaponDef { name: string; cost: number; dmg: number; cooldown: number; speed: number; life: number; pellets: number; spread: number }
+export type WeaponSlot = 'sidearm' | 'primary';
+export interface WeaponDef { id: string; name: string; slot: WeaponSlot; cat: string; cost: number; dmg: number; cooldown: number; speed: number; life: number; pellets: number; spread: number }
+// Order is stable (it is part of the network protocol and saved profiles): sidearms first, then primaries.
 export const WEAPONS: WeaponDef[] = [
-  { name: 'Pistol',  cost: 0,    dmg: 20, cooldown: 0.28, speed: 700,  life: 0.9,  pellets: 1, spread: 0.03 },
-  { name: 'Rifle',   cost: 2700, dmg: 14, cooldown: 0.11, speed: 800,  life: 1.0,  pellets: 1, spread: 0.07 },
-  { name: 'Shotgun', cost: 1200, dmg: 12, cooldown: 0.8,  speed: 650,  life: 0.45, pellets: 6, spread: 0.30 },
-  { name: 'Sniper',  cost: 4750, dmg: 80, cooldown: 1.2,  speed: 1400, life: 1.2,  pellets: 1, spread: 0.0 },
+  // sidearms: free, chosen in the menu
+  { id: 'usp',     name: 'USP .45',      slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 20,  cooldown: 0.28,  speed: 700,  life: 0.9,  pellets: 1, spread: 0.03 },
+  { id: 'deagle',  name: 'Desert Eagle', slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 48,  cooldown: 0.62,  speed: 780,  life: 1.0,  pellets: 1, spread: 0.02 },
+  { id: 'glock',   name: 'Glock 18',     slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 11,  cooldown: 0.085, speed: 680,  life: 0.7,  pellets: 1, spread: 0.11 },
+  // primaries: bought each round
+  { id: 'mp5',     name: 'MP5',          slot: 'primary', cat: 'SMG',     cost: 1500, dmg: 11,  cooldown: 0.075, speed: 720,  life: 0.65, pellets: 1, spread: 0.10 },
+  { id: 'p90',     name: 'P90',          slot: 'primary', cat: 'SMG',     cost: 2300, dmg: 10,  cooldown: 0.06,  speed: 740,  life: 0.7,  pellets: 1, spread: 0.12 },
+  { id: 'spas12',  name: 'SPAS-12',      slot: 'primary', cat: 'Shotgun', cost: 1800, dmg: 12,  cooldown: 0.75,  speed: 650,  life: 0.45, pellets: 7, spread: 0.30 },
+  { id: 'striker', name: 'Striker',      slot: 'primary', cat: 'Shotgun', cost: 2600, dmg: 9,   cooldown: 0.32,  speed: 650,  life: 0.45, pellets: 6, spread: 0.34 },
+  { id: 'ak47',    name: 'AK-47',        slot: 'primary', cat: 'Rifle',   cost: 2700, dmg: 17,  cooldown: 0.10,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.09 },
+  { id: 'm4a1',    name: 'M4A1',         slot: 'primary', cat: 'Rifle',   cost: 3100, dmg: 14,  cooldown: 0.085, speed: 820,  life: 1.0,  pellets: 1, spread: 0.05 },
+  { id: 'l118a',   name: 'L118A',        slot: 'primary', cat: 'Sniper',  cost: 4750, dmg: 85,  cooldown: 1.3,   speed: 1500, life: 1.3,  pellets: 1, spread: 0.0 },
+  { id: 'm60e4',   name: 'M60E4',        slot: 'primary', cat: 'LMG',     cost: 5200, dmg: 13,  cooldown: 0.075, speed: 790,  life: 1.0,  pellets: 1, spread: 0.14 },
+  { id: 'barrett', name: 'Barrett .50',  slot: 'primary', cat: 'Sniper',  cost: 6000, dmg: 120, cooldown: 1.6,   speed: 1700, life: 1.4,  pellets: 1, spread: 0.0 },
 ];
-export const ARMOR_ITEM = 4; // buy() item id for body armor (0..3 are WEAPONS)
+export const SIDEARM_COUNT = WEAPONS.filter((w) => w.slot === 'sidearm').length; // sidearms occupy indexes 0..SIDEARM_COUNT-1
+const SIDEARM_MASK = (1 << SIDEARM_COUNT) - 1;
+const ALL_MASK = (1 << WEAPONS.length) - 1;
+export const ARMOR_ITEM = WEAPONS.length; // buy() item id for body armor
 export const ARMOR_COST = 650;
 
 export const PICKUP_RESPAWN = 15;
@@ -51,7 +66,7 @@ export const SPAWN_ZONES: Record<Team, Rect> = {
   CT: { x: 1410, y: 420, w: 120, h: 360 },
 };
 
-export type WallKind = 'outer' | 'container' | 'building' | 'barrier' | 'crate';
+export type WallKind = 'outer' | 'shop' | 'fountain' | 'barrier' | 'crate' | 'scooter';
 export interface Rect { x: number; y: number; w: number; h: number; kind?: WallKind }
 
 // Every rect blocks movement and bullets. `kind` only changes how the client draws it.
@@ -60,11 +75,11 @@ export const WALLS: Rect[] = [
   { x: 0, y: WORLD_H - 20, w: WORLD_W, h: 20, kind: 'outer' },
   { x: 0, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
   { x: WORLD_W - 20, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
-  { x: 400, y: 300, w: 200, h: 40, kind: 'container' },
-  { x: 1000, y: 300, w: 200, h: 40, kind: 'container' },
-  { x: 400, y: 860, w: 200, h: 40, kind: 'container' },
-  { x: 1000, y: 860, w: 200, h: 40, kind: 'container' },
-  { x: 740, y: 500, w: 120, h: 200, kind: 'building' },
+  { x: 400, y: 300, w: 200, h: 40, kind: 'shop' },
+  { x: 1000, y: 300, w: 200, h: 40, kind: 'shop' },
+  { x: 400, y: 860, w: 200, h: 40, kind: 'shop' },
+  { x: 1000, y: 860, w: 200, h: 40, kind: 'shop' },
+  { x: 740, y: 500, w: 120, h: 200, kind: 'fountain' },
   { x: 250, y: 560, w: 40, h: 160, kind: 'barrier' },
   { x: 1310, y: 560, w: 40, h: 160, kind: 'barrier' },
   // crates: cover around the bomb sites and in the middle lanes (symmetric about the map centre)
@@ -74,6 +89,9 @@ export const WALLS: Rect[] = [
   { x: 620, y: 950, w: 44, h: 44, kind: 'crate' },
   { x: 560, y: 580, w: 44, h: 44, kind: 'crate' },
   { x: 996, y: 576, w: 44, h: 44, kind: 'crate' },
+  // parked scooters (a mirrored pair)
+  { x: 520, y: 230, w: 34, h: 16, kind: 'scooter' },
+  { x: 1046, y: 954, w: 34, h: 16, kind: 'scooter' },
 ];
 
 export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean }
@@ -100,7 +118,7 @@ export interface RoundState {
 export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[]; pickups: PickupState[]; round: RoundState | null }
 
 interface Player extends PlayerState {
-  input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
+  sidearm: number; input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
 interface Bullet extends BulletState { owner: string; team: Team; vx: number; vy: number; life: number; dmg: number }
@@ -164,17 +182,18 @@ export class Sim {
 
   // ---------- roster ----------
   /** Adds a human (rounds mode: to the team with fewer humans). */
-  join(id: string, name: string, skin = 0) {
+  join(id: string, name: string, skin = 0, sidearm = 0) {
     let humansT = 0, humansCT = 0;
     for (const p of this.players.values()) if (!p.bot) (p.team === 'T' ? humansT++ : humansCT++);
-    this.addPlayer(id, name, false, humansCT <= humansT ? 'CT' : 'T', skin);
+    this.addPlayer(id, name, false, humansCT <= humansT ? 'CT' : 'T', skin, sidearm);
   }
 
-  addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 0 : 1) : 0) {
+  addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 0 : 1) : 0, sidearm = bot ? Math.floor(Math.random() * SIDEARM_COUNT) : 0) {
+    sidearm = Math.max(0, Math.min(SIDEARM_COUNT - 1, Math.floor(sidearm) || 0));
     const p: Player = {
       id, name, x: 0, y: 0, angle: 0, hp: MAX_HP, score: 0, deaths: 0, bot, alive: true,
-      weapon: !this.rounds && bot ? 1 + Math.floor(Math.random() * (WEAPONS.length - 1)) : 0,
-      team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 : 0b1111,
+      sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
+      team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * SITES.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
@@ -234,9 +253,10 @@ export class Sim {
     }
     if (!Number.isInteger(item) || item < 0 || item >= WEAPONS.length) return false;
     const w = WEAPONS[item];
-    if ((p.owned >> item) & 1 || p.money < w.cost) return false;
-    p.money -= w.cost; p.owned |= 1 << item;
-    if (w.cost >= WEAPONS[p.weapon].cost) p.weapon = item; // equip upgrades only (so a rebuy keeps your best gun in hand)
+    if (w.slot !== 'primary' || (p.owned >> item) & 1 || p.money < w.cost) return false;
+    p.money -= w.cost;
+    p.owned = (p.owned & SIDEARM_MASK) | (1 << item); // a new primary replaces the old one
+    p.weapon = item;
     return true;
   }
 
@@ -274,7 +294,7 @@ export class Sim {
     this.pickupReadyAt.fill(0);
     for (const p of this.players.values()) {
       const keep = p.alive && !this.freshMatch; // survivors keep their gear
-      if (!keep) { p.owned = 1; p.weapon = 0; p.armor = 0; }
+      if (!keep) { p.owned = 1 << p.sidearm; p.weapon = p.sidearm; p.armor = 0; }
       this.spawn(p);
       p.input = { mx: 0, my: 0, angle: p.angle, fire: false };
       p.botGoal = Math.floor(Math.random() * SITES.length);
@@ -290,17 +310,12 @@ export class Sim {
   }
 
   private botBuy(p: Player) {
-    for (const item of [1, 2]) { // rifle, else shotgun
-      if (p.owned > 1) break;
-      this.buyFor(p, item);
+    const options = WEAPONS.map((w, i) => ({ w, i })).filter((o) => o.w.slot === 'primary' && o.w.cost <= p.money).sort((a, b) => b.w.cost - a.w.cost);
+    if (options.length && p.owned <= SIDEARM_MASK) { // only buy when the bot has no primary yet
+      const pick = options[Math.min(options.length - 1, Math.floor(Math.random() * Math.min(3, options.length)))];
+      p.money -= pick.w.cost; p.owned = (p.owned & SIDEARM_MASK) | (1 << pick.i); p.weapon = pick.i;
     }
     if (p.armor === 0 && p.money >= ARMOR_COST + 300) { p.money -= ARMOR_COST; p.armor = 100; }
-  }
-  private buyFor(p: Player, item: number) {
-    const w = WEAPONS[item];
-    if ((p.owned >> item) & 1 || p.money < w.cost) return;
-    p.money -= w.cost; p.owned |= 1 << item;
-    if (w.cost >= WEAPONS[p.weapon].cost) p.weapon = item;
   }
 
   private endRound(winner: Team, reason: string) {
@@ -519,7 +534,7 @@ export class Sim {
 
 // ---- network protocol ----
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string; skin?: number }
+  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number };
 export type ServerMsg =

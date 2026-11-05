@@ -16,7 +16,7 @@ const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
 const keys = { up: false, down: false, left: false, right: false, use: false };
-const BUY_KEYS: Record<string, number> = { KeyZ: 2, KeyX: 1, KeyC: 3, KeyV: ARMOR_ITEM };
+const BUY_KEYS: Record<string, number> = { KeyV: ARMOR_ITEM };
 const profile = loadProfile();
 let game: Game | null = null;
 const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false };
@@ -56,7 +56,7 @@ window.addEventListener('keydown', (e) => setKey(e.code, true));
 window.addEventListener('keyup', (e) => setKey(e.code, false));
 function setKey(code: string, v: boolean) {
   const m = /^Digit(\d)$/.exec(code);
-  if (m && v) game?.selectWeapon(Number(m[1]) - 1);
+  if (m && v) game?.selectSlot(Number(m[1]));
   if (v && code === 'KeyQ') game?.lastWeapon();
   if (v && code === 'KeyB') game?.rebuy();
   if (v && code in BUY_KEYS) game?.buy(BUY_KEYS[code]);
@@ -242,7 +242,7 @@ function makePickup(): THREE.Group {
 }
 
 // ---------- game ----------
-interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number }
+interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number }
 interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
@@ -301,13 +301,12 @@ class Game {
     this.bombMesh = new THREE.Mesh(new THREE.BoxGeometry(16, 9, 12), new THREE.MeshStandardMaterial({ color: 0xc0392b, emissive: 0xff2200, emissiveIntensity: 0.5 }));
     this.bombMesh.castShadow = true; this.bombMesh.visible = false;
     this.scene.add(this.bombMesh);
-    $('buy').querySelectorAll('button[data-item]').forEach((b) => b.addEventListener('click', () => this.buy(Number((b as HTMLElement).dataset.item))));
-    $('rebuy').addEventListener('click', () => this.rebuy());
+    this.buildBuyMenu();
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
       this.sim = new Sim({ rounds: true });
-      this.sim.join(this.myId, cfg.name, cfg.skin);
+      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm);
       this.sim.fillBots(TEAM_SIZE);
     } else {
       this.connect();
@@ -319,7 +318,7 @@ class Game {
     this.status = 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:8080`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin }));
+    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm }));
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; }
@@ -335,6 +334,14 @@ class Game {
     const me = this.me();
     if (!me || !me.alive || !Number.isInteger(i) || i < 0 || i >= WEAPONS.length || !((me.owned >> i) & 1) || i === me.weapon) return;
     this.pendingWeapon = i;
+  }
+  /** Keys 1 / 2: the sidearm / primary slot. */
+  selectSlot(n: number) {
+    const me = this.me();
+    const want = n === 1 ? 'sidearm' : n === 2 ? 'primary' : null;
+    if (!me || !want) return;
+    const i = WEAPONS.findIndex((w, k) => w.slot === want && ((me.owned >> k) & 1));
+    if (i >= 0) this.selectWeapon(i);
   }
   /** Mouse wheel: next / previous owned weapon. */
   cycleWeapon(dir: number) {
@@ -355,6 +362,46 @@ class Game {
     if (!pack || !me || !me.alive || this.snap?.round?.phase !== 'buy') return;
     for (const i of [...pack.weapons].sort((a, b) => WEAPONS[b].cost - WEAPONS[a].cost)) if (!((me.owned >> i) & 1)) this.buy(i);
     if (pack.armor && me.armor < 100) this.buy(ARMOR_ITEM);
+  }
+
+  /** Builds the buy menu: primaries grouped by type, plus armor and rebuy. */
+  private buildBuyMenu() {
+    const grid = $('buygrid');
+    grid.innerHTML = '';
+    for (const cat of ['SMG', 'Shotgun', 'Rifle', 'Sniper', 'LMG']) {
+      const col = document.createElement('div');
+      col.className = 'grp';
+      col.innerHTML = `<h4>${cat}</h4>`;
+      WEAPONS.forEach((w, i) => {
+        if (w.cat !== cat || w.slot !== 'primary') return;
+        const b = document.createElement('button');
+        b.dataset.item = String(i);
+        b.innerHTML = `${esc(w.name)}<small>$${w.cost}</small>`;
+        b.addEventListener('click', () => this.buy(i));
+        col.appendChild(b);
+      });
+      grid.appendChild(col);
+    }
+    const gear = document.createElement('div');
+    gear.className = 'grp';
+    gear.innerHTML = '<h4>Gear</h4>';
+    const armor = document.createElement('button');
+    armor.dataset.item = String(ARMOR_ITEM);
+    armor.innerHTML = `[V] Armor<small>$${ARMOR_COST}</small>`;
+    armor.addEventListener('click', () => this.buy(ARMOR_ITEM));
+    const rebuy = document.createElement('button');
+    rebuy.id = 'rebuy';
+    rebuy.innerHTML = '[B] Rebuy<small>last pack</small>';
+    rebuy.addEventListener('click', () => this.rebuy());
+    gear.append(armor, rebuy);
+    grid.appendChild(gear);
+  }
+
+  /** Menu "auto-buy": at the start of each buy phase, buy the favourite primary (and armor). */
+  private autoBuy(me: Snapshot['players'][number]) {
+    const ab = profile.autoBuy;
+    if (ab.primary !== null && !((me.owned >> ab.primary) & 1)) this.buy(ab.primary);
+    if (ab.armor && me.armor < 100) this.buy(ARMOR_ITEM);
   }
 
   buy(item: number) {
@@ -568,8 +615,9 @@ class Game {
     const r = s.round!, me = this.me();
     if (!me) return;
     if (me.weapon !== this.curWeapon) { this.prevWeapon = this.curWeapon; this.curWeapon = me.weapon; }
+    if (r.phase === 'buy' && this.tp.phase !== 'buy' && me.alive) this.autoBuy(me);
     if (this.tp.phase === 'buy' && r.phase === 'live' && me.alive) {
-      const weapons = WEAPONS.map((_, i) => i).filter((i) => i > 0 && ((me.owned >> i) & 1));
+      const weapons = WEAPONS.map((_, i) => i).filter((i) => WEAPONS[i].slot === 'primary' && ((me.owned >> i) & 1));
       if (weapons.length || me.armor > 0) { profile.pack = { weapons, armor: me.armor > 0 }; saveProfile(profile); }
     }
     if (r.phase === 'over' && !this.tp.recorded && r.winner) {
@@ -585,7 +633,10 @@ class Game {
     const key = me ? `${me.owned}|${me.weapon}` : '';
     if (key === this.lastWbar) return;
     this.lastWbar = key;
-    $('wbar').innerHTML = me ? WEAPONS.map((w, i) => `<button data-w="${i}" class="${((me.owned >> i) & 1) ? '' : 'off'} ${me.weapon === i ? 'cur' : ''}"><b>${i + 1}</b>${w.name}</button>`).join('') : '';
+    const slotWeapon = (slot: string) => WEAPONS.findIndex((w, i) => w.slot === slot && ((me!.owned >> i) & 1));
+    $('wbar').innerHTML = me ? [slotWeapon('sidearm'), slotWeapon('primary')].map((i, n) => i >= 0
+      ? `<button data-w="${i}" class="${me.weapon === i ? 'cur' : ''}"><b>${n + 1}</b>${esc(WEAPONS[i].name)}</button>`
+      : `<button class="off"><b>${n + 1}</b>Primary</button>`).join('') : '';
   }
 
   private audioEvents(s: Snapshot, time: number) {
@@ -677,7 +728,7 @@ class Game {
       }
     }
 
-    const owned = WEAPONS.map((w, i) => (((me?.owned ?? 1) >> i) & 1 ? `${i + 1}:${w.name}` : '')).filter(Boolean).join('  ');
+    const owned = WEAPONS.filter((_, i) => ((me?.owned ?? 1) >> i) & 1).map((w) => w.name).join(' / ');
     const board = [...s.players]
       .sort((a, b) => (a.team === b.team ? b.score - a.score : a.team === 'CT' ? -1 : 1))
       .map((p) => `${p.id === this.myId ? '&gt;' : '&nbsp;'}${p.team === 'CT' ? 'CT' : 'T&nbsp;'} ${esc(p.name)} ${p.score}/${p.deaths}${p.alive ? '' : ' x'}`)
@@ -737,7 +788,7 @@ async function start(mode: 'single' | 'multi') {
   initAudio();
   if (isTouch) bindTouch();
   await loadTemplate();
-  game = new Game({ mode, name, room, skin: profile.skin });
+  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm });
 }
 $('single').addEventListener('click', () => void start('single'));
 $('multi').addEventListener('click', () => void start('multi'));
@@ -756,8 +807,8 @@ if (QS.get('gallery')) {
   sc.background = new THREE.Color(0x2a3140);
   sc.add(new THREE.HemisphereLight(0xffffff, 0x445066, 2.4));
   const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(40, 90, 80); sc.add(dl);
-  WEAPONS.forEach((_, i) => { const m = makeWeaponModel(i); m.position.set(0, -i * 20, 0); sc.add(m); });
+  WEAPONS.forEach((_, i) => { const m = makeWeaponModel(i); m.position.set((i % 3) * 78 - 70, -Math.floor(i / 3) * 24 + 36, 0); sc.add(m); });
   const cam = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 500);
-  cam.position.set(14, -30, 95); cam.lookAt(14, -30, 0);
+  cam.position.set(40, 0, 190); cam.lookAt(40, 0, 0);
   r.render(sc, cam);
 }

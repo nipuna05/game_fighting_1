@@ -1,6 +1,7 @@
 // Map and weapon graphics, all generated in code (no image or model files).
+// Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
-import { WALLS, SITES, SPAWN_ZONES, PICKUP_SPOTS, WORLD_W, WORLD_H, type Rect, type Team } from '@fight/shared';
+import { WALLS, WEAPONS, SITES, SPAWN_ZONES, PICKUP_SPOTS, WORLD_W, WORLD_H, type Rect, type Team } from '@fight/shared';
 
 // ---------- texture helpers ----------
 type Draw = (g: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -20,6 +21,10 @@ function tex(c: HTMLCanvasElement, rx = 1, ry = 1): THREE.CanvasTexture {
 }
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
+const shade = (n: number, f: number) => {
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * f)), g = Math.min(255, Math.round(((n >> 8) & 255) * f)), b = Math.min(255, Math.round((n & 255) * f));
+  return `rgb(${r},${g},${b})`;
+};
 
 function noise(g: CanvasRenderingContext2D, w: number, h: number, count: number, lo: number, hi: number, alpha: number) {
   for (let i = 0; i < count; i++) {
@@ -29,82 +34,104 @@ function noise(g: CanvasRenderingContext2D, w: number, h: number, count: number,
   }
 }
 
-const concreteC = () => canvas(256, 256, (g, w, h) => {
-  g.fillStyle = '#7f8a9a'; g.fillRect(0, 0, w, h);
-  noise(g, w, h, 1500, 90, 200, 0.25);
-  g.strokeStyle = '#5d6676'; g.lineWidth = 3; g.strokeRect(1, 1, w - 2, h - 2);
-  g.beginPath(); g.moveTo(w / 2, 0); g.lineTo(w / 2, h); g.stroke();
-  g.fillStyle = 'rgba(30,35,45,0.18)';
-  for (let i = 0; i < 6; i++) g.fillRect(rnd(0, w), rnd(0, 30), rnd(3, 9), rnd(30, 110)); // rain streaks
+/** Painted plaster wall, optionally with a shuttered window. */
+const plasterC = (color: number, window: boolean, shutter = 0x3f6b4a) => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = hex(color); g.fillRect(0, 0, w, h);
+  noise(g, w, h, 1400, 90, 220, 0.12);
+  g.fillStyle = 'rgba(60,40,25,0.10)';
+  for (let i = 0; i < 7; i++) g.fillRect(rnd(0, w), rnd(0, 40), rnd(3, 10), rnd(40, 150)); // weathering streaks
+  g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(0, h - 22, w, 22);                            // dirty base
+  if (window) {
+    const wx = 88, wy = 70, ww = 80, wh = 112;
+    g.fillStyle = shade(color, 0.7); g.fillRect(wx - 10, wy - 10, ww + 20, wh + 20);          // surround
+    const grd = g.createLinearGradient(0, wy, 0, wy + wh); grd.addColorStop(0, '#6f8fa8'); grd.addColorStop(1, '#2d3f52');
+    g.fillStyle = grd; g.fillRect(wx, wy, ww, wh);                                            // glass
+    g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(wx + 6, wy + 6, 14, wh - 12);
+    g.fillStyle = '#2b2b2b'; g.fillRect(wx + ww / 2 - 2, wy, 4, wh); g.fillRect(wx, wy + wh / 2 - 2, ww, 4); // frame
+    g.fillStyle = hex(shutter);                                                               // shutters
+    g.fillRect(wx - 34, wy, 30, wh); g.fillRect(wx + ww + 4, wy, 30, wh);
+    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 2;
+    for (let y = wy + 8; y < wy + wh; y += 10) { g.beginPath(); g.moveTo(wx - 34, y); g.lineTo(wx - 4, y); g.moveTo(wx + ww + 4, y); g.lineTo(wx + ww + 34, y); g.stroke(); }
+    g.fillStyle = '#d8cfc0'; g.fillRect(wx - 14, wy + wh + 10, ww + 28, 8);                   // sill
+  }
 });
 
-const brickC = () => canvas(256, 256, (g, w, h) => {
-  g.fillStyle = '#c9c0b2'; g.fillRect(0, 0, w, h); // mortar
+const roofTileC = () => canvas(128, 128, (g, w, h) => {
+  g.fillStyle = '#9c4a2a'; g.fillRect(0, 0, w, h);
+  for (let row = 0; row < 8; row++) {
+    for (let col = -1; col < 9; col++) {
+      const x = col * 16 + (row % 2 ? 8 : 0), y = row * 16;
+      g.fillStyle = `rgb(${175 + rnd(-18, 18)},${88 + rnd(-10, 10)},${52 + rnd(-8, 8)})`;
+      g.beginPath(); g.arc(x + 8, y + 8, 9, 0, Math.PI); g.lineTo(x - 1, y + 8); g.fill();
+      g.strokeStyle = 'rgba(60,20,10,0.45)'; g.lineWidth = 1.5; g.stroke();
+    }
+  }
+});
+
+const paverC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#7d5c4a'; g.fillRect(0, 0, w, h); // mortar
   const bw = 64, bh = 32;
   for (let row = 0; row < h / bh; row++) {
     for (let col = -1; col < w / bw + 1; col++) {
       const x = col * bw + (row % 2 ? bw / 2 : 0), y = row * bh;
-      const r = 150 + rnd(-18, 18), gg = 78 + rnd(-10, 10), b = 62 + rnd(-8, 8);
-      g.fillStyle = `rgb(${r},${gg},${b})`;
+      g.fillStyle = `rgb(${186 + rnd(-20, 20)},${128 + rnd(-14, 14)},${98 + rnd(-12, 12)})`;
       g.fillRect(x + 2, y + 2, bw - 4, bh - 4);
     }
   }
-  noise(g, w, h, 600, 40, 120, 0.18);
+  noise(g, w, h, 900, 60, 160, 0.14);
 });
 
-const ribbedC = (color: number) => canvas(128, 128, (g, w, h) => {
-  g.fillStyle = hex(color); g.fillRect(0, 0, w, h);
-  for (let x = 0; x < w; x += 8) {
-    g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x, 0, 3, h);
-    g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x + 3, 0, 2, h);
+const stoneC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#9d8b6a'; g.fillRect(0, 0, w, h);
+  const bw = 64, bh = 42;
+  for (let row = 0; row < h / bh + 1; row++) {
+    for (let col = -1; col < w / bw + 1; col++) {
+      const x = col * bw + (row % 2 ? bw / 2 : 0), y = row * bh;
+      const v = rnd(-14, 14);
+      g.fillStyle = `rgb(${208 + v},${186 + v},${146 + v})`;
+      g.fillRect(x + 2, y + 2, bw - 4, bh - 4);
+    }
   }
-  g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, w, 6); g.fillRect(0, h - 6, w, 6);
-  g.fillStyle = 'rgba(110,60,20,0.25)';
-  for (let i = 0; i < 5; i++) g.fillRect(rnd(0, w), rnd(0, h), rnd(4, 14), rnd(10, 40)); // rust
+  noise(g, w, h, 700, 90, 200, 0.14);
+});
+
+const awningC = () => canvas(128, 64, (g, w, h) => {
+  for (let x = 0; x < w; x += 16) { g.fillStyle = (x / 16) % 2 ? '#f1ead9' : '#b8352b'; g.fillRect(x, 0, 16, h); }
+  g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, h - 10, w, 10);
 });
 
 const woodC = () => canvas(128, 128, (g, w, h) => {
   g.fillStyle = '#a8793f'; g.fillRect(0, 0, w, h);
-  for (let y = 0; y < h; y += 32) {
-    g.fillStyle = `rgba(${rnd(60, 100)},${rnd(35, 55)},15,0.35)`; g.fillRect(0, y, w, 2);
-  }
+  for (let y = 0; y < h; y += 32) { g.fillStyle = `rgba(${rnd(60, 100)},${rnd(35, 55)},15,0.35)`; g.fillRect(0, y, w, 2); }
   noise(g, w, h, 500, 40, 110, 0.2);
   g.strokeStyle = '#5a3a1a'; g.lineWidth = 8; g.strokeRect(4, 4, w - 8, h - 8);
   g.lineWidth = 6; g.beginPath(); g.moveTo(8, 8); g.lineTo(w - 8, h - 8); g.moveTo(w - 8, 8); g.lineTo(8, h - 8); g.stroke();
 });
 
-const hazardC = () => canvas(128, 128, (g, w, h) => {
-  g.fillStyle = '#f2c230'; g.fillRect(0, 0, w, h);
-  g.fillStyle = '#1b1b1b';
-  for (let i = -h; i < w + h; i += 32) {
-    g.beginPath(); g.moveTo(i, h); g.lineTo(i + 16, h); g.lineTo(i + 16 + h, 0); g.lineTo(i + h, 0); g.closePath(); g.fill();
-  }
+/** Front of the fountain wall: red plaster upper part and a stone arched niche with a spout. */
+const fountainFaceC = () => canvas(256, 128, (g, w, h) => {
+  g.fillStyle = '#b5483a'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 600, 90, 200, 0.12);
+  g.fillStyle = '#d9cdb6'; g.fillRect(0, h * 0.52, w, 6);                                   // cornice
+  g.fillStyle = '#cdb48a'; g.fillRect(0, h * 0.52 + 6, w, h);                               // stone lower half
+  const cx = w / 2, top = h * 0.5;
+  g.fillStyle = '#e7dcc4'; g.beginPath(); g.moveTo(cx - 44, h); g.lineTo(cx - 44, top + 30); g.arc(cx, top + 30, 44, Math.PI, 0); g.lineTo(cx + 44, h); g.fill(); // arch frame
+  g.fillStyle = '#3a342d'; g.beginPath(); g.moveTo(cx - 34, h); g.lineTo(cx - 34, top + 32); g.arc(cx, top + 32, 34, Math.PI, 0); g.lineTo(cx + 34, h); g.fill(); // recess
+  g.fillStyle = '#b9a47c'; g.beginPath(); g.arc(cx, top + 34, 11, 0, Math.PI * 2); g.fill(); // spout medallion
+  g.fillStyle = '#6fa8d8'; g.fillRect(cx - 3, top + 40, 6, h - top - 40);                   // water
 });
 
-const roofC = () => canvas(128, 128, (g, w, h) => {
-  g.fillStyle = '#3b4048'; g.fillRect(0, 0, w, h);
-  noise(g, w, h, 500, 40, 100, 0.3);
-  g.strokeStyle = '#2a2e35'; g.lineWidth = 2;
-  for (let x = 0; x < w; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-});
-
-const floorC = () => canvas(256, 256, (g, w, h) => {
-  g.fillStyle = '#4a586b'; g.fillRect(0, 0, w, h);
-  noise(g, w, h, 1500, 75, 125, 0.28);
-  g.strokeStyle = '#2f3947'; g.lineWidth = 3; g.strokeRect(0, 0, w, h);
-});
+const floorC = paverC;
 
 // ---------- walls by kind ----------
 function faceMats(factory: () => HTMLCanvasElement, w: number, h: number, d: number, tile: number, top: THREE.Material): THREE.Material[] {
   const base = factory();
-  const m = (width: number) => new THREE.MeshStandardMaterial({ map: tex(base, Math.max(1, Math.round(width / tile)), Math.max(1, Math.round(h / tile))), roughness: 0.85 });
+  const m = (width: number) => new THREE.MeshStandardMaterial({ map: tex(base, Math.max(1, Math.round(width / tile)), Math.max(1, Math.round(h / tile))), roughness: 0.9 });
   const sx = m(d), sz = m(w);
   return [sx, sx, top, top, sz, sz]; // +x, -x, +y, -y, +z, -z
 }
 
-const CONTAINER_COLORS = [0xb5483a, 0x2f6fb5, 0x3a8f5a, 0xc98a2e];
-
-function addBox(scene: THREE.Scene, w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material | THREE.Material[], shadow = true) {
+function addBox(scene: THREE.Object3D, w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material | THREE.Material[], shadow = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   m.position.set(x, y, z);
   m.castShadow = shadow; m.receiveShadow = true;
@@ -112,42 +139,46 @@ function addBox(scene: THREE.Scene, w: number, h: number, d: number, x: number, 
   return m;
 }
 
+const PLASTERS = [0xc8553d, 0xd9a441, 0xe8dcc0, 0xc4793f]; // red, ochre, cream, terracotta
+const SHUTTERS = [0x3f6b4a, 0x2f5f86, 0x6b3b2a, 0x3f6b4a];
+const roofMat = () => new THREE.MeshStandardMaterial({ map: tex(roofTileC(), 3, 1), roughness: 0.8 });
+
 function buildWall(scene: THREE.Scene, r: Rect, index: number) {
   const cx = r.x + r.w / 2, cz = r.y + r.h / 2;
-  const metal = (c: number) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.35 });
+  const std = (c: number, rough = 0.8, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
   switch (r.kind) {
-    case 'outer': {
-      const H = 110;
-      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(concreteC, r.w, H, r.h, 110, new THREE.MeshStandardMaterial({ color: 0x6b7686 })));
-      const band = tex(hazardC(), Math.max(1, Math.round(Math.max(r.w, r.h) / 28)), 1);
-      addBox(scene, r.w + 2, 6, r.h + 2, cx, H + 3, cz, new THREE.MeshStandardMaterial({ map: band, roughness: 0.7 }), false);
+    case 'outer': { // tall town facades along the map edge
+      const H = 120, c = PLASTERS[index % PLASTERS.length];
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(() => plasterC(c, true, SHUTTERS[index % SHUTTERS.length]), r.w, H, r.h, 120, std(shade(c, 0.9) === '' ? c : c)));
+      addBox(scene, r.w + 8, 10, r.h + 8, cx, H + 5, cz, roofMat(), false); // clay-tile roof edge
       break;
     }
-    case 'container': {
-      const H = 64, color = CONTAINER_COLORS[index % CONTAINER_COLORS.length];
-      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(() => ribbedC(color), r.w, H, r.h, 64, metal(0x50545c)));
-      addBox(scene, r.w + 2, 3, r.h + 2, cx, H + 1.5, cz, metal(0x2b2e34), false); // roof rim
-      for (const sx of [-1, 1]) addBox(scene, 2, H - 8, r.h - 6, cx + sx * (r.w / 2 + 0.5), H / 2, cz, metal(0x23262b), false); // door ends
-      break;
-    }
-    case 'building': {
-      const H = 92;
-      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(brickC, r.w, H, r.h, 96, new THREE.MeshStandardMaterial({ map: tex(roofC(), 2, 3), roughness: 0.9 })));
-      addBox(scene, r.w + 10, 6, r.h + 10, cx, H + 3, cz, new THREE.MeshStandardMaterial({ map: tex(roofC(), 2, 3), roughness: 0.9 })); // roof overhang
-      addBox(scene, 28, 14, 28, cx - 14, H + 13, cz - 40, metal(0x9aa3ad)); // AC unit
-      addBox(scene, 20, 10, 20, cx + 20, H + 11, cz + 50, metal(0x9aa3ad));
-      const glow = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
-      for (const sx of [-1, 1]) {
-        addBox(scene, 2, 44, 28, cx + sx * (r.w / 2 + 0.5), 22, cz, new THREE.MeshStandardMaterial({ color: 0x3b2a1b, roughness: 0.8 }), false); // door
-        for (const dz of [-60, 60]) addBox(scene, 2, 16, 24, cx + sx * (r.w / 2 + 0.5), 62, cz + dz, glow, false); // lit windows
+    case 'shop': { // low plaster shopfronts with an awning
+      const H = 72, i = index % PLASTERS.length, c = PLASTERS[i];
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(() => plasterC(c, true, SHUTTERS[i]), r.w, H, r.h, 90, std(0x7a3a28)));
+      addBox(scene, r.w + 6, 6, r.h + 6, cx, H + 3, cz, roofMat(), false);
+      for (const sz of [-1, 1]) {
+        const aw = addBox(scene, r.w - 20, 3, 16, cx, 46, cz + sz * (r.h / 2 + 7), new THREE.MeshStandardMaterial({ map: tex(awningC(), Math.round(r.w / 40), 1), roughness: 0.9 }), false);
+        aw.rotation.x = sz * -0.35; // sloped awning
       }
       break;
     }
-    case 'barrier': {
-      const H = 44;
-      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(concreteC, r.w, H, r.h, 80, new THREE.MeshStandardMaterial({ color: 0x8a95a5 })));
-      const band = tex(hazardC(), Math.max(1, Math.round(Math.max(r.w, r.h) / 30)), 1);
-      addBox(scene, r.w + 1.5, 10, r.h + 1.5, cx, H - 12, cz, new THREE.MeshStandardMaterial({ map: band, roughness: 0.7 }), false);
+    case 'fountain': { // the red-and-stone fountain wall in the middle of the plaza
+      const H = 96;
+      const face = new THREE.MeshStandardMaterial({ map: tex(fountainFaceC()), roughness: 0.85 });
+      const side = new THREE.MeshStandardMaterial({ map: tex(stoneC(), 1, 1), roughness: 0.9 });
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, [face, face, std(0x8a4a38), std(0x6e5a44), side, side]);
+      addBox(scene, r.w + 8, 8, r.h + 8, cx, H + 4, cz, roofMat(), false);
+      for (const sx of [-1, 1]) { // basins with water in front of the niches
+        addBox(scene, 26, 14, 70, cx + sx * (r.w / 2 + 14), 7, cz, std(0xcdb48a, 0.9));
+        addBox(scene, 20, 2, 60, cx + sx * (r.w / 2 + 14), 13, cz, new THREE.MeshStandardMaterial({ color: 0x5aa0d8, roughness: 0.15, metalness: 0.1 }), false);
+      }
+      break;
+    }
+    case 'barrier': { // low sandstone wall with a capstone
+      const H = 40;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(stoneC, r.w, H, r.h, 80, std(0xd8c7a0)));
+      addBox(scene, r.w + 4, 5, r.h + 4, cx, H + 2.5, cz, std(0xe3d6b4), false);
       break;
     }
     case 'crate': {
@@ -155,58 +186,76 @@ function buildWall(scene: THREE.Scene, r: Rect, index: number) {
       addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(woodC, r.w, H, r.h, 44, new THREE.MeshStandardMaterial({ map: tex(woodC()), roughness: 0.9 })));
       break;
     }
+    case 'scooter': {
+      const g = makeScooter();
+      g.position.set(cx, 0, cz);
+      scene.add(g);
+      break;
+    }
     default:
-      addBox(scene, r.w, 64, r.h, cx, 32, cz, new THREE.MeshStandardMaterial({ color: 0x8a9bb5 }));
+      addBox(scene, r.w, 64, r.h, cx, 32, cz, std(0xb8a58a));
   }
+}
+
+function makeScooter(): THREE.Group {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color: 0xe6b422, roughness: 0.35, metalness: 0.3 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1b1f, roughness: 0.7 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xd0d4da, roughness: 0.25, metalness: 0.8 });
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z = 0, rx = 0, rz = 0) => {
+    const mesh = new THREE.Mesh(geo, m); mesh.position.set(x, y, z); mesh.rotation.set(rx, 0, rz); mesh.castShadow = true; g.add(mesh); return mesh;
+  };
+  add(new THREE.BoxGeometry(18, 13, 11), paint, -7, 13);                  // rear body
+  add(new THREE.BoxGeometry(4, 22, 10), paint, 9, 15, 0, 0, -0.2);         // front shield
+  add(new THREE.BoxGeometry(13, 3, 8), dark, -6, 21);                      // seat
+  add(new THREE.BoxGeometry(2, 2.2, 15), chrome, 11, 27);                  // handlebar
+  add(new THREE.SphereGeometry(2.6, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff3c0 }), 12.5, 24);
+  for (const wx of [-12, 12]) add(new THREE.CylinderGeometry(6, 6, 4, 14), dark, wx, 6, 0, Math.PI / 2);
+  return g;
 }
 
 // ---------- painted floor markings (one big transparent decal) ----------
 function decalCanvas(): HTMLCanvasElement {
   return canvas(WORLD_W, WORLD_H, (g) => {
-    // tyre/wear smudges
-    for (let i = 0; i < 40; i++) {
-      g.fillStyle = `rgba(10,14,20,${rnd(0.02, 0.05)})`;
+    for (let i = 0; i < 30; i++) { // worn patches
+      g.fillStyle = `rgba(40,20,10,${rnd(0.02, 0.05)})`;
       g.beginPath(); g.ellipse(rnd(60, WORLD_W - 60), rnd(60, WORLD_H - 60), rnd(30, 120), rnd(20, 70), rnd(0, 3), 0, Math.PI * 2); g.fill();
     }
-    // lane markings
-    g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 5; g.setLineDash([26, 22]);
+    g.strokeStyle = 'rgba(255,245,225,0.35)'; g.lineWidth = 5; g.setLineDash([26, 22]);
     const line = (x1: number, y1: number, x2: number, y2: number) => { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
     line(300, 600, 730, 600); line(870, 600, 1300, 600);
     line(800, 340, 800, 490); line(800, 710, 800, 860);
     g.setLineDash([]);
 
-    // pickup pads
     for (const sp of PICKUP_SPOTS) {
-      g.strokeStyle = 'rgba(61,220,132,0.55)'; g.lineWidth = 4;
+      g.strokeStyle = 'rgba(61,220,132,0.7)'; g.lineWidth = 4;
       g.beginPath(); g.arc(sp.x, sp.y, 30, 0, Math.PI * 2); g.stroke();
     }
 
-    // bomb sites: painted pad with hazard border and a big letter
-    for (const s of SITES) {
+    for (const s of SITES) { // bomb sites: hazard-bordered pad with a big letter
       const half = 112;
-      g.fillStyle = 'rgba(255,211,77,0.10)'; g.fillRect(s.x - half, s.y - half, half * 2, half * 2);
+      g.fillStyle = 'rgba(255,225,120,0.12)'; g.fillRect(s.x - half, s.y - half, half * 2, half * 2);
       g.save();
       g.beginPath(); g.rect(s.x - half, s.y - half, half * 2, half * 2); g.rect(s.x - half + 12, s.y - half + 12, half * 2 - 24, half * 2 - 24);
       g.clip('evenodd');
-      g.fillStyle = 'rgba(242,194,48,0.85)'; g.fillRect(s.x - half, s.y - half, half * 2, half * 2);
+      g.fillStyle = 'rgba(242,194,48,0.9)'; g.fillRect(s.x - half, s.y - half, half * 2, half * 2);
       g.strokeStyle = 'rgba(20,20,20,0.9)'; g.lineWidth = 9;
       for (let i = -half * 2; i < half * 4; i += 26) { g.beginPath(); g.moveTo(s.x - half + i, s.y + half); g.lineTo(s.x - half + i + half * 2, s.y - half); g.stroke(); }
       g.restore();
-      g.fillStyle = 'rgba(255,211,77,0.6)'; g.font = 'bold 120px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(255,240,170,0.7)'; g.font = 'bold 120px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(s.id, s.x, s.y + 6);
     }
 
-    // team spawn pads with name and arrows pointing at the map centre
     (Object.keys(SPAWN_ZONES) as Team[]).forEach((t) => {
       const z = SPAWN_ZONES[t];
-      const col = t === 'CT' ? '63,140,255' : '217,130,43';
-      g.fillStyle = `rgba(${col},0.22)`; g.fillRect(z.x, z.y, z.w, z.h);
-      g.strokeStyle = `rgba(${col},0.8)`; g.lineWidth = 5; g.strokeRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4);
+      const col = t === 'CT' ? '63,140,255' : '235,140,40';
+      g.fillStyle = `rgba(${col},0.28)`; g.fillRect(z.x, z.y, z.w, z.h);
+      g.strokeStyle = `rgba(${col},0.9)`; g.lineWidth = 5; g.strokeRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4);
       g.save(); g.translate(z.x + z.w / 2, z.y + z.h / 2); g.rotate(-Math.PI / 2);
-      g.fillStyle = 'rgba(255,255,255,0.55)'; g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(t === 'CT' ? 'CT SPAWN' : 'T SPAWN', 0, 0); g.restore();
       const dir = t === 'T' ? 1 : -1;
-      g.strokeStyle = `rgba(${col},0.7)`; g.lineWidth = 7; g.lineCap = 'round';
+      g.strokeStyle = `rgba(${col},0.85)`; g.lineWidth = 7; g.lineCap = 'round';
       for (let i = 0; i < 3; i++) {
         const ax = (t === 'T' ? z.x + z.w + 30 : z.x - 30) + dir * i * 22, ay = 600;
         g.beginPath(); g.moveTo(ax - dir * 12, ay - 20); g.lineTo(ax + dir * 6, ay); g.lineTo(ax - dir * 12, ay + 20); g.stroke();
@@ -215,13 +264,40 @@ function decalCanvas(): HTMLCanvasElement {
   });
 }
 
+// ---------- bunting strung between lamp posts ----------
+function bunting(a: THREE.Vector3, b: THREE.Vector3): THREE.Object3D {
+  const g = new THREE.Group();
+  const N = 14, sag = 12;
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    pts.push(new THREE.Vector3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t - Math.sin(Math.PI * t) * sag, a.z + (b.z - a.z) * t));
+  }
+  g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x2a2a2a })));
+  const colors = [0xd23b3b, 0xf2c230, 0x3b82d2, 0xf5f0e6, 0x3ba65b];
+  const verts: number[] = [], cols: number[] = [];
+  const dir = new THREE.Vector3().subVectors(b, a).normalize();
+  for (let i = 0; i < N; i++) {
+    const p = pts[i].clone().lerp(pts[i + 1], 0.5), half = a.distanceTo(b) / N * 0.32;
+    const c = new THREE.Color(colors[i % colors.length]);
+    const l = p.clone().addScaledVector(dir, -half), r = p.clone().addScaledVector(dir, half), tip = p.clone().add(new THREE.Vector3(0, -12, 0));
+    for (const v of [l, r, tip]) { verts.push(v.x, v.y, v.z); cols.push(c.r, c.g, c.b); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  g.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+  return g;
+}
+
 // ---------- the whole map ----------
 export function buildWorld(scene: THREE.Scene) {
-  scene.background = new THREE.Color(0x0b0f14);
-  scene.fog = new THREE.Fog(0x0b0f14, 900, 2200);
+  const SKY = 0xa9ccee;
+  scene.background = new THREE.Color(SKY);
+  scene.fog = new THREE.Fog(SKY, 1300, 3600);
 
-  scene.add(new THREE.HemisphereLight(0xdbe8ff, 0x3a4252, 1.5));
-  const sun = new THREE.DirectionalLight(0xfff1d6, 2.1);
+  scene.add(new THREE.HemisphereLight(0xdcecff, 0x9a7456, 1.9));
+  const sun = new THREE.DirectionalLight(0xfff0d2, 2.8);
   const cx = WORLD_W / 2, cz = WORLD_H / 2;
   sun.position.set(cx - 500, 900, cz + 400);
   sun.target.position.set(cx, 0, cz);
@@ -231,74 +307,119 @@ export function buildWorld(scene: THREE.Scene) {
   sun.shadow.bias = -0.0005;
   scene.add(sun, sun.target);
 
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), new THREE.MeshStandardMaterial({ color: 0x8a6a4e, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -1, cz);
+  scene.add(ground);
+
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(WORLD_W, WORLD_H),
-    new THREE.MeshStandardMaterial({ map: tex(floorC(), WORLD_W / 200, WORLD_H / 200), roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ map: tex(floorC(), WORLD_W / 110, WORLD_H / 110), roughness: 0.95 }),
   );
   floor.rotation.x = -Math.PI / 2; floor.position.set(cx, 0, cz); floor.receiveShadow = true;
   scene.add(floor);
 
-  const decal = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_W, WORLD_H),
-    new THREE.MeshBasicMaterial({ map: tex(decalCanvas()), transparent: true, depthWrite: false }),
-  );
+  const decal = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshBasicMaterial({ map: tex(decalCanvas()), transparent: true, depthWrite: false }));
   decal.rotation.x = -Math.PI / 2; decal.position.set(cx, 0.5, cz);
   scene.add(decal);
 
   WALLS.forEach((w, i) => buildWall(scene, w, i));
 
-  // lamp posts around each bomb site, with a warm light over the site itself
-  const pole = new THREE.MeshStandardMaterial({ color: 0x20242b, metalness: 0.5, roughness: 0.5 });
-  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0b8 });
+  // iron street lamps around each bomb site, bunting between them, and a warm light over the site
+  const iron = new THREE.MeshStandardMaterial({ color: 0x1c1d21, metalness: 0.6, roughness: 0.45 });
+  const glass = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
   for (const s of SITES) {
+    const tops: THREE.Vector3[] = [];
     for (const dx of [-120, 120]) for (const dz of [-100, 100]) {
       const x = s.x + dx, z = s.y + dz;
       if (WALLS.some((w) => x > w.x - 6 && x < w.x + w.w + 6 && z > w.y - 6 && z < w.y + w.h + 6)) continue;
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3.5, 120, 8), pole);
-      p.position.set(x, 60, z); p.castShadow = true; scene.add(p);
-      const head = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 14), lamp);
-      head.position.set(x, 122, z); scene.add(head);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.4, 110, 8), iron);
+      pole.position.set(x, 55, z); pole.castShadow = true; scene.add(pole);
+      const lantern = new THREE.Mesh(new THREE.BoxGeometry(9, 12, 9), glass); lantern.position.set(x, 116, z); scene.add(lantern);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(8, 7, 4), iron); cap.position.set(x, 125, z); cap.rotation.y = Math.PI / 4; scene.add(cap);
+      tops.push(new THREE.Vector3(x, 108, z));
     }
+    for (const [i, j] of [[0, 2], [1, 3]]) if (tops[i] && tops[j] && Math.abs(tops[i].x - tops[j].x) < 1) scene.add(bunting(tops[i], tops[j]));
+    for (const [i, j] of [[0, 1], [2, 3]]) if (tops[i] && tops[j] && Math.abs(tops[i].z - tops[j].z) < 1) scene.add(bunting(tops[i], tops[j]));
     const light = new THREE.PointLight(0xffd9a0, 9000, 420, 2);
     light.position.set(s.x, 130, s.y);
     scene.add(light);
   }
 }
 
-// ---------- weapon models (barrel points along +x, origin at the grip) ----------
+// ---------- weapon models (low-poly originals; barrel points along +x, origin at the grip) ----------
 export function makeWeaponModel(idx: number): THREE.Group {
   const g = new THREE.Group();
-  const mat = (c: number, metal = 0.4, rough = 0.5) => new THREE.MeshStandardMaterial({ color: c, metalness: metal, roughness: rough });
-  const dark = mat(0x23262c), steel = mat(0x4b5059, 0.7, 0.35), olive = mat(0x4a5238, 0.2, 0.7), wood = mat(0x7a4a24, 0.05, 0.8), black = mat(0x15171b);
-  const part = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z = 0, rz = 0) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-    mesh.position.set(x, y, z); mesh.rotation.z = rz; mesh.castShadow = true;
-    g.add(mesh);
-    return mesh;
+  const id = WEAPONS[idx]?.id ?? 'usp';
+  const mat = (c: number, metal = 0.35, rough = 0.5, opacity = 1) => new THREE.MeshStandardMaterial({ color: c, metalness: metal, roughness: rough, transparent: opacity < 1, opacity });
+  const M = {
+    black: mat(0x17181b, 0.3, 0.55), gun: mat(0x2a2d33, 0.55, 0.4), steel: mat(0x6a707a, 0.75, 0.3), poly: mat(0x25282a, 0.1, 0.8),
+    olive: mat(0x4a5238, 0.2, 0.7), tan: mat(0xb39d6b, 0.2, 0.7), wood: mat(0x7a4a24, 0.05, 0.8), brass: mat(0xb08a2a, 0.8, 0.35), glass: mat(0x66aaff, 0, 0.1),
+    rubber: mat(0x0e0f11, 0, 0.95), mag: mat(0x4a4f56, 0.1, 0.5, 0.75),
   };
-  switch (idx) {
-    case 0: // pistol: short slide on a angled grip
-      part(15, 4.5, 3.6, steel, 7, 2); part(3, 2.4, 2.4, dark, 16, 2); part(4.2, 9.5, 3.4, black, 1, -3, 0, -0.18); part(5, 1.5, 3.6, dark, 5, -1.5);
+  // box part: size w,h,d at x,y,z with optional rotation about z
+  const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z = 0, rz = 0) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z); mesh.rotation.z = rz; mesh.castShadow = true; g.add(mesh); return mesh;
+  };
+  // cylinder along x (barrels, scopes) or along z (drums)
+  const cyl = (r: number, len: number, m: THREE.Material, x: number, y: number, z = 0, along: 'x' | 'z' = 'x') => {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 12), m);
+    if (along === 'x') mesh.rotation.z = Math.PI / 2; else mesh.rotation.x = Math.PI / 2;
+    mesh.position.set(x, y, z); mesh.castShadow = true; g.add(mesh); return mesh;
+  };
+  const bipod = (x: number, len: number) => { box(1.5, len, 1.5, M.gun, x, -len / 2 + 1, 3.4, 0.3); box(1.5, len, 1.5, M.gun, x, -len / 2 + 1, -3.4, -0.3); };
+
+  switch (id) {
+    case 'usp':
+      box(17, 5, 3.6, M.steel, 8, 2.5); box(14, 3.4, 3.4, M.poly, 6, -0.5); box(4.5, 10, 3.4, M.black, 0, -4.5, 0, -0.2); box(3, 2.4, 2.4, M.gun, 17, 2.6); box(5, 1.4, 3.6, M.gun, 5, -2.2);
       break;
-    case 1: // rifle: olive body, magazine, stock, top rail
-      part(26, 5.5, 4.2, olive, 12, 0); part(15, 2.2, 2.2, dark, 32, 0.6); part(5, 11, 3.6, black, 14, -8, 0, 0.15);
-      part(14, 6.5, 3.8, black, -7, -1); part(11, 2, 2.4, dark, 14, 4); part(5, 3, 3.2, dark, 24, 2); part(3, 8, 3.2, black, 4, -6, 0, -0.2);
+    case 'deagle':
+      box(23, 6.6, 4.2, M.steel, 11, 3.2); box(17, 4, 4, M.gun, 8, -0.8); box(5, 11, 4.2, M.black, 0, -5, 0, -0.18); box(4, 3.4, 3.4, M.gun, 24.5, 3.4); box(10, 1.6, 2, M.black, 11, 7); box(5.5, 1.6, 4.2, M.gun, 6, -2.8);
       break;
-    case 2: // shotgun: long barrel, wooden pump and stock
-      part(36, 3.6, 3.6, steel, 17, 1.2); part(11, 5.2, 5.8, wood, 20, -2.4); part(13, 6.5, 4.6, dark, 3, 0); part(15, 6.8, 4.2, wood, -10, -1.6, 0, -0.08);
-      part(3, 5, 4, dark, 36, 1.2);
+    case 'glock':
+      box(16, 5, 3.4, M.black, 8, 2.5); box(13, 3.2, 3.2, M.poly, 5.5, -0.4); box(4.2, 9, 3.2, M.poly, 0, -4, 0, -0.2); box(3.6, 14, 3, M.black, -0.8, -7.5, 0, -0.2); box(3, 2.2, 2.2, M.gun, 16.5, 2.6);
       break;
-    default: { // sniper: very long barrel, big scope, bipod
-      part(44, 2.8, 2.8, steel, 30, 0.8); part(25, 5.6, 4.2, mat(0x2f3b2c, 0.2, 0.7), 6, 0); part(17, 7.5, 4.2, mat(0x2f3b2c, 0.2, 0.7), -12, -1.5, 0, -0.1);
-      part(6, 3.5, 3.5, dark, 53, 0.8);
-      const scope = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 17, 12), black);
-      scope.rotation.z = Math.PI / 2; scope.position.set(9, 6.6, 0); scope.castShadow = true; g.add(scope);
-      for (const dx of [-9, 9]) {
-        const lens = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 1.5, 12), new THREE.MeshBasicMaterial({ color: 0x66aaff }));
-        lens.rotation.z = Math.PI / 2; lens.position.set(9 + dx, 6.6, 0); g.add(lens);
-      }
-      part(1.6, 8, 1.6, dark, 24, -3.5, 3, 0.35); part(1.6, 8, 1.6, dark, 24, -3.5, -3, -0.35);
-    }
+    case 'mp5':
+      box(24, 6, 4.5, M.black, 10, 1.5); cyl(2.9, 16, M.gun, 28, 1.2); box(4, 2.4, 2.4, M.gun, 38, 1.2); box(4.5, 13, 3.4, M.black, 15, -8, 0, 0.2); box(4, 9, 3.6, M.black, 3, -6, 0, -0.22);
+      box(12, 1.4, 3.4, M.gun, -8, 2); box(1.8, 8, 4, M.gun, -14.5, -1.6); box(3, 2.5, 2.5, M.gun, 12, 5.2); box(8, 3, 4, M.poly, 25, -2.2);
+      break;
+    case 'p90':
+      box(32, 9, 6.4, M.black, 5, 0.5); box(27, 3.8, 5.4, M.mag, 5, 6.2); box(8, 3, 5, M.poly, 14, -4.5); box(4, 8, 4, M.black, 3, -6, 0, -0.1); box(10, 5, 6, M.poly, 19, 0.5);
+      box(6, 2.4, 2.4, M.gun, 24, 1.4); box(7, 3, 3.4, M.glass, 14, 9.4); box(2.4, 9, 5, M.rubber, -11.5, 0.5);
+      break;
+    case 'spas12':
+      cyl(1.9, 40, M.steel, 20, 2.6); cyl(1.7, 28, M.gun, 15, -0.6); box(9, 5, 5.4, M.poly, 22, -2.8); box(15, 6.6, 4.6, M.black, 4, 0.5);
+      box(14, 1.8, 3.6, M.gun, -9, 0.8, 0, -0.08); box(1.8, 9, 3.6, M.gun, -17, -3, 0, 0.1); box(4.2, 9, 3.6, M.black, 1, -6, 0, -0.22); box(3, 2.2, 2.2, M.gun, 40, 2.6);
+      break;
+    case 'striker':
+      cyl(7.4, 7.6, M.gun, 14, 0.2, 0, 'z'); cyl(5, 8, M.steel, 14, 0.2, 0, 'z'); box(22, 5.6, 4.6, M.black, 6, 2); cyl(2.1, 20, M.steel, 26, 2.6);
+      box(14, 1.6, 3.4, M.gun, -9, 0.8); box(1.8, 8, 3.6, M.gun, -16, -2.6); box(4.2, 9, 3.6, M.black, 1, -6, 0, -0.22);
+      break;
+    case 'ak47':
+      box(18, 6, 4.4, M.gun, 10, 1.2); box(15, 5, 4.4, M.wood, 26, 0.6); cyl(1.2, 12, M.steel, 38, 1.4); cyl(1.1, 18, M.steel, 24, 4.2); box(1.4, 3, 1.4, M.gun, 37, 4);
+      box(4.4, 15, 3.4, M.black, 15, -9.5, 0, 0.5); box(17, 6.5, 3.8, M.wood, -10, -0.8, 0, -0.12); box(4, 9, 3.6, M.wood, 4, -6, 0, -0.24); box(3, 3, 2.6, M.gun, 40, 1.4);
+      break;
+    case 'm4a1':
+      box(20, 6, 4.4, M.black, 9, 1.5); box(17, 2.4, 2.6, M.black, 10, 5.4); box(19, 5.2, 4.8, M.poly, 27, 1.2); cyl(1.1, 9, M.steel, 40, 1.4); box(4, 3, 3, M.gun, 45.5, 1.4);
+      box(4.6, 12, 3.6, M.black, 11, -7.5, 0, 0.08); box(14, 5.4, 3.8, M.poly, -9, 0.2, 0, -0.05); cyl(1.8, 9, M.gun, -3, 1.6); box(4, 8.5, 3.6, M.black, 3, -6, 0, -0.22); box(2, 3.4, 1.6, M.gun, 36, 4.6);
+      break;
+    case 'l118a':
+      box(22, 5.6, 4.2, M.olive, 8, 1); cyl(1.5, 46, M.steel, 34, 1.4); cyl(2.3, 5, M.gun, 59, 1.4); box(20, 7, 4.2, M.olive, -12, -0.6, 0, -0.1); box(10, 2.4, 3.6, M.olive, -9, 4);
+      cyl(3.2, 18, M.black, 10, 7.4); cyl(4.1, 4, M.black, 20, 7.4); cyl(3.5, 1.4, M.glass, 21.2, 7.4); box(2, 2.6, 4, M.gun, 4, 4.7); box(2, 2.6, 4, M.gun, 15, 4.7);
+      box(5, 6, 3, M.black, 9, -4, 0, 0.1); box(1.4, 5, 1.4, M.gun, 2, 2.4, 4.2); bipod(30, 11);
+      break;
+    case 'm60e4':
+      box(24, 8, 6, M.black, 9, 1.2); box(26, 1.8, 5, M.gun, 9, 5.8); cyl(1.8, 24, M.steel, 31, 2.6); cyl(2.6, 12, M.poly, 24, 2.6); cyl(1.2, 14, M.gun, 28, 6.4);
+      box(11, 10, 9, M.olive, 8, -7.5); box(3, 7, 2, M.brass, 8, -1.5, 3.8); box(3, 4, 2, M.brass, 9, 0.8, 3.8); box(8, 1.6, 1.6, M.gun, 33, 6.2);
+      box(16, 7.4, 4.2, M.black, -11, -0.8, 0, -0.08); box(4, 9, 3.8, M.black, 2, -6.5, 0, -0.2); bipod(37, 12);
+      break;
+    case 'barrett':
+      cyl(2.1, 50, M.steel, 34, 2.4); cyl(2.9, 34, M.gun, 30, 2.4); box(9, 7, 7, M.black, 60.5, 2.4); box(31, 8.4, 5.4, M.tan, 10, 1.6);
+      cyl(3.8, 22, M.black, 12, 9.6); cyl(4.6, 4, M.black, 24, 9.6); cyl(4, 1.4, M.glass, 25.8, 9.6); box(28, 1.8, 3.2, M.gun, 11, 6.4);
+      box(9, 7, 3.6, M.black, 8, -6.2); box(18, 9, 5, M.tan, -14, -1.4, 0, -0.08); box(2.6, 11, 6, M.rubber, -23.5, -1.8, 0, -0.08); box(4.2, 9.5, 4, M.black, 0, -7, 0, -0.22); box(12, 2, 2, M.gun, 20, 6.6);
+      bipod(38, 13);
+      g.scale.setScalar(0.82);
+      break;
   }
   return g;
 }
