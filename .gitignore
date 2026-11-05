@@ -17,3 +17,5 @@ client/public/models/guns/
 assets-src/guns/*.glb
 assets-src/characters/*.glb
 client/public/models/characters/
+assets-src/characters/*.zip
+client/public/models/characters/
