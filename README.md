@@ -23,3 +23,8 @@ Set `VITE_WS_URL` to point the client at a deployed server.
 - `client/` Vite + Three.js 3D renderer, menu and touch controls
 
 
+
+## Credits
+
+Character model, animations and skins: Kenney "Animated Characters 2" (CC0), https://kenney.nl
+

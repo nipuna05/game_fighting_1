@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { initAudio, sfx, toggleMute } from './audio';
 import {
@@ -72,34 +73,69 @@ interface Character {
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
 }
 
-// ---- optional real character model: drop a .glb at client/public/models/character.glb ----
-const MODEL_URL = '/models/character.glb';
-const MODEL_YAW = Math.PI / 2; // most glTF characters face +Z; the game faces +X. Change if your model faces the wrong way.
+// ---- real character model (Kenney "Animated Characters 2", CC0). Falls back to the blocky soldier if missing. ----
+const MODEL_GLB = '/models/character.glb';                       // optional: a rigged, animated glb overrides everything below
+const KENNEY = '/models/kenney';
+const SKIN_URLS: Record<Team, string> = { CT: `${KENNEY}/survivorMaleB.png`, T: `${KENNEY}/survivorFemaleA.png` };
+const QS = new URLSearchParams(location.search); // dev overrides: ?yaw=<radians>&zoom=<0.2..1>
+const MODEL_YAW = QS.has('yaw') ? Number(QS.get('yaw')) : Math.PI / 2; // the model faces +Z; the game faces +X. Change if a model faces the wrong way.
 const MODEL_HEIGHT = 58;       // world units; the model is auto-scaled to this height
-interface Template { scene: THREE.Group; clips: THREE.AnimationClip[]; scale: number; offsetY: number }
+interface Template { scene: THREE.Object3D; clips: THREE.AnimationClip[]; scale: number; offsetY: number; skins?: Partial<Record<Team, THREE.Material>> }
 let template: Template | null = null;
 
+function finishTemplate(scene: THREE.Object3D, clips: THREE.AnimationClip[], skins?: Template['skins']): Template {
+  const box = new THREE.Box3().setFromObject(scene);
+  const h = box.max.y - box.min.y;
+  if (!(h > 0)) throw new Error('empty model');
+  const scale = MODEL_HEIGHT / h;
+  return { scene, clips, scale, offsetY: -box.min.y * scale, skins };
+}
+
 async function loadTemplate(): Promise<void> {
-  try {
-    const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
-    const box = new THREE.Box3().setFromObject(gltf.scene);
-    const h = box.max.y - box.min.y;
-    if (!(h > 0)) throw new Error('empty model');
-    const scale = MODEL_HEIGHT / h;
-    template = { scene: gltf.scene, clips: gltf.animations, scale, offsetY: -box.min.y * scale };
-    console.info(`Loaded character model (${gltf.animations.length} animations: ${gltf.animations.map((a) => a.name).join(', ')})`);
-  } catch {
-    template = null; // no model file (or unreadable): the built-in blocky soldier is used instead
+  template = null;
+  try { // 1) a user-supplied glb
+    const gltf = await new GLTFLoader().loadAsync(MODEL_GLB);
+    template = finishTemplate(gltf.scene, gltf.animations);
+    return;
+  } catch { /* none, try the bundled FBX pack */ }
+  try { // 2) bundled Kenney FBX model + separate idle/run animation files + per-team skins
+    const loader = new FBXLoader();
+    const [model, idle, run] = await Promise.all([
+      loader.loadAsync(`${KENNEY}/characterMedium.fbx`),
+      loader.loadAsync(`${KENNEY}/idle.fbx`),
+      loader.loadAsync(`${KENNEY}/run.fbx`),
+    ]);
+    const clips: THREE.AnimationClip[] = [];
+    if (idle.animations[0]) { idle.animations[0].name = 'idle'; clips.push(idle.animations[0]); }
+    if (run.animations[0]) { run.animations[0].name = 'run'; clips.push(run.animations[0]); }
+    const skins: Template['skins'] = {};
+    const tl = new THREE.TextureLoader();
+    for (const team of ['CT', 'T'] as Team[]) {
+      const tex = await tl.loadAsync(SKIN_URLS[team]);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      skins[team] = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
+    }
+    template = finishTemplate(model, clips, skins);
+    console.info(`Loaded character model, animations: ${clips.map((c) => c.name).join(', ')}`);
+  } catch (e) {
+    console.info('Character model not loaded, using blocky soldier', e);
+    template = null;
   }
 }
 
-function makeModelCharacter(color: number): Character {
+function makeModelCharacter(team: Team, color: number): Character {
   const t = template!;
   const root = new THREE.Group();
   const model = SkeletonUtils.clone(t.scene) as THREE.Group;
   model.scale.setScalar(t.scale);
   model.position.y = t.offsetY;
-  model.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+  model.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = true;
+    const skin = t.skins?.[team];
+    if (skin) m.material = skin;
+  });
   const holder = new THREE.Group();
   holder.rotation.y = MODEL_YAW;
   holder.add(model);
@@ -422,7 +458,7 @@ class Game {
       let c = this.chars.get(p.id);
       if (!c) {
         const teamColor = p.team === 'CT' ? 0x3f8cff : 0xd9822b;
-        c = template ? makeModelCharacter(teamColor) : makeCharacter(teamColor);
+        c = template ? makeModelCharacter(p.team, teamColor) : makeCharacter(teamColor);
         this.chars.set(p.id, c);
         this.scene.add(c.root);
       }
@@ -488,7 +524,8 @@ class Game {
       const blink = bomb.status === 'planted' ? 0.4 + 0.6 * Math.abs(Math.sin(time * (bomb.fuse < 10 ? 10 : 4))) : 0.3;
       (this.bombMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = blink * 2;
     }
-    this.camera.position.set(this.camTarget.x, 560, this.camTarget.z + 430);
+    const zoom = QS.has('zoom') ? Number(QS.get('zoom')) : 1;
+    this.camera.position.set(this.camTarget.x, 560 * zoom, this.camTarget.z + 430 * zoom);
     this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
   }
 
