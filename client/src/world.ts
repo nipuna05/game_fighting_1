@@ -1,6 +1,7 @@
 // Map and weapon graphics, all generated in code (no image or model files).
 // Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, type MapDef, type Rect, type Team } from '@fight/shared';
 
 // ---------- texture helpers ----------
@@ -496,10 +497,69 @@ export function buildWorld(scene: THREE.Scene, map: MapDef) {
   }
 }
 
+// ---------- real gun models (optional GLB files in /models/guns/<weapon id>.glb) ----------
+// Each file is turned so the barrel points along +x, scaled to a sensible length and moved so the grip sits near the origin.
+// Any weapon without a file keeps its built-in low-poly model.
+const GUN_LENGTH: Record<string, number> = {
+  usp: 19, deagle: 23, glock: 18, mp5: 31, p90: 29, spas12: 44, striker: 40, ak47: 46, m4a1: 43, l118a: 58, m60e4: 50, barrett: 60,
+};
+const gunTemplates = new Map<string, THREE.Group>();
+let gunLoad: Promise<void> | null = null;
+
+function prepareGun(src: THREE.Object3D, targetLen: number): THREE.Group {
+  const obj = src.clone(true);
+  const wrap = new THREE.Group();
+  wrap.add(obj);
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  if (size.z > size.x) wrap.rotation.y = Math.PI / 2;                 // longest axis -> x
+  wrap.updateMatrixWorld(true);
+
+  // the heavy end (stock, grip, magazine) holds most of the vertices, so the barrel is the opposite end
+  let sum = 0, n = 0;
+  const v = new THREE.Vector3();
+  wrap.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const pos = m.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); sum += v.x; n++; }
+  });
+  box.setFromObject(wrap);
+  if (n && sum / n > (box.min.x + box.max.x) / 2) { wrap.rotation.y += Math.PI; wrap.updateMatrixWorld(true); }
+
+  box.setFromObject(wrap);
+  const k = targetLen / Math.max(0.0001, box.max.x - box.min.x);
+  const out = new THREE.Group();
+  out.add(wrap);
+  wrap.scale.setScalar(k);
+  out.updateMatrixWorld(true);
+  box.setFromObject(out);
+  wrap.position.x -= box.min.x + 0.3 * (box.max.x - box.min.x);       // grip about 30% from the back
+  wrap.position.y -= (box.min.y + box.max.y) / 2;                     // centred vertically
+  out.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; });
+  return out;
+}
+
+export function loadGunModels(): Promise<void> {
+  gunLoad ??= (async () => {
+    const loader = new GLTFLoader();
+    await Promise.all(WEAPONS.map(async (w) => {
+      try {
+        const gltf = await loader.loadAsync(`/models/guns/${w.id}.glb`);
+        gunTemplates.set(w.id, prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30));
+      } catch { /* no file for this weapon: the built-in model is used */ }
+    }));
+    if (gunTemplates.size) console.info(`Loaded ${gunTemplates.size} gun models: ${[...gunTemplates.keys()].join(', ')}`);
+  })();
+  return gunLoad;
+}
+
 // ---------- weapon models (low-poly originals; barrel points along +x, origin at the grip) ----------
 export function makeWeaponModel(idx: number): THREE.Group {
-  const g = new THREE.Group();
   const id = WEAPONS[idx]?.id ?? 'usp';
+  const real = gunTemplates.get(id);
+  if (real) return real.clone(true);
+  const g = new THREE.Group();
   const mat = (c: number, metal = 0.35, rough = 0.5, opacity = 1) => new THREE.MeshStandardMaterial({ color: c, metalness: metal, roughness: rough, transparent: opacity < 1, opacity });
   const M = {
     black: mat(0x17181b, 0.3, 0.55), gun: mat(0x2a2d33, 0.55, 0.4), steel: mat(0x6a707a, 0.75, 0.3), poly: mat(0x25282a, 0.1, 0.8),

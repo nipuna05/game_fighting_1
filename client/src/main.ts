@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initAudio, sfx, toggleMute } from './audio';
-import { buildWorld, makeWeaponModel } from './world';
+import { buildWorld, makeWeaponModel, loadGunModels } from './world';
 import {
   QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
 } from './characters';
@@ -643,6 +643,7 @@ async function start(mode: 'single' | 'multi') {
   initAudio();
   if (isTouch) bindTouch();
   if (!template) await loadTemplate();
+  await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
   game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map });
 }
@@ -656,7 +657,7 @@ initMenu(profile, {
 // the landing page: load the soldier model, then start the live 3D background (unless the game was started already)
 void (async () => {
   if (new URLSearchParams(location.search).get('gallery')) return;
-  await loadTemplate();
+  await Promise.all([loadTemplate(), loadGunModels()]);
   if (started) return;
   landing = startLanding($('hero'), { map: profile.map, skin: profile.skin, primary: profile.autoBuy.primary });
 })();
@@ -666,7 +667,8 @@ const auto = new URLSearchParams(location.search).get('mode');
 if (auto === 'single' || auto === 'multi') void start(auto);
 
 // dev view: http://localhost:5173/?gallery=1 shows the four weapon models side by side
-if (QS.get('gallery')) {
+if (QS.get('gallery')) void (async () => {
+  await loadGunModels();
   $('menu').style.display = 'none';
   const r = new THREE.WebGLRenderer({ antialias: true });
   r.setSize(window.innerWidth, window.innerHeight);
@@ -679,4 +681,4 @@ if (QS.get('gallery')) {
   const cam = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 500);
   cam.position.set(40, 0, 190); cam.lookAt(40, 0, 0);
   r.render(sc, cam);
-}
+})();

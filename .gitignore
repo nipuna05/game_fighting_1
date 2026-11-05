@@ -3,3 +3,17 @@ dist
 *.log
 .env
 .DS_Store
+
+# Mixamo assets may not be redistributed: keep them out of git
+assets-src/mixamo/*
+!assets-src/mixamo/README.md
+client/public/models/mixamo/
+
+# temporary preview copies
+client/public/models/_preview_guns/
+
+# Poly Pizza gun models: licence/author not recorded yet, keep out of git until CREDITS.txt exists
+client/public/models/guns/
+assets-src/guns/*.glb
+assets-src/characters/*.glb
+client/public/models/characters/
