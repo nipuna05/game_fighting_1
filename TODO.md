@@ -23,7 +23,7 @@ impacts, sniper scope (right mouse, zoom animation), key rebinding (Controls tab
    browser tabs and a fake microphone: teammates connect and hear each other, the enemy tab gets no connection even with a forged
    offer. Limits: the microphone needs https or localhost (a teammate on `http://<LAN IP>:5173` cannot use it until the game is
    served over https), and across the internet a TURN server may be needed on top of the public STUN.
-2. Medieval Village map (the kit pieces are already in `client/public/models/village`, CC0).
+2. **Done:** Medieval Village map (4th map, `?map=village`), built from the CC0 Quaternius kit in `client/public/models/village` (roofs, wagon, crate, stone textures) plus painted plaster and dirt.
 3. Mixamo animations: idle/run were never downloaded, but Cole's animations are retargeted onto the Mixamo soldiers, so
    this is not needed any more.
 4. Attach the CuiGames scopes / foregrip / light to the rifles (kit is in `assets-src/accessories`, not redistributable).

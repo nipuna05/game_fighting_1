@@ -4,7 +4,7 @@ export type TeamId = 'T' | 'CT';
 export type WallKind = 'outer' | 'shop' | 'fountain' | 'barrier' | 'crate' | 'scooter';
 export interface Rect { x: number; y: number; w: number; h: number; kind?: WallKind }
 export interface Site { id: string; x: number; y: number; r: number }
-export type MapTheme = 'town' | 'dock' | 'desert';
+export type MapTheme = 'town' | 'dock' | 'desert' | 'village';
 
 export interface MapDef {
   id: string;
@@ -92,7 +92,29 @@ const desert: MapDef = {
   loot: [{ x: 360, y: 420 }, { x: 1240, y: 780 }, { x: 800, y: 180 }, { x: 800, y: 1020 }, { x: 660, y: 760 }, { x: 940, y: 440 }],
 };
 
-export const MAPS: Record<string, MapDef> = { town, dock, desert };
+const village: MapDef = {
+  id: 'village', name: 'Medieval Village', theme: 'village',
+  blurb: 'Plaster cottages with tiled roofs, a stone mill tower and muddy lanes. Close fights around the houses.',
+  walls: [
+    ...outer(),
+    ...withMirror([
+      { x: 340, y: 220, w: 210, h: 120, kind: 'shop' },      // cottages
+      { x: 600, y: 380, w: 110, h: 150, kind: 'shop' },
+      { x: 330, y: 800, w: 150, h: 200, kind: 'shop' },
+      { x: 240, y: 540, w: 40, h: 150, kind: 'barrier' },    // low stone walls
+      { x: 520, y: 600, w: 44, h: 44, kind: 'crate' },
+      { x: 900, y: 330, w: 44, h: 44, kind: 'crate' },
+      { x: 700, y: 140, w: 34, h: 16, kind: 'scooter' },     // hay wagons
+    ]),
+    { x: 740, y: 520, w: 120, h: 160, kind: 'fountain' },    // the mill tower in the middle
+  ],
+  sites: [{ id: 'A', x: 800, y: 170, r: 90 }, { id: 'B', x: 800, y: 1030, r: 90 }],
+  spawns: SPAWNS,
+  heal: [{ x: 520, y: 430 }, { x: 1080, y: 770 }, { x: 800, y: 360 }, { x: 800, y: 840 }],
+  loot: [{ x: 300, y: 150 }, { x: 1300, y: 1050 }, { x: 560, y: 720 }, { x: 1040, y: 480 }, { x: 660, y: 330 }, { x: 940, y: 870 }],
+};
+
+export const MAPS: Record<string, MapDef> = { town, dock, desert, village };
 export const MAP_IDS = Object.keys(MAPS);
 export const getMap = (id?: string): MapDef => (id && MAPS[id]) || MAPS.town;
 

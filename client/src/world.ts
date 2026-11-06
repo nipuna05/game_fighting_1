@@ -334,8 +334,97 @@ function buildWallDesert(scene: THREE.Scene, r: Rect, index: number) {
   }
 }
 
+// ---------- medieval village (CC0 Quaternius "Medieval Village MegaKit" pieces in /models/village + painted textures) ----------
+const KIT = '/models/village/';
+function kitTex(name: string, rx: number, ry: number): THREE.Texture {
+  const t = new THREE.TextureLoader().load(KIT + name);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+const kitLoader = new GLTFLoader();
+const kitCache = new Map<string, Promise<THREE.Object3D>>();
+const kitModel = (name: string) => {
+  let p = kitCache.get(name);
+  if (!p) { p = kitLoader.loadAsync(`${KIT}${name}.gltf`).then((g) => g.scene); kitCache.set(name, p); }
+  return p;
+};
+/** Load a kit piece, stretch it to the given footprint / height and put it on top of `baseY`. Returns false if the file is missing. */
+function placeKit(scene: THREE.Scene, name: string, cx: number, cz: number, baseY: number, fw: number, fh: number, fd: number, turn: boolean, fallback?: () => void) {
+  kitModel(name).then((src) => {
+    const inner = src.clone(true); inner.rotation.y = turn ? Math.PI / 2 : 0;
+    const outer = new THREE.Group(); outer.add(inner); outer.updateMatrixWorld(true);
+    let box = new THREE.Box3().setFromObject(outer); const size = box.getSize(new THREE.Vector3());
+    outer.scale.set(fw / size.x, fh / size.y, fd / size.z); outer.updateMatrixWorld(true);
+    box = new THREE.Box3().setFromObject(outer); const c = box.getCenter(new THREE.Vector3());
+    outer.position.set(cx - c.x, baseY - box.min.y, cz - c.z);
+    outer.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+    scene.add(outer);
+  }).catch(() => fallback?.());
+}
+const dirtFloorC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#7d6648'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 2400, 60, 170, 0.3);
+  for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(${rnd(60, 90)},${rnd(95, 125)},${rnd(40, 60)},0.35)`; g.beginPath(); g.ellipse(rnd(0, w), rnd(0, h), rnd(8, 26), rnd(5, 14), rnd(0, 3), 0, Math.PI * 2); g.fill(); } // grass tufts
+  g.fillStyle = 'rgba(40,28,18,0.25)';
+  for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(rnd(20, 236), rnd(20, 236), rnd(10, 30), rnd(4, 9), rnd(0, 3), 0, Math.PI * 2); g.fill(); } // puddles / mud
+  g.strokeStyle = 'rgba(30,20,10,0.22)'; g.lineWidth = 4; g.beginPath(); g.moveTo(0, 70); g.lineTo(w, 82); g.moveTo(0, 176); g.lineTo(w, 168); g.stroke(); // cart ruts
+});
+function stoneFaces(w: number, h: number, d: number, tile: number, top: THREE.Material, tint = 0xffffff): THREE.Material[] {
+  const m = (width: number) => new THREE.MeshStandardMaterial({ map: kitTex('T_UnevenBrick_BaseColor.jpg', Math.max(1, width / tile), Math.max(1, h / tile)), color: tint, roughness: 0.95 });
+  const sx = m(d), sz = m(w);
+  return [sx, sx, top, top, sz, sz];
+}
+const COTTAGE = [0xe8dcc0, 0xd9b98a, 0xcdbf9f, 0xe2c9a0];
+function buildWallVillage(scene: THREE.Scene, r: Rect, index: number) {
+  const cx = r.x + r.w / 2, cz = r.y + r.h / 2;
+  const std = (c: number, rough = 0.9) => new THREE.MeshStandardMaterial({ color: c, roughness: rough });
+  switch (r.kind) {
+    case 'outer': { // dry-stone boundary wall with a mossy cap
+      const H = 96;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, stoneFaces(r.w, H, r.h, 100, std(0x6f6a5c)));
+      addBox(scene, r.w + 6, 7, r.h + 6, cx, H + 3.5, cz, std(0x5f6f4a), false);
+      break;
+    }
+    case 'shop': { // cottage: plaster walls with shuttered windows, timber corner posts and a real tiled roof
+      const H = 78, c = COTTAGE[index % COTTAGE.length];
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, faceMats(() => plasterC(c, true, SHUTTERS[index % SHUTTERS.length]), r.w, H, r.h, 90, std(0x7a6a55)));
+      const wood = std(0x4a3320);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) addBox(scene, 6, H + 2, 6, cx + sx * r.w / 2, H / 2, cz + sz * r.h / 2, wood, false);
+      for (const sz of [-1, 1]) addBox(scene, r.w + 4, 5, 4, cx, H - 2, cz + sz * (r.h / 2 + 1), wood, false);       // timber beam under the roof
+      addBox(scene, r.w + 12, 5, r.h + 12, cx, H + 2, cz, std(0x6b4f33), false);                                     // temporary roof deck (visible if the kit is missing)
+      placeKit(scene, 'Roof_RoundTiles_6x8', cx, cz, H, r.w + 22, 46, r.h + 22, r.w > r.h);
+      break;
+    }
+    case 'fountain': { // stone mill tower with a round-tile cap
+      const H = 130;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, stoneFaces(r.w, H, r.h, 80, std(0x6f6a5c), 0xe6e0d0));
+      addBox(scene, r.w + 8, 6, r.h + 8, cx, H + 1, cz, std(0x50483b), false);
+      placeKit(scene, 'Roof_Tower_RoundTiles', cx, cz, H, r.w + 26, 64, r.h + 26, false);
+      for (const sz of [-1, 1]) addBox(scene, 34, 3, 22, cx, 2, cz + sz * (r.h / 2 + 12), std(0x5c4a35), false); // worn doorstep
+      break;
+    }
+    case 'barrier': { // low fieldstone wall
+      const H = 38;
+      addBox(scene, r.w, H, r.h, cx, H / 2, cz, stoneFaces(r.w, H, r.h, 70, std(0x77705f)));
+      addBox(scene, r.w + 4, 5, r.h + 4, cx, H + 2.5, cz, std(0x6c7d4c), false);
+      break;
+    }
+    case 'crate': {
+      const box = () => { const f = faceMats(woodC, r.w, r.h, r.h, 44, new THREE.MeshStandardMaterial({ map: tex(woodC()), roughness: 0.9 })); addBox(scene, r.w, r.h, r.h, cx, r.h / 2, cz, f); };
+      placeKit(scene, 'Prop_Crate', cx, cz, 0, r.w, r.h, r.h, false, box);
+      break;
+    }
+    case 'scooter': { // hay wagon
+      placeKit(scene, 'Prop_Wagon', cx, cz, 0, r.h + 8, 26, r.w + 8, false, () => addBox(scene, r.w, 14, r.h, cx, 7, cz, std(0x6b4f33)));
+      break;
+    }
+    default: buildWallTown(scene, r, index);
+  }
+}
+
 function buildWall(scene: THREE.Scene, r: Rect, index: number, theme: MapDef['theme']) {
-  if (theme === 'dock') buildWallDock(scene, r, index);
+  if (theme === 'village') buildWallVillage(scene, r, index);
+  else if (theme === 'dock') buildWallDock(scene, r, index);
   else if (theme === 'desert') buildWallDesert(scene, r, index);
   else buildWallTown(scene, r, index);
 }
@@ -438,6 +527,7 @@ const THEMES = {
   town:   { sky: 0xa9ccee, fogNear: 1300, fogFar: 3600, hemi: [0xdcecff, 0x9a7456, 1.9], sun: [0xfff0d2, 2.8], ground: 0x8a6a4e, bunting: true },
   dock:   { sky: 0x8ea1b5, fogNear: 1000, fogFar: 2800, hemi: [0xd5deea, 0x5a5f66, 1.6], sun: [0xe3ecff, 2.1], ground: 0x4a5058, bunting: false },
   desert: { sky: 0xe9cf9f, fogNear: 1400, fogFar: 3800, hemi: [0xfff0d8, 0xb08a5a, 2.1], sun: [0xffe2b0, 3.1], ground: 0xcfa96c, bunting: false },
+  village: { sky: 0xb9cfdc, fogNear: 1100, fogFar: 3200, hemi: [0xdbe8f2, 0x5d6b3c, 1.8], sun: [0xffe9c4, 2.5], ground: 0x55703a, bunting: false },
 } as const;
 
 export function buildWorld(scene: THREE.Scene, map: MapDef) {
@@ -462,6 +552,7 @@ export function buildWorld(scene: THREE.Scene, map: MapDef) {
 
   const floorMap = map.theme === 'dock' ? tex(dockFloorC(), WORLD_W / 160, WORLD_H / 160)
     : map.theme === 'desert' ? tex(sandFloorC(), WORLD_W / 220, WORLD_H / 220)
+    : map.theme === 'village' ? tex(dirtFloorC(), WORLD_W / 200, WORLD_H / 200)
     : tex(floorC(), WORLD_W / 110, WORLD_H / 110);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshStandardMaterial({ map: floorMap, roughness: 0.95 }));
   floor.rotation.x = -Math.PI / 2; floor.position.set(cx, 0, cz); floor.receiveShadow = true;
