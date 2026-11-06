@@ -1,0 +1,12 @@
+{
+  "note": "Edit this file to change the in-game Credits tab. Add one entry per asset: what, by, licence, optional link. Only list what you are sure about.",
+  "entries": [
+    { "what": "Fight - game design, code and sound effects", "by": "nipuna05", "licence": "original work (sounds are synthesised in the game)" },
+    { "what": "Soldier Cole (realistic soldier and his animations)", "by": "Grigory Petrov", "licence": "royalty-free licence from the author (credit requested, no redistribution of the raw files)" },
+    { "what": "Mixamo soldiers Ch15, Ch18, Ch35", "by": "Adobe Mixamo", "licence": "Mixamo terms (free to use in projects)", "link": "https://www.mixamo.com" },
+    { "what": "Animated Characters 2 (fallback character)", "by": "Kenney", "licence": "CC0 1.0", "link": "https://kenney.nl" },
+    { "what": "Medieval Village MegaKit (village map: roofs, wagon, crates, textures)", "by": "Quaternius", "licence": "CC0 1.0", "link": "https://quaternius.com" },
+    { "what": "Weapon models (pistols, SMGs, shotguns, rifles, snipers)", "by": "low-poly weapon packs found on Poly Pizza", "licence": "individual authors and licences are still being confirmed", "link": "https://poly.pizza" },
+    { "what": "Three.js (3D engine)", "by": "mrdoob and contributors", "licence": "MIT", "link": "https://threejs.org" }
+  ]
+}

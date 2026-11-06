@@ -114,6 +114,7 @@
     #mic { position: fixed; right: 12px; bottom: 12px; z-index: 6; display: none; font: 600 13px system-ui, sans-serif; color: #cfd8e3; background: #000a; padding: 6px 12px; border-radius: 8px; pointer-events: none; }
     #mic.talk { color: #fff; background: #b3261e; } #mic.bad { color: #ffd34d; }
     .lbl.speaking span::before { content: '\1F50A '; } .lbl.speaking span { text-shadow: 0 0 8px #3ddc84, 0 1px 2px #000; color: #b9ffd0 !important; }
+    #creditslist .cr { padding: 9px 0; border-bottom: 1px solid #2a3544; font-size: 14px; } #creditslist .cr b { display: block; color: #fff; } #creditslist .cr span { color: #9fb0c4; font-size: 13px; } #creditslist a { color: #7db4ff; }
     .skin.p { background-size: cover; background-position: center top; }
     #scope { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 50%, transparent 0, transparent 33vmin, #000 33.5vmin); will-change: opacity, transform; }
     #scope .ring { position: absolute; left: 50%; top: 50%; width: 67vmin; height: 67vmin; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 46px 12px rgba(0,0,0,.6), 0 0 0 3px #000; }
@@ -216,7 +217,7 @@
       <section id="panel">
         <nav id="tabs">
           <button data-tab="play" class="on">Play</button><button data-tab="loadout">Loadout</button>
-          <button data-tab="costume">Costume</button><button data-tab="controls">Controls</button><button data-tab="profile">Profile</button>
+          <button data-tab="costume">Costume</button><button data-tab="controls">Controls</button><button data-tab="profile">Profile</button><button data-tab="credits">Credits</button>
         </nav>
         <div class="pane on" id="tab-play">
           <h4>Callsign</h4><input id="name" type="text" maxlength="14" placeholder="Your name" />
@@ -254,6 +255,9 @@
           <h4>Last weapon pack</h4><div id="ppack"></div>
           <h4>Recent fights</h4><div id="phist"></div>
           <div class="row"><button id="pclear" class="btn ghost">Clear history</button></div>
+        </div>
+        <div class="pane" id="tab-credits">
+          <h4>Credits</h4><p class="note">This game stands on the work of these artists and developers. Thank you!</p><div id="creditslist"></div>
         </div>
         <div id="menumsg"></div>
       </section>

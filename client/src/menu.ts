@@ -204,11 +204,24 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   optVoice.addEventListener('change', () => { profile.options.voice = optVoice.value as 'off' | 'ptt' | 'open'; saveProfile(profile); });
   $('resetkeys').addEventListener('click', () => { saveBinds({}); renderControls(); say('Keys reset to the defaults.'); });
 
+  // ---------- credits (data lives in client/public/credits.json so it can be edited without touching code) ----------
+  let creditsDone = false;
+  const renderCredits = async () => {
+    if (creditsDone) return;
+    const box = $('creditslist');
+    try {
+      const data = await (await fetch('/credits.json')).json() as { entries: { what: string; by: string; licence: string; link?: string }[] };
+      box.innerHTML = data.entries.map((e) => `<div class="cr"><b>${esc(e.what)}</b><span>by ${esc(e.by)} &middot; ${esc(e.licence)}${e.link && /^https:\/\//.test(e.link) ? ` &middot; <a href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">${esc(e.link.replace('https://', ''))}</a>` : ''}</span></div>`).join('');
+      creditsDone = true;
+    } catch { box.textContent = 'Credits could not be loaded.'; }
+  };
+
   // ---------- tabs and buttons ----------
   const showTab = (name: string) => {
     document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
     document.querySelectorAll<HTMLElement>('.pane').forEach((p) => p.classList.toggle('on', p.id === `tab-${name}`));
     if (name === 'profile') renderProfile();
+    if (name === 'credits') void renderCredits();
   };
   document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab!)));
   $('pclear').addEventListener('click', () => {
