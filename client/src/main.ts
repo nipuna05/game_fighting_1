@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { initAudio, sfx, toggleMute } from './audio';
+import { music } from './music';
 import { buildWorld, makeWeaponModel, loadGunModels } from './world';
 import {
   applyKneel, applyProne, applyArmIK, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
@@ -11,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -19,7 +20,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
-const keys = { up: false, down: false, left: false, right: false, use: false, scope: false, crouch: false, jump: false, prone: false, sneak: false };
+const keys = { up: false, down: false, left: false, right: false, use: false, scope: false, crouch: false, jump: false, prone: false, sneak: false, reload: false };
 const profile = loadProfile();
 applyBinds(profile.keybinds); // the player's own key bindings (Controls tab in the menu)
 let game: Game | null = null;
@@ -60,6 +61,7 @@ function bindTouch() {
   hold('tUse', () => { keys.use = true; }, () => { keys.use = false; });
   hold('tTalk', () => game?.talk(true), () => game?.talk(false));
   hold('tFire', () => { stick.fireBtn = true; }, () => { stick.fireBtn = false; });
+  hold('tReload', () => { keys.reload = true; game?.queueReload(); }, () => { keys.reload = false; });
   hold('tJump', () => { keys.jump = true; game?.queueJump(); }, () => { keys.jump = false; });
   $('tProne').addEventListener('pointerdown', () => { keys.prone = !keys.prone; $('tProne').classList.toggle('on', keys.prone); });
   $('tCrouch').addEventListener('pointerdown', () => { keys.crouch = !keys.crouch; $('tCrouch').classList.toggle('on', keys.crouch); });
@@ -102,6 +104,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'crouch': if (v && keys.prone) keys.prone = false; keys.crouch = v; break;                // kneeling from the ground: get up on one knee
     case 'prone': if (v) keys.prone = !keys.prone; break;                                         // lie down / get up
     case 'sneak': keys.sneak = v; break;
+    case 'reload': keys.reload = v; if (v) game?.queueReload(); break;
     case 'view': if (v) game?.toggleView(); break;
     case 'jump': if (v && keys.prone) { keys.prone = false; break; } keys.jump = v; if (v) game?.queueJump(); break;   // from the ground the first press only gets you up
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
@@ -109,7 +112,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'sidearm': if (v) game?.selectSlot(1); break;
     case 'primary': if (v) game?.selectSlot(2); break;
     case 'lastWeapon': if (v) game?.lastWeapon(); break;
-    case 'mute': if (v) toggleMute(); break;
+    case 'mute': if (v) { toggleMute(); music.refreshMute(); } break;
     case 'perf': if (v) game?.togglePerf(); break;
     case 'specNext': if (v) game?.specNext(); break;
     case 'talk': game?.talk(v); break;
@@ -118,7 +121,7 @@ function setKey(code: string, v: boolean): boolean {
   }
   return true;
 }
-window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; game?.look(e.movementX); });
+window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; game?.look(e.movementX, e.movementY); });
 window.addEventListener('wheel', (e) => { if (e.deltaY !== 0) game?.cycleWeapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
 
 // ---------- 3D building blocks ----------
@@ -200,12 +203,15 @@ class Game {
   // first-person ("through the soldier's eyes") camera
   private fp = QS.get('view') ? QS.get('view') === 'fps' : profile.options.view === 'fps';
   private fpActive = false;                              // first-person is on AND I am alive and not watching a replay
+  private pitch = 0;                                     // looking up / down (first-person; a view effect, shots stay level)
   private yaw = 0;                                       // the direction I look (radians, the same angle the sim uses)
   private viewGun: THREE.Group | null = null; private viewGunIdx = -1; private kick = 0;
   private releasing = false;
   private jumpPending = false;
   /** A quick tap must still count: keep the jump request until the next input has been sent. */
   queueJump() { this.jumpPending = true; }
+  private reloadPending = false;
+  queueReload() { this.reloadPending = true; }
   private endDismissed = false;
   private predAir = 0; private predCd = 0;      // local copy of the jump timers (for prediction)
   // bullet effects and the sniper scope
@@ -219,7 +225,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
+  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -257,6 +263,7 @@ class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.appendChild(this.renderer.domElement);
     if (QS.has('debug')) (window as unknown as { __game: Game }).__game = this; // dev: inspect the game from the console
+    if (QS.has('debug')) (window as unknown as { __music: typeof music }).__music = music;
     if (QS.has('debug')) (window as unknown as { __sfx: typeof sfx }).__sfx = sfx;   // dev: play sounds from the console
     if (QS.has('lowq')) { this.quality = Number(QS.get('lowq')); }
     this.camera = new THREE.PerspectiveCamera(45, 1, 10, 4000);
@@ -290,7 +297,7 @@ class Game {
 
     if (cfg.mode === 'single') {
       this.sim = new Sim({ rounds: true, map: cfg.map, mode: cfg.style, weaponSet: cfg.weaponSet, pick: cfg.pick, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
-      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team);
+      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team, profile.custom);
       this.sim.fillBots(TEAM_SIZE);
     } else {
       this.connect();
@@ -303,7 +310,7 @@ class Game {
     this.status = this.retries ? 'Reconnecting...' : 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick })); };
+    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick, cu: profile.custom })); };
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
@@ -459,7 +466,7 @@ class Game {
     void this.voice.enable();
   }
   toggleView() {
-    this.fp = !this.fp;
+    this.fp = !this.fp; if (!this.fp) this.pitch = 0;
     profile.options.view = this.fp ? 'fps' : 'top'; profile.options.viewSet = true; saveProfile(profile);
     const me = this.me(); if (this.fp && me) this.yaw = me.angle;
     document.body.classList.toggle('fp', this.fp);
@@ -467,23 +474,80 @@ class Game {
     this.toast(this.fp ? 'First-person view' : 'Top-down view');
   }
   /** Mouse movement turns the head in first-person (needs the captured mouse). */
-  look(dx: number) { if (this.fpActive && document.pointerLockElement && !this.paused) this.yaw += dx * 0.0022; }
+  look(dx: number, dy = 0) { if (this.fpActive && document.pointerLockElement && !this.paused) { this.yaw += dx * 0.0022; this.pitch = Math.max(-0.6, Math.min(0.6, this.pitch - dy * 0.0022)); } }   // mouse up = look up
   /** The weapon in my hands, drawn on top of everything in front of the camera. */
-  private updateViewGun(weapon: number | undefined, show: boolean, dt: number) {
+  private viewGunKey = '';
+  private viewFlash: THREE.Sprite | null = null;
+  private flashT = 0; private equipAnim = 0; private reloadTotal = 0; private lastDry = 0;
+  private casings: { m: THREE.Mesh; v: THREE.Vector3; life: number; spin: THREE.Vector3 }[] = [];
+  private casingMats = { brass: new THREE.MeshStandardMaterial({ color: 0xd9a441, metalness: 0.9, roughness: 0.3 }), shell: new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.6 }) };
+
+  /** The weapon in my hands (first-person): the right sights / finish, a muzzle flash, recoil, and the reload and swap movements. */
+  private updateViewGun(weapon: number | undefined, cu: number, show: boolean, dt: number, rl: number) {
     if (!this.viewGun) { this.viewGun = new THREE.Group(); this.camera.add(this.viewGun); if (!this.camera.parent) this.scene.add(this.camera); }
     const g = this.viewGun;
     g.visible = show && weapon !== undefined;
-    if (weapon === undefined || weapon === this.viewGunIdx) { /* keep */ } else {
+    const key = `${weapon}|${cu}`;
+    if (weapon !== undefined && key !== this.viewGunKey) {
       g.clear();
-      const m = makeWeaponModel(weapon);
+      const m = makeWeaponModel(weapon, cu);
+      const box = new THREE.Box3().setFromObject(m);
       m.rotation.y = Math.PI / 2;                       // barrel points along +x in the model, the camera looks along -z
       m.traverse((o) => { const me = o as THREE.Mesh; if (!me.isMesh) return; me.castShadow = false; me.renderOrder = 999; for (const mat of ([] as THREE.Material[]).concat(me.material)) mat.depthTest = false; });
-      g.add(m); this.viewGunIdx = weapon;
+      if (!this.viewFlash) {
+        this.viewFlash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture('rgba(255,244,200,1)', 'rgba(255,150,30,0)'), transparent: true, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false }));
+        this.viewFlash.renderOrder = 1000; this.viewFlash.scale.setScalar(12);
+      }
+      this.viewFlash.position.set(box.max.x + 2, 0.5, 0); m.add(this.viewFlash);        // flash at the end of the barrel
+      g.add(m); this.viewGunKey = key;
     }
-    if (this.localInput?.fire) this.kick = 1;
+    this.flashT = Math.max(0, this.flashT - dt);
+    if (this.viewFlash) this.viewFlash.visible = this.flashT > 0;
     this.kick = Math.max(0, this.kick - dt * 9);
-    g.position.set(10, -11 + this.kick * 0.8, -26 + this.kick * 4);
-    g.rotation.x = this.kick * 0.06;
+    this.equipAnim = Math.max(0, this.equipAnim - dt * 4);
+    const rp = rl > 0 && this.reloadTotal > 0 ? Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - rl / this.reloadTotal))) : 0;   // 0 -> 1 -> 0 during a reload
+    g.position.set(10, -11 + this.kick * 0.8 - this.equipAnim * 9 - rp * 7, -26 + this.kick * 4);
+    g.rotation.set(this.kick * 0.06 - rp * 0.35, 0, rp * 0.5 + this.equipAnim * 0.4);
+  }
+
+  /** My own shot (first-person): flash at the barrel, recoil and a casing thrown out to the right. */
+  private onLocalShot(me: Snapshot['players'][number]) {
+    this.kick = 1;
+    if (!this.fpActive) return;
+    this.flashT = 0.06;
+    const c = this.camera; c.updateMatrixWorld(true);
+    const pos = new THREE.Vector3(9, -6, -22).applyMatrix4(c.matrixWorld);
+    const right = new THREE.Vector3(1, 0, 0).transformDirection(c.matrixWorld), up = new THREE.Vector3(0, 1, 0).transformDirection(c.matrixWorld), fwd = new THREE.Vector3(0, 0, -1).transformDirection(c.matrixWorld);
+    this.spawnCasing(pos, right.multiplyScalar(26 + Math.random() * 14).add(up.multiplyScalar(20 + Math.random() * 14)).add(fwd.multiplyScalar(Math.random() * 8 - 6)), WEAPONS[me.weapon]?.cat ?? 'Sidearm');
+  }
+
+  /** A spent casing that flies out, bounces on the floor and fades. */
+  private spawnCasing(pos: THREE.Vector3, vel: THREE.Vector3, cat: string) {
+    let c = this.casings.find((q) => q.life <= 0);
+    if (!c) {
+      if (this.casings.length >= 28) return;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), this.casingMats.brass);
+      this.scene.add(m);
+      c = { m, v: new THREE.Vector3(), life: 0, spin: new THREE.Vector3() };
+      this.casings.push(c);
+    }
+    const dims: Record<string, [number, number]> = { Sniper: [1.5, 5], Rifle: [1, 3.4], LMG: [1.1, 3.6], Shotgun: [1.8, 4.2], SMG: [0.8, 2.2], Sidearm: [0.8, 2] };
+    const [w, l] = dims[cat] ?? [1, 3];
+    c.m.material = cat === 'Shotgun' ? this.casingMats.shell : this.casingMats.brass;
+    c.m.scale.set(l, w, w); c.m.position.copy(pos); c.m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    c.v.copy(vel); c.life = 1.6; c.spin.set((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30); c.m.visible = true;
+  }
+  private updateCasings(dt: number) {
+    for (const c of this.casings) {
+      if (c.life <= 0) continue;
+      c.life -= dt;
+      if (c.life <= 0) { c.m.visible = false; continue; }
+      c.v.y -= 720 * dt;
+      c.m.position.addScaledVector(c.v, dt);
+      c.m.rotation.x += c.spin.x * dt; c.m.rotation.y += c.spin.y * dt; c.m.rotation.z += c.spin.z * dt;
+      if (c.m.position.y < 0.6) { c.m.position.y = 0.6; c.v.y = Math.abs(c.v.y) > 40 ? -c.v.y * 0.3 : 0; c.v.x *= 0.55; c.v.z *= 0.55; c.spin.multiplyScalar(0.5); }
+      if (c.life < 0.3) c.m.visible = ((c.life * 30) | 0) % 2 === 0;       // blink out
+    }
   }
   private lockMouse() { if (this.fpActive && !isTouch && !document.pointerLockElement) { try { void (this.renderer.domElement.requestPointerLock() as unknown as Promise<void> | undefined)?.catch?.(() => undefined); } catch { /* the browser refused: the hint stays visible */ } } }
 
@@ -533,7 +597,7 @@ class Game {
     this.predCd -= dt; if (this.predAir > 0) this.predAir -= dt;          // same jump rules as the server
     if (input.jump && this.predAir <= 0 && this.predCd <= 0) { this.predAir = JUMP_TIME; this.predCd = JUMP_COOLDOWN; }
     const air = this.predAir > 0;
-    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1) * (air ? JUMP_SPEED : input.prone ? PRONE_SPEED : input.crouch ? CROUCH_SPEED : input.sneak ? SNEAK_SPEED : 1);
+    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1) * (air ? JUMP_SPEED : input.prone ? PRONE_SPEED : input.crouch ? CROUCH_SPEED : input.sneak ? SNEAK_SPEED : 1) * customMods(me.cu ?? 0).speed;
     movePlayer(this.pred, input.mx * k, input.my * k, dt, walls, speed, air);
     // The server's copy is a little behind (network delay + tick). Aim at where it will be by now, so the correction is
     // gentle while running and settles exactly onto the server position once the player stops.
@@ -574,7 +638,7 @@ class Game {
     }
     const myP = this.me();
     const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
-    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending, prone: keys.prone, sneak: keys.sneak };
+    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending, prone: keys.prone, sneak: keys.sneak, reload: keys.reload || this.reloadPending };
   }
 
   private fpDt = 0.016;
@@ -591,7 +655,7 @@ class Game {
     this.monitor(delta);
     if (this.sim) {
       this.sim.setInput(this.myId, input);
-      this.pendingWeapon = null; this.jumpPending = false;
+      this.pendingWeapon = null; this.jumpPending = false; this.reloadPending = false;
       this.acc += (delta / 1000) * (QS.has('timescale') ? Number(QS.get('timescale')) : 1); // dev: ?timescale=40 fast-forwards single player
       const dt = 1 / TICK_RATE;
       while (this.acc >= dt) { if (!this.paused) this.sim.step(dt); this.acc -= dt; }
@@ -603,7 +667,7 @@ class Game {
       if (this.sendAcc >= 1000 / TICK_RATE) {
         this.sendAcc = 0;
         this.ws.send(JSON.stringify({ type: 'input', input }));
-        this.pendingWeapon = null; this.jumpPending = false;
+        this.pendingWeapon = null; this.jumpPending = false; this.reloadPending = false;
       }
     }
     this.draw(delta / 1000, now / 1000);
@@ -692,10 +756,10 @@ class Game {
         this.chars.set(p.id, c);
         this.scene.add(c.root);
       }
-      if (c.gunIdx !== p.weapon) { // show the weapon this player currently holds
+      if (c.gunIdx !== p.weapon || c.gunCu !== p.cu) { // show the weapon this player currently holds, with its sights and finish
         c.gunHolder.clear();
-        c.gunHolder.add(makeWeaponModel(p.weapon));
-        c.gunIdx = p.weapon;
+        c.gunHolder.add(makeWeaponModel(p.weapon, p.cu));
+        c.gunIdx = p.weapon; c.gunCu = p.cu; c.armGunIdx = -2;
       }
       if (c.death) { // falls down with the death animation and stays down until the player is alive again
         if (!p.alive && !c.dead) {
@@ -845,14 +909,15 @@ class Game {
     const zoom = QS.has('zoom') ? Number(QS.get('zoom')) : 1;
     const mePl = s.players.find((q) => q.id === this.myId);
     const fpNow = this.fpActive && camId === this.myId && !!me;
-    this.updateViewGun(mePl?.weapon, fpNow && ease < 0.6, dt);
+    this.updateViewGun(mePl?.weapon, mePl?.cu ?? 0, fpNow && ease < 0.6, dt, mePl?.rl ?? 0);
     $('xhair').style.display = fpNow && ease < 0.3 ? 'block' : 'none';
     $('fphint').style.display = fpNow && !isTouch && !document.pointerLockElement && !this.paused ? 'block' : 'none';
     if (fpNow && me) {
       const ch = this.chars.get(this.myId);
       const eye = 52 - 20 * (ch?.crouchK ?? 0) - 38 * (ch?.proneK ?? 0) + (ch?.root.position.y ?? 0);   // eye height: lower when kneeling, higher in a jump
       this.camera.position.set(me.x, eye, me.y);
-      this.camera.lookAt(me.x + Math.cos(this.yaw) * 100, eye, me.y + Math.sin(this.yaw) * 100);
+      const cp = Math.cos(this.pitch);
+      this.camera.lookAt(me.x + Math.cos(this.yaw) * 100 * cp, eye + Math.sin(this.pitch) * 100, me.y + Math.sin(this.yaw) * 100 * cp);
     } else if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
       this.camera.position.set(this.camTarget.x, 640 * zoom, this.camTarget.z + 0.01);
       this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z);
@@ -1016,7 +1081,13 @@ class Game {
       if (flashed.some((f) => Math.hypot(f.x - b.x, f.y - b.y) < 14)) continue; // one flash per shot, even for 7 shotgun pellets
       flashed.push(b);
       const size = FLASH_SIZE[WEAPONS[b.w]?.cat ?? 'Sidearm'] ?? 20;
-      this.spawnFx('flash', b.x - Math.cos(b.a) * 18, b.y - Math.sin(b.a) * 18, AIM_HEIGHT, 0, 0, 0, 0.07, size);
+      const mine = this.fpActive && !!this.pred && Math.hypot(b.x - this.pred.x, b.y - this.pred.y) < 40;   // my own shots in first-person use the flash on my barrel
+      if (!mine) {
+        this.spawnFx('flash', b.x - Math.cos(b.a) * 18, b.y - Math.sin(b.a) * 18, AIM_HEIGHT, 0, 0, 0, 0.07, size);
+        this.spawnFx('dust', b.x - Math.cos(b.a) * 12, b.y - Math.sin(b.a) * 12, AIM_HEIGHT, Math.cos(b.a) * 10, 14, Math.sin(b.a) * 10, 0.4, 7);   // a puff of muzzle smoke
+        const rx = -Math.sin(b.a), rz = Math.cos(b.a);                                                                                           // the casing is thrown out to the right of the gun
+        this.spawnCasing(new THREE.Vector3(b.x - Math.cos(b.a) * 10, AIM_HEIGHT - 4, b.y - Math.sin(b.a) * 10), new THREE.Vector3(rx * (28 + Math.random() * 12) - Math.cos(b.a) * 6, 24 + Math.random() * 12, rz * (28 + Math.random() * 12) - Math.sin(b.a) * 6), WEAPONS[b.w]?.cat ?? 'Sidearm');
+      }
     }
     this.lastBulletFx = Math.max(this.lastBulletFx, maxB);
 
@@ -1033,6 +1104,7 @@ class Game {
     }
     this.lastImpactFx = Math.max(this.lastImpactFx, maxI);
 
+    this.updateCasings(dt);
     for (const p of this.fxParts) { // animate
       if (p.life <= 0) continue;
       p.life -= dt;
@@ -1167,6 +1239,13 @@ class Game {
         const el = $('hurt'); el.style.transition = 'none'; el.style.opacity = '0.9';
         void el.offsetWidth; el.style.transition = 'opacity .35s ease-out'; el.style.opacity = '0';
       }
+      if (me.alive) {                                                       // ammo: shots, reloads and weapon swaps
+        if (ev.weapon >= 0 && me.weapon === ev.weapon && me.am < ev.am) this.onLocalShot(me);
+        if (me.rl > 0 && ev.rl === 0) { this.reloadTotal = me.rl; sfx.reload(me.rl); }
+        if (ev.weapon >= 0 && me.weapon !== ev.weapon) { sfx.swap(); this.equipAnim = 1; }
+        if (this.localInput?.fire && me.am === 0 && me.rl === 0 && time - this.lastDry > 0.35) { sfx.dry(); this.lastDry = time; }
+      }
+      ev.am = me.am; ev.rl = me.rl; ev.weapon = me.weapon;
       if (ev.alive && !me.alive) sfx.death();
       ev.hp = me.hp; ev.alive = me.alive;
     }
@@ -1193,6 +1272,8 @@ class Game {
     const me = s.players.find((p) => p.id === this.myId);
     const myTeam: Team = me?.team ?? 'CT';
     const tdm = r.mode === 'tdm';
+    const tense = r.bomb.status === 'planted' || (tdm && Math.max(r.tKills, r.ctKills) >= r.killTarget - 4) || (r.phase === 'live' && r.timeLeft < 20);
+    music.setMode(r.phase === 'live' ? (tense ? 'intense' : 'game') : 'calm');                // the soundtrack follows the action
     $('ctw').textContent = `${TEAM_INFO.CT.short} ${tdm ? r.ctKills : r.ctWins}`;
     $('tw').textContent = `${tdm ? r.tKills : r.tWins} ${TEAM_INFO.T.short}`;
     const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? (r.free ? 'GET READY' : 'BUY') : r.phase === 'live' ? fmt(r.timeLeft) : '';
@@ -1261,6 +1342,18 @@ class Game {
     }
     }
 
+    const ammoEl = $('ammo');                                              // ammo counter and reload bar
+    if (me && me.alive) {
+      const wd = WEAPONS[me.weapon], low = me.am <= Math.ceil(wd.mag * 0.25), rk = keyLabel(currentBinds().reload[0]);
+      ammoEl.style.display = 'block';
+      $('ammoname').textContent = wd.name;
+      $('ammonum').innerHTML = `${me.am}<small> / ${me.rv}</small>`;
+      ammoEl.classList.toggle('low', low && me.am > 0); ammoEl.classList.toggle('empty', me.am === 0);
+      const rbar = ammoEl.querySelector('.rbar') as HTMLElement;
+      rbar.style.display = me.rl > 0 ? 'block' : 'none';
+      if (me.rl > 0) (rbar.firstElementChild as HTMLElement).style.width = `${Math.max(0, Math.min(1, 1 - me.rl / (this.reloadTotal || wd.reload))) * 100}%`;
+      $('ammohint').textContent = me.rl > 0 ? 'RELOADING' : me.am === 0 && me.rv === 0 ? 'OUT OF AMMO' : me.am === 0 ? `PRESS ${rk}` : low && me.rv > 0 ? `RELOAD (${rk})` : '';
+    } else ammoEl.style.display = 'none';
     const owned = WEAPONS.filter((_, i) => ((me?.owned ?? 1) >> i) & 1).map((w) => w.name).join(' / ');
     const board = [...s.players]
       .sort((a, b) => (a.team === b.team ? b.score - a.score : a.team === 'CT' ? -1 : 1))
@@ -1287,6 +1380,7 @@ async function start(mode: 'single' | 'multi') {
   saveProfile(profile);
   $('menu').style.display = 'none';
   initAudio();
+  music.setVolume(profile.options.music / 100); music.start(); music.setMode('calm');
   if (isTouch) { void goFullscreen(); bindTouch(); }
   if (!template) await loadTemplate();
   await loadGunModels();
@@ -1296,11 +1390,20 @@ async function start(mode: 'single' | 'multi') {
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
   game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });
 }
+if (QS.has('debug')) (window as unknown as { __music: typeof music }).__music = music;   // dev: test the soundtrack from the console
+const wakeMusic = () => {
+  initAudio();
+  music.setVolume(profile.options.music / 100); music.start();
+  if (!started) music.setMode('calm');
+  window.removeEventListener('pointerdown', wakeMusic); window.removeEventListener('keydown', wakeMusic);
+};
+window.addEventListener('pointerdown', wakeMusic); window.addEventListener('keydown', wakeMusic);
 initMenu(profile, {
   onPlay: (mode) => void start(mode),
   onMap: (id) => landing?.setMap(id),
   onSkin: (i) => landing?.setSkin(i),
   onPrimary: (w) => landing?.setPrimary(w),
+  onCustom: () => landing?.refresh(),
 });
 
 // the landing page: load the soldier model, then start the live 3D background (unless the game was started already)
@@ -1308,7 +1411,7 @@ void (async () => {
   if (new URLSearchParams(location.search).get('gallery')) return;
   await Promise.all([loadTemplate(), loadGunModels()]);
   if (started) return;
-  landing = startLanding($('hero'), { map: profile.map, skin: profile.skin, primary: profile.autoBuy.primary });
+  landing = startLanding($('hero'), { map: profile.map, skin: profile.skin, primary: profile.autoBuy.primary, custom: (w) => profile.custom[WEAPONS[w].id] });
 })();
 
 // dev shortcut: http://localhost:5173/?mode=single (or multi) skips the menu

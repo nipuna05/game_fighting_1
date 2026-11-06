@@ -48,6 +48,15 @@ Bomb mission and Team deathmatch (kills only, first to 25 or 5 minutes). Weapon 
 snipers, random every life; choice: I choose / automatic. Free loadouts (no cash) for everything except bomb + "all guns". Each team gets
 an instruction text (`RoundState.goal`) shown under the top bar. Public rooms are per style. Dev URL: `?style=tdm&wset=sniper&pick=auto`.
 
+## Done: weapons feel + music
+Magazines and reload (R; auto-reload when empty; ammo HUD; swap takes 0.35 s and cancels a reload), muzzle flash, smoke and ejected shell casings,
+first-person look up/down, weapon customization (sight / foregrip / finish, saved in the profile, seen by other players, small trade-offs in
+`customMods`), and a generated "mission" soundtrack (`client/src/music.ts`: calm / game / intense moods, volume slider in Controls, M mutes).
+
+## Next UI idea from the user (screenshots of another game's menu)
+Left-hand navigation (Play, Practice, Equipment, Shop, Rewards, Settings, Community), currency bar, a 28-day "daily login rewards" calendar
+(coins, weapon finishes), crate slots, a featured-item card and a season / battle-pass strip. Build it with coins only (no real-money items).
+
 ## Roadmap the user asked for (in this order)
 2. **Missions with instruction text**: rescue the hostage, collect items / intel, escort, defend. The `goal` text and mode framework are ready;
    add `GameMode`s (e.g. 'rescue', 'collect') with their own objective entities in the sim.

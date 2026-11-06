@@ -12,24 +12,48 @@ export const SPAWN_PROTECT = 2;     // seconds nobody can hurt you after you res
 export const TICK_RATE = 30;
 
 export type WeaponSlot = 'sidearm' | 'primary';
-export interface WeaponDef { id: string; name: string; slot: WeaponSlot; cat: string; cost: number; dmg: number; cooldown: number; speed: number; life: number; pellets: number; spread: number }
+export interface WeaponDef { id: string; name: string; slot: WeaponSlot; cat: string; cost: number; dmg: number; cooldown: number; speed: number; life: number; pellets: number; spread: number; mag: number; reload: number }
 // Order is stable (it is part of the network protocol and saved profiles): sidearms first, then primaries.
 export const WEAPONS: WeaponDef[] = [
   // sidearms: free, chosen in the menu
-  { id: 'usp',     name: 'USP .45',      slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 20,  cooldown: 0.28,  speed: 700,  life: 0.9,  pellets: 1, spread: 0.03 },
-  { id: 'deagle',  name: 'Desert Eagle', slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 48,  cooldown: 0.62,  speed: 780,  life: 1.0,  pellets: 1, spread: 0.02 },
-  { id: 'glock',   name: 'Glock 18',     slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 11,  cooldown: 0.085, speed: 680,  life: 0.7,  pellets: 1, spread: 0.11 },
+  { id: 'usp',     name: 'USP .45',      slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 20,  cooldown: 0.28,  speed: 700,  life: 0.9,  pellets: 1, spread: 0.03, mag: 12, reload: 1.4 },
+  { id: 'deagle',  name: 'Desert Eagle', slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 48,  cooldown: 0.62,  speed: 780,  life: 1.0,  pellets: 1, spread: 0.02, mag: 7, reload: 1.6 },
+  { id: 'glock',   name: 'Glock 18',     slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 11,  cooldown: 0.085, speed: 680,  life: 0.7,  pellets: 1, spread: 0.11, mag: 20, reload: 1.5 },
   // primaries: bought each round
-  { id: 'mp5',     name: 'MP5',          slot: 'primary', cat: 'SMG',     cost: 1500, dmg: 11,  cooldown: 0.075, speed: 720,  life: 0.65, pellets: 1, spread: 0.10 },
-  { id: 'p90',     name: 'P90',          slot: 'primary', cat: 'SMG',     cost: 2300, dmg: 10,  cooldown: 0.06,  speed: 740,  life: 0.7,  pellets: 1, spread: 0.12 },
-  { id: 'spas12',  name: 'SPAS-12',      slot: 'primary', cat: 'Shotgun', cost: 1800, dmg: 12,  cooldown: 0.75,  speed: 650,  life: 0.45, pellets: 7, spread: 0.30 },
-  { id: 'striker', name: 'Striker',      slot: 'primary', cat: 'Shotgun', cost: 2600, dmg: 9,   cooldown: 0.32,  speed: 650,  life: 0.45, pellets: 6, spread: 0.34 },
-  { id: 'ak47',    name: 'AK-47',        slot: 'primary', cat: 'Rifle',   cost: 2700, dmg: 17,  cooldown: 0.10,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.09 },
-  { id: 'm4a1',    name: 'M4A1',         slot: 'primary', cat: 'Rifle',   cost: 3100, dmg: 14,  cooldown: 0.085, speed: 820,  life: 1.0,  pellets: 1, spread: 0.05 },
-  { id: 'l118a',   name: 'L118A',        slot: 'primary', cat: 'Sniper',  cost: 4750, dmg: 85,  cooldown: 1.3,   speed: 1500, life: 1.3,  pellets: 1, spread: 0.0 },
-  { id: 'm60e4',   name: 'M60E4',        slot: 'primary', cat: 'LMG',     cost: 5200, dmg: 13,  cooldown: 0.075, speed: 790,  life: 1.0,  pellets: 1, spread: 0.14 },
-  { id: 'barrett', name: 'Barrett .50',  slot: 'primary', cat: 'Sniper',  cost: 6000, dmg: 120, cooldown: 1.6,   speed: 1700, life: 1.4,  pellets: 1, spread: 0.0 },
+  { id: 'mp5',     name: 'MP5',          slot: 'primary', cat: 'SMG',     cost: 1500, dmg: 11,  cooldown: 0.075, speed: 720,  life: 0.65, pellets: 1, spread: 0.10, mag: 30, reload: 1.9 },
+  { id: 'p90',     name: 'P90',          slot: 'primary', cat: 'SMG',     cost: 2300, dmg: 10,  cooldown: 0.06,  speed: 740,  life: 0.7,  pellets: 1, spread: 0.12, mag: 50, reload: 2.2 },
+  { id: 'spas12',  name: 'SPAS-12',      slot: 'primary', cat: 'Shotgun', cost: 1800, dmg: 12,  cooldown: 0.75,  speed: 650,  life: 0.45, pellets: 7, spread: 0.30, mag: 8, reload: 2.6 },
+  { id: 'striker', name: 'Striker',      slot: 'primary', cat: 'Shotgun', cost: 2600, dmg: 9,   cooldown: 0.32,  speed: 650,  life: 0.45, pellets: 6, spread: 0.34, mag: 12, reload: 2.4 },
+  { id: 'ak47',    name: 'AK-47',        slot: 'primary', cat: 'Rifle',   cost: 2700, dmg: 17,  cooldown: 0.10,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.09, mag: 30, reload: 2.1 },
+  { id: 'm4a1',    name: 'M4A1',         slot: 'primary', cat: 'Rifle',   cost: 3100, dmg: 14,  cooldown: 0.085, speed: 820,  life: 1.0,  pellets: 1, spread: 0.05, mag: 30, reload: 2.0 },
+  { id: 'l118a',   name: 'L118A',        slot: 'primary', cat: 'Sniper',  cost: 4750, dmg: 85,  cooldown: 1.3,   speed: 1500, life: 1.3,  pellets: 1, spread: 0.0, mag: 5, reload: 2.8 },
+  { id: 'm60e4',   name: 'M60E4',        slot: 'primary', cat: 'LMG',     cost: 5200, dmg: 13,  cooldown: 0.075, speed: 790,  life: 1.0,  pellets: 1, spread: 0.14, mag: 100, reload: 4.2 },
+  { id: 'barrett', name: 'Barrett .50',  slot: 'primary', cat: 'Sniper',  cost: 6000, dmg: 120, cooldown: 1.6,   speed: 1700, life: 1.4,  pellets: 1, spread: 0.0, mag: 7, reload: 3.2 },
 ];
+// ---- weapon customization: a small code per weapon = sight (bits 0-1) + foregrip (bit 2) + finish (bits 3-5) ----
+export const SIGHT_NAMES = ['Iron sights', 'Holo sight', '4x scope', '8x scope'];
+export const TINT_NAMES = ['Factory', 'Black', 'Desert', 'Olive', 'Arctic', 'Gold'];
+export const SIGHT_GUNS = ['mp5', 'ak47', 'm4a1', 'l118a'];   // weapons that have a top rail model
+export const GRIP_GUNS = ['ak47', 'm4a1'];                    // weapons that take the foregrip
+export const TINT_GUNS = ['usp', 'deagle', 'glock', 'mp5', 'p90', 'spas12', 'striker', 'ak47', 'm4a1', 'l118a']; // weapons with a real model to repaint
+const DEFAULT_CUSTOM: Record<string, number> = { mp5: 1, ak47: 1, m4a1: 2 | 4, l118a: 3 };   // how the guns look and play out of the box
+export const defaultCustom = (weapon: number) => DEFAULT_CUSTOM[WEAPONS[weapon]?.id] ?? 0;
+/** Makes any number a valid code for this weapon (so a modified client cannot send nonsense). */
+export function cleanCustom(weaponId: string, code: unknown): number {
+  let c = typeof code === 'number' && Number.isInteger(code) && code >= 0 && code < 64 ? code : 0;
+  let sight = c & 3, grip = (c >> 2) & 1, tint = c >> 3;
+  if (!SIGHT_GUNS.includes(weaponId)) sight = 0;
+  if (!GRIP_GUNS.includes(weaponId)) grip = 0;
+  if (!TINT_GUNS.includes(weaponId) || tint >= TINT_NAMES.length) tint = 0;
+  return sight | (grip << 2) | (tint << 3);
+}
+/** What a customization costs and gives: better sights tighten the spread but slow you a little; a foregrip steadies the gun but slows the reload. */
+export function customMods(code: number) {
+  const sight = code & 3, grip = (code >> 2) & 1;
+  return { spread: [1, 0.94, 0.88, 0.8][sight] * (grip ? 0.92 : 1), speed: [1, 1, 0.97, 0.93][sight], reload: grip ? 1.12 : 1 };
+}
+export const MAG_RESERVE = 5;      // spare magazines
+export const EQUIP_TIME = 0.35;    // seconds before you can fire after switching weapons
 export const SIDEARM_COUNT = WEAPONS.filter((w) => w.slot === 'sidearm').length; // sidearms occupy indexes 0..SIDEARM_COUNT-1
 const SIDEARM_MASK = (1 << SIDEARM_COUNT) - 1;
 const ALL_MASK = (1 << WEAPONS.length) - 1;
@@ -91,7 +115,7 @@ export const DEFUSE_TIME = 5;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
 
-export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean; prone?: boolean; sneak?: boolean }
+export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean; prone?: boolean; sneak?: boolean; reload?: boolean }
 
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
@@ -101,6 +125,10 @@ export interface PlayerState {
   st: 0 | 1 | 2 | 3; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping), 3 prone (lying flat)
   rs: number;    // seconds until I respawn (0 while alive)
   ch: number;    // the weapon I chose for my next spawn (free-loadout games), -1 = none
+  am: number;    // rounds left in the magazine of the weapon I hold
+  rv: number;    // spare rounds for it
+  rl: number;    // seconds of reloading left (0 = not reloading)
+  cu: number;    // customization code of the weapon I hold
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
 export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
@@ -139,6 +167,7 @@ export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletSt
 interface Player extends PlayerState {
   sidearm: number; input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
   protect: number; // no damage until this time (just respawned)
+  ammoIn: number[]; ammoRes: number[]; reloadUntil: number; equipUntil: number; custom: Record<number, number>;
   air: number; jumpCd: number; // seconds left in the current jump / until the next jump is allowed
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
@@ -248,13 +277,16 @@ export class Sim {
 
   // ---------- roster ----------
   /** Adds a human (rounds mode: to the team with fewer humans). */
-  join(id: string, name: string, skin = 0, sidearm = 0, prefer: Team | 'auto' = 'auto') {
+  join(id: string, name: string, skin = 0, sidearm = 0, prefer: Team | 'auto' = 'auto', custom: Record<string, unknown> = {}) {
     const humans: Record<Team, number> = { T: 0, CT: 0 };
     for (const p of this.players.values()) if (!p.bot) humans[p.team]++;
     let team: Team = humans.CT <= humans.T ? 'CT' : 'T'; // default: the side with fewer humans
     if ((prefer === 'CT' || prefer === 'T') && humans[prefer] < TEAM_SIZE) team = prefer; // honour the choice if that side has room
     this.addPlayer(id, name, false, team, skin, sidearm);
+    const p = this.players.get(id);
+    if (p) WEAPONS.forEach((w, i) => { if (custom && custom[w.id] !== undefined) p.custom[i] = cleanCustom(w.id, custom[w.id]); });
   }
+  private customOf(p: Player) { return p.custom[p.weapon] ?? defaultCustom(p.weapon); }
 
   addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 2 : 0) + Math.floor(Math.random() * 2) : 0, sidearm = bot ? Math.floor(Math.random() * SIDEARM_COUNT) : 0) {
     sidearm = Math.max(0, Math.min(SIDEARM_COUNT - 1, Math.floor(sidearm) || 0));
@@ -263,7 +295,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      st: 0, rs: 0, ch: -1, protect: 0, air: 0, jumpCd: 0,
+      st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, protect: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
@@ -311,8 +343,10 @@ export class Sim {
     const mx = num(i.mx), my = num(i.my);
     const len = Math.hypot(mx, my);
     const k = len > 1 ? 1 / len : 1;
-    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped, crouch: !!i.crouch, jump: !!i.jump, prone: !!i.prone, sneak: !!i.sneak };
-    if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1) p.weapon = i.weapon!;
+    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped, crouch: !!i.crouch, jump: !!i.jump, prone: !!i.prone, sneak: !!i.sneak, reload: !!i.reload };
+    if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1 && i.weapon !== p.weapon) {
+      p.weapon = i.weapon!; p.reloadUntil = 0; p.equipUntil = this.time + EQUIP_TIME;   // switching stops a reload and takes a moment to bring the new gun up
+    }
   }
 
   /** Free-loadout games: choose the weapon for my next spawn (and take it right away during the buy phase). */
@@ -377,6 +411,7 @@ export class Sim {
       }
     }
     p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0;
+    p.ammoIn = WEAPONS.map((w) => w.mag); p.ammoRes = WEAPONS.map((w) => w.mag * MAG_RESERVE); p.reloadUntil = 0; p.equipUntil = 0;   // full magazines for a new life
     if (this.free) this.giveLoadout(p);
     if (this.rounds && this.phase === 'live') { p.armor = 0; p.protect = this.time + SPAWN_PROTECT; }   // back from the dead: armor is gone, a short grace period
   }
@@ -512,7 +547,7 @@ export class Sim {
         if (p.input.jump && p.air <= 0 && p.jumpCd <= 0 && !p.input.prone) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
         p.st = p.air > 0 ? 2 : p.input.prone ? 3 : p.input.crouch ? 1 : 0;
         const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : p.st === 3 ? PRONE_SPEED : p.input.sneak ? SNEAK_SPEED : 1);
-        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult, p.st === 2);
+        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult * customMods(this.customOf(p)).speed, p.st === 2);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -524,12 +559,23 @@ export class Sim {
       }
       p.angle = p.input.angle;
       p.cooldown -= dt;
-      if (canFire && p.input.fire && p.cooldown <= 0) {
+      {
+        const wd = WEAPONS[p.weapon], mods = customMods(this.customOf(p));
+        if (p.reloadUntil > 0 && this.time >= p.reloadUntil) {                    // reload finished: top the magazine up from the spare rounds
+          const take = Math.min(wd.mag - p.ammoIn[p.weapon], p.ammoRes[p.weapon]);
+          p.ammoIn[p.weapon] += take; p.ammoRes[p.weapon] -= take; p.reloadUntil = 0;
+        }
+        if (p.reloadUntil === 0 && this.time >= p.equipUntil && p.ammoIn[p.weapon] < wd.mag && p.ammoRes[p.weapon] > 0 && (p.input.reload || p.ammoIn[p.weapon] === 0)) {
+          p.reloadUntil = this.time + wd.reload * mods.reload;                    // R pressed, or the magazine ran dry
+        }
+      }
+      if (canFire && p.input.fire && p.cooldown <= 0 && p.reloadUntil === 0 && this.time >= p.equipUntil && p.ammoIn[p.weapon] > 0) {
         const w = WEAPONS[p.weapon];
         p.cooldown = w.cooldown;
+        p.ammoIn[p.weapon]--;
         for (let i = 0; i < w.pellets; i++) {
           const base = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
-          const spread = base * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1);   // lying is steadiest, kneeling steady, mid-air wild
+          const spread = base * customMods(this.customOf(p)).spread * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1);   // lying is steadiest, kneeling steady, mid-air wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
             id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, crouch: p.st === 1 || p.st === 3, over: 0,
@@ -676,7 +722,7 @@ export class Sim {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
-        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, ch: p.ch, rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
+        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, ch: p.ch, am: p.ammoIn[p.weapon] ?? 0, rv: p.ammoRes[p.weapon] ?? 0, rl: p.reloadUntil > 0 ? Math.round(Math.max(0, p.reloadUntil - this.time) * 10) / 10 : 0, cu: this.customOf(p), rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid })),
       pickups: [
@@ -702,7 +748,7 @@ export class Sim {
 
 // ---- network protocol ----
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode }
+  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode; cu?: Record<string, number> }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number }
   | { type: 'ping'; t: number }

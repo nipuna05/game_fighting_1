@@ -38,6 +38,9 @@ export function initAudio() {
 }
 
 export function toggleMute(): boolean { muted = !muted; return muted; }
+/** For the music module: the shared audio context (null until the first user gesture) and the mute flag. */
+export const getAudio = (): AudioContext | null => ctx;
+export const isMuted = () => muted;
 
 function tone(freq: number, dur: number, type: OscillatorType, vol: number, slideTo = freq, delay = 0) {
   if (!ctx || muted) return;
@@ -171,6 +174,18 @@ export const sfx = {
     grunt(out, t, 160, 62, 0.55, 0.6);
     nz(out, t + 0.32, 'lowpass', 260, 0.7, 0.9, 0.3); osc(out, t + 0.32, 'sine', 90, 36, 0.8, 0.3);
   },
+  /** Reload: magazine out, magazine in, then the bolt, spread over `total` seconds. */
+  reload(total: number) {
+    if (!ctx || muted || !noiseBuf || !master) return;
+    const t = ctx.currentTime, out = bus(0.8, 0, 0, 0);
+    nz(out, t + 0.08, 'bandpass', 900, 3, 0.45, 0.05); osc(out, t + 0.1, 'triangle', 300, 150, 0.2, 0.08);                         // magazine out
+    nz(out, t + total * 0.55, 'bandpass', 700, 2, 0.5, 0.07); osc(out, t + total * 0.55, 'triangle', 220, 120, 0.3, 0.09);         // magazine in
+    nz(out, t + Math.max(0.3, total - 0.18), 'bandpass', 2000, 3, 0.5, 0.04); nz(out, t + Math.max(0.36, total - 0.1), 'bandpass', 1500, 3, 0.45, 0.05); // bolt
+  },
+  /** Trigger pulled on an empty gun. */
+  dry() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.6, 0, 0, 0); nz(out, t, 'bandpass', 2600, 4, 0.5, 0.03); },
+  /** Bringing another weapon up. */
+  swap() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.6, 0, 0, 0); nz(out, t, 'bandpass', 1100, 2, 0.4, 0.06); nz(out, t + 0.12, 'bandpass', 1900, 3, 0.4, 0.04); },
   beep() { tone(1400, 0.07, 'square', 0.12); },
   plant() { tone(520, 0.12, 'square', 0.2); tone(780, 0.18, 'square', 0.2, 780, 0.13); },
   defuse() { tone(600, 0.1, 'sine', 0.25); tone(900, 0.1, 'sine', 0.25, 900, 0.1); tone(1200, 0.25, 'sine', 0.25, 1200, 0.2); },

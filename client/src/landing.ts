@@ -9,10 +9,11 @@ export interface Landing {
   setMap(id: string): void;
   setSkin(i: number): void;
   setPrimary(weapon: number | null): void;
+  refresh(): void;
   stop(): void;
 }
 
-interface Initial { map: string; skin: number; primary: number | null }
+interface Initial { map: string; skin: number; primary: number | null; custom?: (weapon: number) => number | undefined }
 
 const STAGE = new THREE.Vector3(660 * MAP_SCALE, 0, 760 * MAP_SCALE); // an open patch of ground on all three maps
 const AK47 = WEAPONS.findIndex((w) => w.id === 'ak47');
@@ -58,7 +59,7 @@ export function startLanding(host: HTMLElement, initial: Initial): Landing {
       const c = template ? makeModelCharacter(m.skin, color) : makeCharacter(color);
       c.root.position.set(STAGE.x + m.x, 0, STAGE.z + m.z);
       c.root.rotation.y = -0.55 + m.yaw;              // three-quarter view: facing right (toward the menu), a little toward the camera
-      c.gunHolder.add(makeWeaponModel(m.gun));
+      c.gunHolder.add(makeWeaponModel(m.gun, initial.custom?.(m.gun)));
       c.idle?.setEffectiveWeight(1); c.run?.setEffectiveWeight(0);
       c.mixer?.update(i * 0.37);                       // desynchronise their idle loops
       heroGroup!.add(c.root);
@@ -114,6 +115,7 @@ export function startLanding(host: HTMLElement, initial: Initial): Landing {
     setMap(id) { if (id !== mapId) { mapId = id; build(); } },
     setSkin(i) { if (i !== skin) { skin = i; buildHeroes(); } },
     setPrimary(w) { if (w !== primary) { primary = w; buildHeroes(); } },
+    refresh() { buildHeroes(); },
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);

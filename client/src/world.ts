@@ -2,7 +2,7 @@
 // Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, type MapDef, type Rect, type Team } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, defaultCustom, type MapDef, type Rect, type Team } from '@fight/shared';
 
 // ---------- texture helpers ----------
 type Draw = (g: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -597,7 +597,6 @@ const GUN_LENGTH: Record<string, number> = {
 };
 // The automatic "barrel is the light end" guess is wrong for these models (their stock end came out in front), so flip them.
 const GUN_FLIP = new Set(['deagle', 'glock', 'mp5', 'p90', 'spas12', 'striker', 'ak47']);
-const gunTemplates = new Map<string, THREE.Group>();
 let gunLoad: Promise<void> | null = null;
 
 function prepareGun(src: THREE.Object3D, targetLen: number, flip: boolean): THREE.Group {
@@ -635,61 +634,83 @@ function prepareGun(src: THREE.Object3D, targetLen: number, flip: boolean): THRE
   return out;
 }
 
-// ---------- rifle attachments (optional GLBs from the CuiGames accessory kit in /models/accessories; the kit may not be redistributed, so it is not in git) ----------
-// mount: 'top' sits on the upper rail, 'bottom' hangs from the lower rail. len = length in game units, at = how far along the gun (0 = stock end, 1 = muzzle).
-interface Fit { glb: string; len: number; at: number; mount: 'top' | 'bottom' }
-const ACCESSORIES: Record<string, Fit[]> = {
-  ak47:  [{ glb: 'H02_Holo', len: 3.8, at: 0.50, mount: 'top' }],
-  mp5:   [{ glb: 'H02_Holo', len: 3.4, at: 0.48, mount: 'top' }],
-  m4a1:  [{ glb: 'P42_4x', len: 6.5, at: 0.50, mount: 'top' }, { glb: 'FG01_Foregrip', len: 2.4, at: 0.74, mount: 'bottom' }],
-  l118a: [{ glb: 'R8_8x', len: 10, at: 0.46, mount: 'top' }],
-};
-async function attachAccessories(id: string, gun: THREE.Group, loader: GLTFLoader) {
-  const fits = ACCESSORIES[id];
-  if (!fits) return;
+// ---------- real gun models + customization (sights, foregrip, finish) ----------
+// Gun GLBs are in /models/guns, the sights and grip (CuiGames kit, not redistributable) in /models/accessories. Every combination of
+// choices is built once from the plain gun and cached. A weapon without a file keeps its built-in low-poly model.
+const ACC_FILES: Record<number, string> = { 1: 'H02_Holo', 2: 'P42_4x', 3: 'R8_8x' };
+const SIGHT_LEN: Record<number, number> = { 1: 3.8, 2: 6.5, 3: 10 };
+const SIGHT_AT: Record<string, number> = { mp5: 0.48, l118a: 0.46 };
+export const TINT_COLORS = [0xffffff, 0x4a4d52, 0xd9bd85, 0x8b9a5c, 0xe6eef6, 0xffd24a];
+const gunBase = new Map<string, THREE.Group>();
+const accScenes = new Map<string, THREE.Object3D>();
+const variantCache = new Map<string, THREE.Group>();
+
+function mountAccessory(gun: THREE.Group, name: string, len: number, at: number, top: boolean) {
+  const acc = accScenes.get(name);
+  if (!acc) return;
   gun.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(gun);
   const meshes: THREE.Object3D[] = [];
   gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o); });
+  const part = acc.clone(true);
+  const size = new THREE.Box3().setFromObject(part).getSize(new THREE.Vector3());
+  part.scale.setScalar(len / Math.max(0.0001, size.x));                         // the kit files already point along +x once loaded, like the guns
+  const wrap = new THREE.Group(); wrap.add(part);
+  const x = box.min.x + (box.max.x - box.min.x) * at;
   const ray = new THREE.Raycaster();
-  for (const f of fits) {
-    try {
-      const acc = (await loader.loadAsync(`/models/accessories/${f.glb}.glb`)).scene;
-      const size = new THREE.Box3().setFromObject(acc).getSize(new THREE.Vector3());
-      acc.scale.setScalar(f.len / Math.max(0.0001, size.x));                 // the kit files carry their own 90 degree turn: once loaded they already point along +x, like the guns
-      const wrap = new THREE.Group(); wrap.add(acc);
-      const x = box.min.x + (box.max.x - box.min.x) * f.at, top = f.mount === 'top';
-      ray.set(new THREE.Vector3(x, top ? box.max.y + 20 : box.min.y - 20, 0), new THREE.Vector3(0, top ? -1 : 1, 0));
-      const hit = ray.intersectObjects(meshes, false)[0];                       // the real surface of the gun at that spot
-      const y = hit ? hit.point.y : top ? box.max.y : box.min.y;
-      wrap.position.set(x, y + (top ? -0.25 : 0.25), 0);                       // sunk a touch so it sits on the rail
-      wrap.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; });
-      gun.add(wrap);
-    } catch { /* kit not installed: the gun is simply drawn without it */ }
+  ray.set(new THREE.Vector3(x, top ? box.max.y + 20 : box.min.y - 20, 0), new THREE.Vector3(0, top ? -1 : 1, 0));
+  const hit = ray.intersectObjects(meshes, false)[0];                            // the real surface of the gun at that spot
+  const y = hit ? hit.point.y : top ? box.max.y : box.min.y;
+  wrap.position.set(x, y + (top ? -0.25 : 0.25), 0);
+  wrap.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; });
+  gun.add(wrap);
+}
+
+function buildVariant(id: string, base: THREE.Group, code: number): THREE.Group {
+  const g = base.clone(true);
+  const sight = code & 3, grip = (code >> 2) & 1, tint = code >> 3;
+  if (tint > 0) {                                                                // repaint: own copies of the materials, multiplied by the finish colour
+    const col = new THREE.Color(TINT_COLORS[tint]);
+    g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const paint = (mt: THREE.Material) => { const c = mt.clone() as THREE.MeshStandardMaterial; if (c.color) c.color.multiply(col); if (tint === 5) { c.metalness = 0.9; c.roughness = 0.28; } return c; };
+      m.material = Array.isArray(m.material) ? m.material.map(paint) : paint(m.material);
+    });
   }
+  if (sight && ACC_FILES[sight]) mountAccessory(g, ACC_FILES[sight], SIGHT_LEN[sight], SIGHT_AT[id] ?? 0.5, true);
+  if (grip) mountAccessory(g, 'FG01_Foregrip', 2.4, 0.74, false);
+  return g;
 }
 
 export function loadGunModels(): Promise<void> {
   gunLoad ??= (async () => {
     const loader = new GLTFLoader();
+    await Promise.all(Object.values(ACC_FILES).concat('FG01_Foregrip').map(async (n) => {
+      try { accScenes.set(n, (await loader.loadAsync(`/models/accessories/${n}.glb`)).scene); } catch { /* kit not installed */ }
+    }));
     await Promise.all(WEAPONS.map(async (w) => {
       try {
         const gltf = await loader.loadAsync(`/models/guns/${w.id}.glb`);
-        const tpl = prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30, GUN_FLIP.has(w.id));
-        await attachAccessories(w.id, tpl, loader);
-        gunTemplates.set(w.id, tpl);
+        gunBase.set(w.id, prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30, GUN_FLIP.has(w.id)));
       } catch { /* no file for this weapon: the built-in model is used */ }
     }));
-    if (gunTemplates.size) console.info(`Loaded ${gunTemplates.size} gun models: ${[...gunTemplates.keys()].join(', ')}`);
+    if (gunBase.size) console.info(`Loaded ${gunBase.size} gun models: ${[...gunBase.keys()].join(', ')}`);
   })();
   return gunLoad;
 }
 
 // ---------- weapon models (low-poly originals; barrel points along +x, origin at the grip) ----------
-export function makeWeaponModel(idx: number): THREE.Group {
+export function makeWeaponModel(idx: number, custom?: number): THREE.Group {
   const id = WEAPONS[idx]?.id ?? 'usp';
-  const real = gunTemplates.get(id);
-  if (real) return real.clone(true);
+  const base = gunBase.get(id);
+  if (base) {
+    const code = custom ?? defaultCustom(idx);
+    const key = `${id}|${code}`;
+    let v = variantCache.get(key);
+    if (!v) { v = buildVariant(id, base, code); variantCache.set(key, v); }
+    return v.clone(true);
+  }
   const g = new THREE.Group();
   const mat = (c: number, metal = 0.35, rough = 0.5, opacity = 1) => new THREE.MeshStandardMaterial({ color: c, metalness: metal, roughness: rough, transparent: opacity < 1, opacity });
   const M = {

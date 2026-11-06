@@ -16,6 +16,7 @@ export interface Character {
   walk?: THREE.AnimationAction; strideWalk?: number; strideRun?: number; // ground speed (units/s) that the walk / run clips cover at normal playback speed
   arms?: { side: number; upper: THREE.Object3D; fore: THREE.Object3D; hand: THREE.Object3D }[]; armGunIdx?: number; gunLen?: number; gunH?: number;
   proneK?: number; modelBaseY?: number; gunBase?: { pos: THREE.Vector3; quat: THREE.Quaternion };
+  gunCu?: number;                                                                // customization code of the weapon model in the hands
   gunOnBody?: boolean;                                                           // the weapon follows the chest bone (so it needs no separate offset)
   airT?: number; crouchK?: number; gunBaseY?: number;                            // jump timer, and how far into the kneel pose (0..1) the character is
   kneel?: { hips: THREE.Object3D; hipsY: number; thighs: THREE.Object3D[]; shins: THREE.Object3D[] };

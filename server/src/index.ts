@@ -54,7 +54,7 @@ wss.on('connection', (ws) => {
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
       r.clients.set(id, ws);
-      r.sim.join(id, String(msg.name || 'Player').slice(0, 14), Number(msg.skin) || 0, Number(msg.sidearm) || 0, msg.team === 'CT' || msg.team === 'T' ? msg.team : 'auto');
+      r.sim.join(id, String(msg.name || 'Player').slice(0, 14), Number(msg.skin) || 0, Number(msg.sidearm) || 0, msg.team === 'CT' || msg.team === 'T' ? msg.team : 'auto', msg.cu && typeof msg.cu === 'object' ? msg.cu : {});
       r.sim.fillBots(TEAM_SIZE);
       send(ws, { type: 'welcome', id, room: code, map: r.sim.map.id });
     } else if (msg.type === 'input' && room) {

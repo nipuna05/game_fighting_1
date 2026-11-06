@@ -1,8 +1,9 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
-import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, type GameMode, type WeaponSet } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
 import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
 import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, type Profile, type TeamPref } from './profile';
 
+import { music } from './music';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -11,6 +12,7 @@ export interface MenuHooks {
   onMap(id: string): void;
   onSkin(i: number): void;
   onPrimary(weapon: number | null): void;
+  onCustom(): void;
 }
 
 export function initMenu(profile: Profile, hooks: MenuHooks) {
@@ -119,6 +121,35 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     }
   };
 
+  // ---------- weapon customization (Loadout tab): sight, foregrip, finish ----------
+  let custSel = TINT_GUNS[3];
+  const TINT_CSS = ['#9aa3ad', '#3a3d42', '#cdb27a', '#7d8c55', '#dfe8f0', '#e6bf3a'];
+  const renderCustom = () => {
+    const pick = $('custwep'), opts = $('custopts');
+    pick.innerHTML = '';
+    for (const id of TINT_GUNS) {
+      const i = WEAPONS.findIndex((w) => w.id === id);
+      const b = document.createElement('button');
+      b.className = `cbtn${custSel === id ? ' on' : ''}`; b.textContent = WEAPONS[i].name;
+      b.addEventListener('click', () => { custSel = id; hooks.onPrimary(i); renderCustom(); });
+      pick.appendChild(b);
+    }
+    const wi = WEAPONS.findIndex((w) => w.id === custSel);
+    const code = cleanCustom(custSel, profile.custom[custSel] ?? defaultCustom(wi));
+    const set = (next: number) => { profile.custom[custSel] = cleanCustom(custSel, next); save(); hooks.onCustom(); renderCustom(); };
+    const sight = code & 3, grip = (code >> 2) & 1, tint = code >> 3;
+    const m = customMods(code);
+    let html = '';
+    if (SIGHT_GUNS.includes(custSel)) html += `<h4>Sight</h4><div class="crow">${SIGHT_NAMES.map((n, k) => `<button class="cbtn${sight === k ? ' on' : ''}" data-sight="${k}">${esc(n)}</button>`).join('')}</div>`;
+    if (GRIP_GUNS.includes(custSel)) html += `<h4>Foregrip</h4><div class="crow"><button class="cbtn${grip ? '' : ' on'}" data-grip="0">None</button><button class="cbtn${grip ? ' on' : ''}" data-grip="1">Tactical foregrip</button></div>`;
+    html += `<h4>Finish</h4><div class="crow">${TINT_NAMES.map((n, k) => `<button class="cbtn${tint === k ? ' on' : ''}" data-tint="${k}"><i class="sw" style="background:${TINT_CSS[k]}"></i>${esc(n)}</button>`).join('')}</div>`;
+    html += `<p class="note">Spread ${m.spread < 1 ? Math.round((1 - m.spread) * 100) + '% tighter' : 'normal'} &middot; move speed ${m.speed < 1 ? Math.round((1 - m.speed) * 100) + '% slower' : 'normal'} &middot; reload ${m.reload > 1 ? Math.round((m.reload - 1) * 100) + '% slower' : 'normal'}. Better sights tighten your aim but slow you down; a foregrip steadies the gun but slows the reload.</p>`;
+    opts.innerHTML = html;
+    opts.querySelectorAll<HTMLElement>('[data-sight]').forEach((el) => el.addEventListener('click', () => set((code & ~3) | Number(el.dataset.sight))));
+    opts.querySelectorAll<HTMLElement>('[data-grip]').forEach((el) => el.addEventListener('click', () => set((code & ~4) | (Number(el.dataset.grip) << 2))));
+    opts.querySelectorAll<HTMLElement>('[data-tint]').forEach((el) => el.addEventListener('click', () => set((code & 7) | (Number(el.dataset.tint) << 3))));
+  };
+
   // ---------- Costume tab ----------
   let portraits = false; // true once the soldier portraits (client/public/models/thumbs) are known to exist
   const probe = new Image();
@@ -215,6 +246,13 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const optReplay = $('optreplay') as HTMLInputElement;
   optReplay.checked = profile.options.replay;
   optReplay.addEventListener('change', () => { profile.options.replay = optReplay.checked; saveProfile(profile); });
+  const optMusic = $('optmusic') as HTMLInputElement;
+  optMusic.value = String(profile.options.music);
+  $('optmusicv').textContent = `${profile.options.music}%`;
+  optMusic.addEventListener('input', () => {
+    profile.options.music = Number(optMusic.value); $('optmusicv').textContent = `${optMusic.value}%`;
+    saveProfile(profile); music.setVolume(profile.options.music / 100);
+  });
   const optView = $('optview') as HTMLSelectElement;
   optView.value = profile.options.view;
   optView.addEventListener('change', () => { profile.options.view = optView.value as 'top' | 'fps'; profile.options.viewSet = true; saveProfile(profile); });
@@ -254,5 +292,5 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   armor.addEventListener('change', () => { profile.autoBuy.armor = armor.checked; save(); });
   ($('name') as HTMLInputElement).value = profile.name;
 
-  renderCoins(); renderMaps(); renderRules(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
+  renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
 }

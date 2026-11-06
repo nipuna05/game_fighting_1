@@ -114,6 +114,12 @@
     .sel { width: 100%; background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 9px 10px; font-size: 14px; }
     #goal { position: fixed; left: 50%; top: calc(54px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 4; max-width: 70vw; text-align: center; pointer-events: none; font: 600 13px system-ui; color: #e8eef5; background: #000a; padding: 5px 14px; border-radius: 8px; display: none; }
     #buy .pickhint { color: #b8c4d4; font-size: 13px; margin: 4px 0 10px; } #buy button.cur { background: #1b3a2c; border-color: #3ddc84; }
+    .crow { display: flex; flex-wrap: wrap; gap: 6px; } .cbtn { font: 600 12.5px system-ui; color: #dbe5f1; background: #1b2634; border: 1px solid #2f3d52; border-radius: 8px; padding: 7px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .cbtn:hover { border-color: #ff9a3d; } .cbtn.on { background: #3a2a14; border-color: #ff9a3d; color: #fff; } .cbtn .sw { width: 11px; height: 11px; border-radius: 3px; border: 1px solid #0008; display: inline-block; }
+    #ammo { position: fixed; right: calc(14px + env(safe-area-inset-right)); bottom: calc(46px + env(safe-area-inset-bottom)); z-index: 4; text-align: right; pointer-events: none; text-shadow: 0 2px 8px #000; display: none; }
+    #ammo b { font: 800 40px ui-monospace, monospace; letter-spacing: .02em; } #ammo b small { font-size: 18px; opacity: .7; font-weight: 600; } #ammo span { display: block; font: 700 12px system-ui; letter-spacing: .1em; color: #cfd8e3; }
+    #ammo.low b { color: #ffb15e; } #ammo.empty b { color: #ff6b6b; } #ammo .rbar { width: 150px; height: 5px; background: #0008; border-radius: 3px; overflow: hidden; margin: 4px 0 0 auto; display: none; } #ammo .rbar i { display: block; height: 100%; background: #ffd34d; }
+    body.touch #ammo { bottom: auto; top: calc(96px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); } body.touch #ammo b { font-size: 26px; }
     #mic { position: fixed; right: 12px; bottom: 12px; z-index: 6; display: none; font: 600 13px system-ui, sans-serif; color: #cfd8e3; background: #000a; padding: 6px 12px; border-radius: 8px; pointer-events: none; }
     #mic.talk { color: #fff; background: #b3261e; } #mic.bad { color: #ffd34d; }
     .lbl.speaking span::before { content: '\1F50A '; } .lbl.speaking span { text-shadow: 0 0 8px #3ddc84, 0 1px 2px #000; color: #b9ffd0 !important; }
@@ -144,6 +150,7 @@
     #tScope { right: calc(5% + clamp(64px, 18vmin, 84px) + 22px + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
     #tSwap { left: calc(5% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-left)); bottom: calc(6% + env(safe-area-inset-bottom)); }
     #tProne { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(54px, 15vmin, 72px) + 10px + env(safe-area-inset-bottom)); }
+    #tReload { right: calc(5% + clamp(64px, 18vmin, 84px) * 2 + 40px + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
     #tTalk { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
     #tJump { right: calc(5% + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(64px, 18vmin, 84px) + 10px + env(safe-area-inset-bottom)); }
     #tCrouch { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
@@ -184,6 +191,7 @@
   <div id="spec"></div>
   <div id="respawn"></div>
   <div id="mic"></div>
+  <div id="ammo"><span id="ammoname"></span><b id="ammonum"></b><div class="rbar"><i></i></div><span id="ammohint"></span></div>
   <div id="hud"></div>
   <div id="feed"></div>
   <div id="multi"><b id="multit"></b><span id="multis"></span></div>
@@ -204,6 +212,7 @@
     <div class="tbtn" id="tFire">FIRE</div>
     <div class="tbtn" id="tCrouch">KNEEL</div>
     <div class="tbtn" id="tProne">PRONE</div>
+    <div class="tbtn" id="tReload">RELOAD</div>
     <div class="tbtn" id="tFull">&#x26F6;</div>
   </div>
   <button id="menubtn" title="Menu (Esc)">&#9776; Menu</button>
@@ -239,6 +248,7 @@
         <div class="pane" id="tab-loadout">
           <h4>Sidearm</h4><div id="sidearms" class="cards three"></div>
           <h4>Primary weapon (bought automatically each round)</h4><div id="primaries" class="cards three"></div>
+          <h4>Customize a weapon</h4><div id="custwep" class="crow"></div><div id="custopts"></div>
           <label class="check"><input type="checkbox" id="autoarmor" /> Also buy armor automatically</label>
           <p class="note">Auto-buy happens at the start of every buy phase if you can afford it. Your sidearm is free and always yours. Locked sidearms cost coins.</p>
         </div>
@@ -249,6 +259,7 @@
         <div class="pane" id="tab-controls">
           <h4>Options</h4>
           <label class="opt"><input type="checkbox" id="optreplay" /> Show a slow-motion replay of how I died</label>
+          <label class="opt">Music volume <input type="range" id="optmusic" min="0" max="100" step="5" style="width:160px" /> <span id="optmusicv"></span></label>
           <label class="opt">Camera view
             <select id="optview"><option value="fps">First-person (through the soldier's eyes, default)</option><option value="top">Top-down</option></select></label>
           <p class="note">You can switch while playing with <b>P</b>. In first-person: move the mouse to look, W/S walk forward/back, A/D strafe. Click the game once to capture the mouse; Esc releases it.</p>
@@ -271,7 +282,7 @@
         </div>
         <div id="menumsg"></div>
       </section>
-      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; X lie down (prone) &middot; hold Shift sneak &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
+      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; R reload &middot; X lie down (prone) &middot; hold Shift sneak &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

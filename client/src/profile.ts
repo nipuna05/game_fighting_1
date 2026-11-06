@@ -1,4 +1,4 @@
-import type { GameMode, WeaponSet, PickMode } from '@fight/shared';
+import { WEAPONS, cleanCustom, type GameMode, type WeaponSet, type PickMode } from '@fight/shared';
 // Player profile, saved in this browser's localStorage (name, costume, last weapon pack, recent fights).
 // It is per browser. Accounts that follow you across devices need a server database (a later step).
 import type { Team } from '@fight/shared';
@@ -24,14 +24,14 @@ export const SKIN_PRICES = [0, 0, 300, 400];
 export const SIDEARM_PRICES = [0, 500, 250]; // USP, Desert Eagle, Glock 18
 export const START_COINS = 400;
 export interface Unlocks { skins: number[]; sidearms: number[] }
-export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean } // replay = slow-motion kill cam; voice = team voice chat mode
-export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean; music: number } // replay = slow-motion kill cam; voice = team voice chat mode
+export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; custom: Record<string, number>; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55 }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', custom: {}, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -46,6 +46,7 @@ export function loadProfile(): Profile {
         // first-person (through the soldier's eyes) is the default; a saved choice only counts once the player has picked one themselves
         view: p.options?.viewSet ? (p.options.view === 'top' ? 'top' : 'fps') : 'fps',
         viewSet: !!p.options?.viewSet,
+        music: typeof p.options?.music === 'number' && Number.isFinite(p.options.music) ? Math.max(0, Math.min(100, Math.round(p.options.music))) : 55,
       },
       keybinds: p.keybinds && typeof p.keybinds === 'object'
         ? Object.fromEntries(Object.entries(p.keybinds).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k.slice(0, 20), (v as unknown[]).filter((c) => typeof c === 'string').slice(0, 2).map((c) => String(c).slice(0, 20))]))
@@ -66,6 +67,7 @@ export function loadProfile(): Profile {
       style: p.style === 'tdm' ? 'tdm' : 'bomb',
       weaponSet: (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as string[]).includes(p.weaponSet as string) ? p.weaponSet as WeaponSet : 'all',
       pick: p.pick === 'auto' ? 'auto' : 'manual',
+      custom: p.custom && typeof p.custom === 'object' ? Object.fromEntries(WEAPONS.filter((w) => (p.custom as Record<string, unknown>)[w.id] !== undefined).map((w) => [w.id, cleanCustom(w.id, (p.custom as Record<string, unknown>)[w.id])])) : {},
       autoBuy: {
         primary: p.autoBuy && Number.isInteger(p.autoBuy.primary) && (p.autoBuy.primary as number) >= 3 ? (p.autoBuy.primary as number) : null,
         armor: !!p.autoBuy?.armor,
