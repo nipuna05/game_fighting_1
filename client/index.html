@@ -126,6 +126,12 @@
     .stick.left::after { content: 'MOVE'; position: absolute; left: 0; right: 0; top: 40%; text-align: center; font: 700 11px system-ui; color: #ffffff55; letter-spacing: .08em; pointer-events: none; }
     .knob { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; border-radius: 50%; background: #ffffff55; }
     .tbtn { position: absolute; width: clamp(54px, 15vmin, 72px); height: clamp(54px, 15vmin, 72px); border-radius: 50%; border: 2px solid #ffffff55; background: #0b0f14aa; color: #fff; font: 800 12px system-ui; letter-spacing: .04em; display: flex; align-items: center; justify-content: center; text-align: center; pointer-events: auto; touch-action: none; }
+    #xhair { position: fixed; left: 50%; top: 50%; width: 0; height: 0; z-index: 3; pointer-events: none; display: none; }
+    #xhair i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; } #xhair i:nth-child(1) { left: -12px; top: -1px; width: 8px; height: 2px; } #xhair i:nth-child(2) { left: 4px; top: -1px; width: 8px; height: 2px; }
+    #xhair i:nth-child(3) { left: -1px; top: -12px; width: 2px; height: 8px; } #xhair i:nth-child(4) { left: -1px; top: 4px; width: 2px; height: 8px; }
+    #fphint { position: fixed; left: 50%; bottom: 17%; transform: translateX(-50%); z-index: 4; display: none; pointer-events: none; font: 600 14px system-ui; color: #fff; background: #000a; padding: 7px 14px; border-radius: 10px; }
+    #tFire { right: calc(5% + clamp(96px, 26vmin, 140px) / 2 - clamp(54px, 15vmin, 72px) / 2 + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(64px, 18vmin, 84px) + 10px + clamp(54px, 15vmin, 72px) + 10px + env(safe-area-inset-bottom)); background: #c0392bcc; }
+    body:not(.fp) #tFire { display: none; }
     .tbtn.on { background: #2f6fedcc; border-color: #9cc0ff; } .tbtn.hide { display: none; }
     #tUse { right: calc(5% + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); width: clamp(64px, 18vmin, 84px); height: clamp(64px, 18vmin, 84px); background: #d9822bcc; font-size: 14px; }
     #tScope { right: calc(5% + clamp(64px, 18vmin, 84px) + 22px + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
@@ -163,6 +169,8 @@
   <div id="labels"></div>
   <div id="hurt"></div>
   <div id="toast"></div>
+  <div id="xhair"><i></i><i></i><i></i><i></i></div>
+  <div id="fphint">Click to look around &middot; Esc for the menu &middot; P: top-down view</div>
   <div id="scope"><i class="ring"></i><i class="h"></i><i class="v"></i><i class="dot"></i></div>
   <div id="replay"><i class="bar bt"></i><i class="bar bb"></i><div class="txt"><b>KILL CAM</b><span id="replaywho"></span></div><div class="skip" id="replayskip"></div></div>
   <div id="spec"></div>
@@ -183,6 +191,7 @@
     <div class="tbtn" id="tSwap">SWAP</div>
     <div class="tbtn hide" id="tTalk">TALK</div>
     <div class="tbtn" id="tJump">JUMP</div>
+    <div class="tbtn" id="tFire">FIRE</div>
     <div class="tbtn" id="tCrouch">KNEEL</div>
     <div class="tbtn" id="tFull">&#x26F6;</div>
   </div>
@@ -225,6 +234,9 @@
         <div class="pane" id="tab-controls">
           <h4>Options</h4>
           <label class="opt"><input type="checkbox" id="optreplay" /> Show a slow-motion replay of how I died</label>
+          <label class="opt">Camera view
+            <select id="optview"><option value="top">Top-down (default)</option><option value="fps">First-person (through the soldier's eyes)</option></select></label>
+          <p class="note">You can switch while playing with <b>P</b>. In first-person: move the mouse to look, W/S walk forward/back, A/D strafe. Click the game once to capture the mouse; Esc releases it.</p>
           <label class="opt">Team voice chat
             <select id="optvoice"><option value="off">Off</option><option value="ptt">Push-to-talk (hold a key)</option><option value="open">Open microphone</option></select></label>
           <p class="note">Voice is only heard by your own team (real players, not bots). The browser asks for permission to use your microphone. It needs <b>https</b> or <b>localhost</b>.</p>
@@ -241,7 +253,7 @@
         </div>
         <div id="menumsg"></div>
       </section>
-      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; hold E plant / defuse &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
+      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

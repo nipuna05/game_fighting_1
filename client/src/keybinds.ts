@@ -19,6 +19,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'specNext', label: 'Next player to watch / skip the replay', group: 'When you are out', defaults: ['Enter', 'KeyN'] },
   { id: 'replay', label: 'Watch my death again in slow motion', group: 'When you are out', defaults: ['KeyR'] },
   { id: 'talk', label: 'Talk to my team (hold)', group: 'Voice chat', defaults: ['KeyT'] },
+  { id: 'view', label: 'Camera: top-down / first-person', group: 'Other', defaults: ['KeyP'] },
   { id: 'mute', label: 'Mute sound', group: 'Other', defaults: ['KeyM'] },
   { id: 'perf', label: 'FPS and ping overlay', group: 'Other', defaults: ['F3'] },
 ];

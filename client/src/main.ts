@@ -23,7 +23,7 @@ const keys = { up: false, down: false, left: false, right: false, use: false, sc
 const profile = loadProfile();
 applyBinds(profile.keybinds); // the player's own key bindings (Controls tab in the menu)
 let game: Game | null = null;
-const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false };
+const stick = { mx: 0, my: 0, aimAngle: 0, aiming: false, tx: 0, fireBtn: false };
 const mouse = { x: 0, y: 0, down: false, right: false };
 
 function bindTouch() {
@@ -59,6 +59,7 @@ function bindTouch() {
   };
   hold('tUse', () => { keys.use = true; }, () => { keys.use = false; });
   hold('tTalk', () => game?.talk(true), () => game?.talk(false));
+  hold('tFire', () => { stick.fireBtn = true; }, () => { stick.fireBtn = false; });
   hold('tJump', () => { keys.jump = true; game?.queueJump(); }, () => { keys.jump = false; });
   $('tCrouch').addEventListener('pointerdown', () => { keys.crouch = !keys.crouch; $('tCrouch').classList.toggle('on', keys.crouch); });
   $('tSwap').addEventListener('pointerdown', () => game?.lastWeapon());
@@ -66,6 +67,7 @@ function bindTouch() {
   $('tFull').addEventListener('pointerdown', () => { if (document.fullscreenElement) void document.exitFullscreen(); else void goFullscreen(); });
   setup($('stickL'), $('knobL'), (x, y) => { stick.mx = x; stick.my = y; });
   setup($('stickR'), $('knobR'), (x, y, active) => {
+    stick.tx = active ? x : 0;                    // first-person: the right stick only turns
     stick.aiming = active && Math.hypot(x, y) > 0.2;
     if (active && Math.hypot(x, y) > 0.05) stick.aimAngle = Math.atan2(y, x);
   });
@@ -94,6 +96,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'use': keys.use = v; break;
     case 'scope': keys.scope = v; break;
     case 'crouch': keys.crouch = v; break;
+    case 'view': if (v) game?.toggleView(); break;
     case 'jump': keys.jump = v; if (v) game?.queueJump(); break;
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
     case 'rebuy': if (v) game?.rebuy(); break;
@@ -109,7 +112,7 @@ function setKey(code: string, v: boolean): boolean {
   }
   return true;
 }
-window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; game?.look(e.movementX); });
 window.addEventListener('wheel', (e) => { if (e.deltaY !== 0) game?.cycleWeapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
 
 // ---------- 3D building blocks ----------
@@ -188,6 +191,12 @@ class Game {
   private voice: Voice | null = null;               // team voice chat (multiplayer, if the player turned it on)
   private micAcc = 0;
   paused = false;
+  // first-person ("through the soldier's eyes") camera
+  private fp = QS.get('view') ? QS.get('view') === 'fps' : profile.options.view === 'fps';
+  private fpActive = false;                              // first-person is on AND I am alive and not watching a replay
+  private yaw = 0;                                       // the direction I look (radians, the same angle the sim uses)
+  private viewGun: THREE.Group | null = null; private viewGunIdx = -1; private kick = 0;
+  private releasing = false;
   private jumpPending = false;
   /** A quick tap must still count: keep the jump request until the next input has been sent. */
   queueJump() { this.jumpPending = true; }
@@ -260,6 +269,12 @@ class Game {
     this.scene.add(this.bombMesh);
     this.buildBuyMenu();
     $('menubtn').addEventListener('click', () => this.togglePause(true));
+    document.body.classList.toggle('fp', this.fp);
+    this.renderer.domElement.addEventListener('mousedown', () => this.lockMouse());
+    document.addEventListener('pointerlockchange', () => {   // Esc gives the mouse back: treat it as "open the menu"
+      if (this.releasing) { this.releasing = false; return; }
+      if (!document.pointerLockElement && this.fpActive && !this.paused) this.togglePause(true);
+    });
     $('resumebtn').addEventListener('click', () => this.togglePause(false));
     $('leavebtn').addEventListener('click', leaveGame);
     $('endleave').addEventListener('click', leaveGame);
@@ -398,6 +413,35 @@ class Game {
     this.voice = new Voice(id, (msg) => { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }, profile.options.voice);
     void this.voice.enable();
   }
+  toggleView() {
+    this.fp = !this.fp;
+    profile.options.view = this.fp ? 'fps' : 'top'; saveProfile(profile);
+    const me = this.me(); if (this.fp && me) this.yaw = me.angle;
+    document.body.classList.toggle('fp', this.fp);
+    if (!this.fp && document.pointerLockElement) { this.releasing = true; document.exitPointerLock(); }
+    this.toast(this.fp ? 'First-person view' : 'Top-down view');
+  }
+  /** Mouse movement turns the head in first-person (needs the captured mouse). */
+  look(dx: number) { if (this.fpActive && document.pointerLockElement && !this.paused) this.yaw += dx * 0.0022; }
+  /** The weapon in my hands, drawn on top of everything in front of the camera. */
+  private updateViewGun(weapon: number | undefined, show: boolean, dt: number) {
+    if (!this.viewGun) { this.viewGun = new THREE.Group(); this.camera.add(this.viewGun); if (!this.camera.parent) this.scene.add(this.camera); }
+    const g = this.viewGun;
+    g.visible = show && weapon !== undefined;
+    if (weapon === undefined || weapon === this.viewGunIdx) { /* keep */ } else {
+      g.clear();
+      const m = makeWeaponModel(weapon);
+      m.rotation.y = Math.PI / 2;                       // barrel points along +x in the model, the camera looks along -z
+      m.traverse((o) => { const me = o as THREE.Mesh; if (!me.isMesh) return; me.castShadow = false; me.renderOrder = 999; for (const mat of ([] as THREE.Material[]).concat(me.material)) mat.depthTest = false; });
+      g.add(m); this.viewGunIdx = weapon;
+    }
+    if (this.localInput?.fire) this.kick = 1;
+    this.kick = Math.max(0, this.kick - dt * 9);
+    g.position.set(10, -11 + this.kick * 0.8, -26 + this.kick * 4);
+    g.rotation.x = this.kick * 0.06;
+  }
+  private lockMouse() { if (this.fpActive && !isTouch && !document.pointerLockElement) { try { void (this.renderer.domElement.requestPointerLock() as unknown as Promise<void> | undefined)?.catch?.(() => undefined); } catch { /* the browser refused: the hint stays visible */ } } }
+
   togglePause(force?: boolean) {
     this.paused = force ?? !this.paused;
     $('pause').classList.toggle('on', this.paused);
@@ -469,7 +513,14 @@ class Game {
     const my = (keys.down ? 1 : 0) - (keys.up ? 1 : 0) + stick.my;
     let angle = this.snap?.players.find((p) => p.id === this.myId)?.angle ?? 0;
     let fire = mouse.down;
-    if (isTouch) {
+    let wmx = mx, wmy = my;
+    if (this.fpActive) {                               // first-person: the keys move me relative to where I am looking
+      if (isTouch) this.yaw += stick.tx * 2.8 * this.fpDt;
+      const fwd = (keys.up ? 1 : 0) - (keys.down ? 1 : 0) - stick.my, str = (keys.right ? 1 : 0) - (keys.left ? 1 : 0) + stick.mx;
+      wmx = fwd * Math.cos(this.yaw) - str * Math.sin(this.yaw);
+      wmy = fwd * Math.sin(this.yaw) + str * Math.cos(this.yaw);
+      angle = this.yaw; fire = isTouch ? stick.fireBtn : mouse.down;
+    } else if (isTouch) {
       angle = stick.aimAngle; fire = stick.aiming;
     } else if (me) {
       const ndc = new THREE.Vector2((mouse.x / window.innerWidth) * 2 - 1, -(mouse.y / window.innerHeight) * 2 + 1);
@@ -478,13 +529,16 @@ class Game {
     }
     const myP = this.me();
     const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
-    return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending };
+    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending };
   }
 
+  private fpDt = 0.016;
   private frame() {
     const now = performance.now();
     const delta = Math.min(now - this.last, 100);
     this.last = now;
+    this.fpDt = delta / 1000;
+    this.fpActive = this.fp && !this.replay && !!this.me()?.alive;
 
     const input = this.paused ? { mx: 0, my: 0, angle: this.snap?.players.find((p) => p.id === this.myId)?.angle ?? 0, fire: false } : this.readInput();
     this.localInput = input;
@@ -608,7 +662,7 @@ class Game {
           c.idle?.reset().play(); c.run?.reset().play();
         }
       }
-      c.root.visible = p.alive || !!c.dead;
+      c.root.visible = (p.alive || !!c.dead) && !(this.fpActive && p.id === this.myId);   // no own body in first-person
       c.gunHolder.visible = p.alive;
       if (c.ring) c.ring.visible = p.alive;
       const posture = p.alive ? (p.st ?? 0) : 0;
@@ -705,7 +759,9 @@ class Game {
     if (Math.abs(this.scopeT - (wantScope ? 1 : 0)) < 0.002) this.scopeT = wantScope ? 1 : 0;
     if (wantScope !== this.wasScoped) { sfx.scope(wantScope); this.wasScoped = wantScope; }
     const ease = this.scopeT * this.scopeT * (3 - 2 * this.scopeT);
-    const fov = 45 - 25 * ease;
+    const fov = this.fpActive ? 78 - 48 * ease : 45 - 25 * ease;
+    const near = this.fpActive ? 3 : 10;
+    if (this.camera.near !== near) { this.camera.near = near; this.camera.updateProjectionMatrix(); }
     if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     const sc = $('scope');
     sc.style.opacity = String(Math.min(1, ease * 1.4));
@@ -727,7 +783,17 @@ class Game {
       (this.bombMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = blink * 2;
     }
     const zoom = QS.has('zoom') ? Number(QS.get('zoom')) : 1;
-    if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
+    const mePl = s.players.find((q) => q.id === this.myId);
+    const fpNow = this.fpActive && camId === this.myId && !!me;
+    this.updateViewGun(mePl?.weapon, fpNow && ease < 0.6, dt);
+    $('xhair').style.display = fpNow && ease < 0.3 ? 'block' : 'none';
+    $('fphint').style.display = fpNow && !isTouch && !document.pointerLockElement && !this.paused ? 'block' : 'none';
+    if (fpNow && me) {
+      const ch = this.chars.get(this.myId);
+      const eye = 52 - 20 * (ch?.crouchK ?? 0) + (ch?.root.position.y ?? 0);   // eye height: lower when kneeling, higher in a jump
+      this.camera.position.set(me.x, eye, me.y);
+      this.camera.lookAt(me.x + Math.cos(this.yaw) * 100, eye, me.y + Math.sin(this.yaw) * 100);
+    } else if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
       this.camera.position.set(this.camTarget.x, 640 * zoom, this.camTarget.z + 0.01);
       this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z);
     } else {
@@ -752,6 +818,7 @@ class Game {
       el.classList.toggle('speaking', p.id === this.myId ? (this.voice?.micLevel ?? 0) > 0.035 : !!this.voice?.isSpeaking(p.id));
       if (!p.alive || !d) { el.style.display = 'none'; continue; }
       this.tmp.set(d.x, 78, d.y).project(this.camera);
+      if (this.tmp.z > 1 || (this.fpActive && p.id === this.myId)) { el.style.display = 'none'; continue; }   // behind the camera / my own tag in first-person
       el.style.display = 'block';
       el.style.transform = `translate(${(this.tmp.x * 0.5 + 0.5) * w}px, ${(-this.tmp.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
