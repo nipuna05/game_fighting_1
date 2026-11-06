@@ -98,6 +98,15 @@
     .kb { min-width: 64px; padding: 6px 10px; border-radius: 8px; border: 1px solid #2f3d52; background: rgba(21,28,38,.9); color: #fff; font: 700 12px ui-monospace, monospace; cursor: pointer; }
     .kb:hover { border-color: #ff9a3d; } .kb.wait { border-color: #ffd34d; color: #ffd34d; animation: blinkk .8s infinite; } .kb.empty { color: #6b7a8e; font-weight: 400; }
     @keyframes blinkk { 50% { opacity: .55; } }
+    #replay { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: none; }
+    #replay.on { display: block; }
+    #replay .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; } #replay .bt { top: 0; } #replay .bb { bottom: 0; }
+    #replay .txt { position: absolute; top: calc(9vh + 14px); left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 10px #000; white-space: nowrap; }
+    #replay .txt b { display: block; font: 900 30px Impact, 'Arial Black', system-ui; letter-spacing: .12em; color: #ff6b6b; } #replay .txt span { font: 600 15px system-ui; color: #fff; }
+    #replay .skip { position: absolute; bottom: calc(9vh + 14px); left: 50%; transform: translateX(-50%); font: 600 14px system-ui; color: #cfd8e3; text-shadow: 0 2px 8px #000; }
+    #spec { position: fixed; left: 50%; bottom: 13%; transform: translateX(-50%); z-index: 4; display: none; text-align: center; background: #000a; padding: 8px 18px; border-radius: 10px; pointer-events: none; font: 600 14px system-ui; color: #cfd8e3; }
+    #spec b { display: block; font: 800 20px system-ui; color: #fff; letter-spacing: .04em; margin-bottom: 2px; }
+    .opt { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #cdd7e4; padding: 5px 0; } .opt select { background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
     .skin.p { background-size: cover; background-position: center top; }
     #scope { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 50%, transparent 0, transparent 33vmin, #000 33.5vmin); will-change: opacity, transform; }
     #scope .ring { position: absolute; left: 50%; top: 50%; width: 67vmin; height: 67vmin; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 46px 12px rgba(0,0,0,.6), 0 0 0 3px #000; }
@@ -117,6 +126,8 @@
   <div id="hurt"></div>
   <div id="toast"></div>
   <div id="scope"><i class="ring"></i><i class="h"></i><i class="v"></i><i class="dot"></i></div>
+  <div id="replay"><i class="bar bt"></i><i class="bar bb"></i><div class="txt"><b>KILL CAM</b><span id="replaywho"></span></div><div class="skip" id="replayskip"></div></div>
+  <div id="spec"></div>
   <div id="hud"></div>
   <div id="feed"></div>
   <div id="multi"><b id="multit"></b><span id="multis"></span></div>
@@ -160,6 +171,8 @@
           <p class="note">Other players see your costume. Locked costumes unlock with coins, which you earn after every finished match.</p>
         </div>
         <div class="pane" id="tab-controls">
+          <h4>Options</h4>
+          <label class="opt"><input type="checkbox" id="optreplay" /> Show a slow-motion replay of how I died</label>
           <div id="controls"></div>
           <div class="row"><button id="resetkeys" class="btn ghost">Reset all keys to defaults</button></div>
           <p class="note">Click a key, then press the new one. Esc cancels, Backspace clears. If the key is already used for another action, it moves here. Mouse: aim with the mouse, left click shoots, right click scopes a sniper. Your keys are saved in your profile.</p>

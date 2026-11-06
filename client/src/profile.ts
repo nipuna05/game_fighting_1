@@ -23,13 +23,14 @@ export const SKIN_PRICES = [0, 0, 300, 400];
 export const SIDEARM_PRICES = [0, 500, 250]; // USP, Desert Eagle, Glock 18
 export const START_COINS = 400;
 export interface Unlocks { skins: number[]; sidearms: number[] }
-export interface Profile { keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off' } // replay = slow-motion kill cam; voice = team voice chat mode
+export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'ptt' }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -38,6 +39,10 @@ export function loadProfile(): Profile {
     const p = JSON.parse(raw) as Partial<Profile>;
     const base = fresh();
     return {
+      options: {
+        replay: p.options?.replay !== false,
+        voice: p.options?.voice === 'open' || p.options?.voice === 'off' ? p.options.voice : 'ptt',
+      },
       keybinds: p.keybinds && typeof p.keybinds === 'object'
         ? Object.fromEntries(Object.entries(p.keybinds).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k.slice(0, 20), (v as unknown[]).filter((c) => typeof c === 'string').slice(0, 2).map((c) => String(c).slice(0, 20))]))
         : {},

@@ -14,6 +14,8 @@ export const ACTIONS: ActionDef[] = [
   { id: 'primary', label: 'Select primary weapon', group: 'Weapons', defaults: ['Digit2'] },
   { id: 'lastWeapon', label: 'Switch to the last weapon', group: 'Weapons', defaults: ['KeyQ'] },
   { id: 'scope', label: 'Sniper scope (hold)', group: 'Weapons', defaults: ['KeyZ'] },
+  { id: 'specNext', label: 'Next player to watch / skip the replay', group: 'When you are out', defaults: ['Space'] },
+  { id: 'replay', label: 'Watch my death again in slow motion', group: 'When you are out', defaults: ['KeyR'] },
   { id: 'mute', label: 'Mute sound', group: 'Other', defaults: ['KeyM'] },
   { id: 'perf', label: 'FPS and ping overlay', group: 'Other', defaults: ['F3'] },
 ];

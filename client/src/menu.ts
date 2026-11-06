@@ -193,6 +193,9 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     renderControls();
     say(e.code === 'Backspace' || e.code === 'Delete' ? 'Key cleared.' : `${keyLabel(e.code)} is now set.`);
   }, true);
+  const optReplay = $('optreplay') as HTMLInputElement;
+  optReplay.checked = profile.options.replay;
+  optReplay.addEventListener('change', () => { profile.options.replay = optReplay.checked; saveProfile(profile); });
   $('resetkeys').addEventListener('click', () => { saveBinds({}); renderControls(); say('Keys reset to the defaults.'); });
 
   // ---------- tabs and buttons ----------
