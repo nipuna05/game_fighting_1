@@ -1,9 +1,14 @@
 // Map definitions. Collision, spawns, bomb sites and loot live here (shared by client and server);
 // `theme` only tells the client how to draw the map.
 export type TeamId = 'T' | 'CT';
-export type WallKind = 'outer' | 'shop' | 'fountain' | 'barrier' | 'crate' | 'scooter';
+export type WallKind = 'outer' | 'shop' | 'fountain' | 'barrier' | 'crate' | 'scooter' | 'house' | 'inner' | 'window' | 'rail';
 export interface Rect { x: number; y: number; w: number; h: number; kind?: WallKind }
-export interface Site { id: string; x: number; y: number; r: number }
+export interface Site { id: string; x: number; y: number; r: number; lv?: number }   // lv: which floor the site is on (0 = ground)
+
+// ---- floors: a building can have an upper floor (level 1) reached by a stair ramp ----
+export const FLOOR_H = 72;                                    // height of the upper floor above the ground
+export interface Stair { x: number; y: number; w: number; h: number; axis: 'x' | 'y'; dir: 1 | -1 }   // ramp rect; walking along `axis` in direction `dir` climbs
+export interface BuildingDef { rect: Rect; door: { out: { x: number; y: number }; in: { x: number; y: number } }; stair: number; side: 'W' | 'E' }
 export type MapTheme = 'town' | 'dock' | 'desert' | 'village';
 
 export interface MapDef {
@@ -17,6 +22,32 @@ export interface MapDef {
   heal: { x: number; y: number }[]; // health pickups (respawn)
   loot: { x: number; y: number }[]; // cash stacks (refill every round)
   supply?: { x: number; y: number }[]; // spots where supply items (medkits, grenades) lie
+  upper?: Rect[];                   // walls of the upper floor (level 1)
+  stairs?: Stair[];                 // stair ramps between the ground floor and the upper floor
+  floors?: Rect[];                  // extent of each upper floor
+  buildings?: BuildingDef[];        // the enterable two-storey buildings (for doors, stairs and bots)
+}
+
+/** The wall set that applies on a floor. */
+export const levelWalls = (map: MapDef, lv: number): Rect[] => (lv >= 1 ? map.upper ?? [] : map.walls);
+/** Is this point on a stair ramp? t = 0 at the low end, 1 at the high end. */
+export function stairAt(map: MapDef, x: number, y: number): { stair: Stair; t: number } | null {
+  for (const s of map.stairs ?? []) {
+    if (x < s.x || x > s.x + s.w || y < s.y || y > s.y + s.h) continue;
+    const len = s.axis === 'x' ? s.w : s.h, pos = s.axis === 'x' ? x - s.x : y - s.y;
+    return { stair: s, t: Math.max(0, Math.min(1, s.dir === 1 ? pos / len : 1 - pos / len)) };
+  }
+  return null;
+}
+/** Height and floor of a standing player: on a ramp the height follows the ramp, elsewhere it is the floor's height. */
+export function updateLevel(map: MapDef, p: { x: number; y: number; lv: number; z: number }) {
+  const st = stairAt(map, p.x, p.y);
+  if (st) { p.z = st.t * FLOOR_H; p.lv = p.z >= FLOOR_H / 2 ? 1 : 0; } else p.z = p.lv * FLOOR_H;
+}
+/** The point just beyond one end of a ramp (which = 0 low end, 1 high end). */
+export function stairEnd(s: Stair, which: 0 | 1, push = 26): { x: number; y: number } {
+  const hi = (which === 1) === (s.dir === 1);
+  return s.axis === 'x' ? { x: hi ? s.x + s.w + push : s.x - push, y: s.y + s.h / 2 } : { x: s.x + s.w / 2, y: hi ? s.y + s.h + push : s.y - push };
 }
 
 const W = 1600, H = 1200;                 // the layouts below are drawn on this base grid ...
@@ -173,7 +204,73 @@ function enlarge(m: MapDef): MapDef {
   };
 }
 
-export const MAPS: Record<string, MapDef> = { town: enlarge(town), dock: enlarge(dock), desert: enlarge(desert), village: enlarge(village) };
+// ---------- two-storey houses ----------
+const HW = 320, HH = 270, HT = 16;                                            // house size and wall thickness (world units)
+interface House { ground: Rect[]; upper: Rect[]; stair: Stair; floor: Rect; def: BuildingDef; siteSpot: { x: number; y: number } }
+/** A house with a door on one side, a stair ramp along the north wall, an upper floor with windows and an interior wall. */
+function house(bx: number, by: number, side: 'W' | 'E'): House {
+  const R = (x: number, y: number, w: number, h: number, kind: WallKind): Rect => ({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), kind });
+  const doorY = by + HH * 0.64, gap = 86;
+  const ground: Rect[] = [R(bx, by, HW, HT, 'house'), R(bx, by + HH - HT, HW, HT, 'house')];
+  const sideWall = (x: number, door: boolean) => { if (!door) ground.push(R(x, by + HT, HT, HH - 2 * HT, 'house')); else { ground.push(R(x, by + HT, HT, doorY - gap / 2 - (by + HT), 'house')); ground.push(R(x, doorY + gap / 2, HT, by + HH - HT - (doorY + gap / 2), 'house')); } };
+  sideWall(bx, side === 'W'); sideWall(bx + HW - HT, side === 'E');
+  ground.push(R(bx + HW * 0.58, by + HT, HT, HH * 0.46, 'inner'));            // a partition with a gap to walk through
+  const sx = bx + HT + 64, sy = by + HT + 2, sw = 140, sh = 46;
+  const stair: Stair = { x: sx, y: sy, w: sw, h: sh, axis: 'x', dir: 1 };
+  const rail = R(sx, sy + sh, sw, 6, 'rail');
+  ground.push(rail, R(sx + sw, by + HT, 10, sh + 8, 'inner'));                // ground: a rail along the ramp and a wall across its high end
+  const upper: Rect[] = [rail, R(sx - 10, by + HT, 10, sh + 8, 'rail')];       // upper floor: the same rail and a rail across the ramp's low end (no falling in)
+  const win = (x: number, y: number, len: number, horiz: boolean, from: number, to: number) => {   // an outer wall with a window opening between from..to
+    const piece = (a: number, b: number, kind: WallKind) => { if (b - a > 1) upper.push(horiz ? R(x + a, y, b - a, HT, kind) : R(x, y + a, HT, b - a, kind)); };
+    piece(0, from, 'house'); piece(from, to, 'window'); piece(to, len, 'house');
+  };
+  upper.push(R(bx, by, HW, HT, 'house'));                                      // the north wall stays solid (the stair is behind it)
+  win(bx, by + HH - HT, HW, true, 90, 230);
+  win(bx, by + HT, HH - 2 * HT, false, 50, 170); win(bx + HW - HT, by + HT, HH - 2 * HT, false, 50, 170);
+  upper.push(R(bx + HW * 0.5, by + HT + sh + 70, HT, HH - 2 * HT - sh - 70, 'inner'));   // interior wall: a passage along the north side
+  const out = side === 'W' ? bx - 50 : bx + HW + 50, inn = side === 'W' ? bx + HT + 50 : bx + HW - HT - 50;
+  return {
+    ground, upper, stair, floor: { x: bx, y: by, w: HW, h: HH },
+    def: { rect: { x: bx, y: by, w: HW, h: HH }, door: { out: { x: out, y: doorY }, in: { x: inn, y: doorY } }, stair: -1, side },
+    siteSpot: { x: bx + HW * 0.76, y: by + HH * 0.64 },
+  };
+}
+/** Adds two mirrored houses (one has a bomb site upstairs) where there is room. Spots inside a house are removed. */
+function withBuildings(m: MapDef): MapDef {
+  const cands: [number, number][] = [];                                          // every spot on the left half, nearest to the preferred spot first
+  for (let x = 300; x <= 1000; x += 40) for (let y = 160; y <= WORLD_H - HH - 160; y += 40) cands.push([x, y]);
+  cands.sort((p, q) => Math.hypot(p[0] - 560, p[1] - 760) - Math.hypot(q[0] - 560, q[1] - 760));
+  const lowKind = (w: Rect) => w.kind === 'barrier' || w.kind === 'crate' || w.kind === 'scooter';
+  const solid = m.walls.filter((w) => w.kind !== 'outer' && !lowKind(w));      // real buildings stop a house; crates and low walls under it are simply removed
+  const clear = (x: number, y: number, side: 'W' | 'E') => {
+    const fp: Rect = { x, y, w: HW, h: HH };
+    const door: Rect = { x: (side === 'W' ? x - 50 : x + HW + 50) - 45, y: y + HH * 0.64 - 45, w: 90, h: 90 };      // the space in front of the door must be open
+    return !solid.some((w) => overlaps(fp, w, 50)) && !solid.some((w) => overlaps(door, w, 10)) && !Object.values(m.spawns).some((z) => overlaps(fp, z, 90))
+      && !m.sites.some((s) => s.x > x - s.r - 40 && s.x < x + HW + s.r + 40 && s.y > y - s.r - 40 && s.y < y + HH + s.r + 40)
+      && x > 60 && y > 60 && x + HW < WORLD_W - 60 && y + HH < WORLD_H - 60;
+  };
+  for (const [cx, cy] of cands) {
+    const mx = WORLD_W - cx - HW, my = WORLD_H - cy - HH;
+    if (!clear(cx, cy, 'E') || !clear(mx, my, 'W') || overlaps({ x: cx, y: cy, w: HW, h: HH }, { x: mx, y: my, w: HW, h: HH }, 80)) continue;
+    const left = house(cx, cy, 'E'), right = house(mx, my, 'W');
+    const homes = [left, right];
+    const inside = (p: { x: number; y: number }) => homes.some((h) => p.x > h.floor.x - 40 && p.x < h.floor.x + h.floor.w + 40 && p.y > h.floor.y - 40 && p.y < h.floor.y + h.floor.h + 40);
+    const stairs = homes.map((h) => h.stair);
+    return {
+      ...m,
+      walls: [...m.walls.filter((w) => !(lowKind(w) && homes.some((h) => overlaps(h.floor, w, 40)))), ...homes.flatMap((h) => h.ground)],
+      upper: homes.flatMap((h) => h.upper),
+      stairs,
+      floors: homes.map((h) => h.floor),
+      buildings: homes.map((h, i) => ({ ...h.def, stair: i })),
+      sites: [...m.sites, { id: 'C', x: Math.round(left.siteSpot.x), y: Math.round(left.siteSpot.y), r: 70, lv: 1 }],
+      heal: m.heal.filter((p) => !inside(p)), loot: m.loot.filter((p) => !inside(p)), supply: (m.supply ?? []).filter((p) => !inside(p)),
+    };
+  }
+  return m;                                                                      // no room: the map stays single-storey
+}
+
+export const MAPS: Record<string, MapDef> = { town: withBuildings(enlarge(town)), dock: withBuildings(enlarge(dock)), desert: withBuildings(enlarge(desert)), village: withBuildings(enlarge(village)) };
 export const MAP_IDS = Object.keys(MAPS);
 export const getMap = (id?: string): MapDef => (id && MAPS[id]) || MAPS.town;
 

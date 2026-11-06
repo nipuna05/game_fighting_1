@@ -2,7 +2,7 @@
 // Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, defaultCustom, type MapDef, type Rect, type Team } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, FLOOR_H, defaultCustom, type MapDef, type Rect, type Team } from '@fight/shared';
 
 // ---------- texture helpers ----------
 type Draw = (g: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -423,6 +423,7 @@ function buildWallVillage(scene: THREE.Scene, r: Rect, index: number) {
 }
 
 function buildWall(scene: THREE.Scene, r: Rect, index: number, theme: MapDef['theme']) {
+  if (r.kind === 'house' || r.kind === 'inner' || r.kind === 'window' || r.kind === 'rail') return;   // two-storey houses are built by buildHouses
   if (theme === 'village') buildWallVillage(scene, r, index);
   else if (theme === 'dock') buildWallDock(scene, r, index);
   else if (theme === 'desert') buildWallDesert(scene, r, index);
@@ -466,6 +467,7 @@ function decalCanvas(map: MapDef, mode?: string): HTMLCanvasElement {
     }
 
     for (const s of map.sites) { // bomb sites: hazard-bordered pad with a big letter
+      if (s.lv) continue;                                              // (a site upstairs is drawn on its own floor)
       const half = 112;
       g.fillStyle = 'rgba(255,225,120,0.12)'; g.fillRect(s.x - half, s.y - half, half * 2, half * 2);
       g.save();
@@ -535,7 +537,61 @@ const THEMES = {
   village: { sky: 0xb9cfdc, fogNear: 1100, fogFar: 3200, hemi: [0xdbe8f2, 0x5d6b3c, 1.8], sun: [0xffe9c4, 2.5], ground: 0x55703a, bunting: false },
 } as const;
 
-export function buildWorld(scene: THREE.Scene, map: MapDef, mode?: string) {
+// ---------- two-storey houses: ground walls, a floor slab with a hole for the stairs, a sloped ramp, upper walls with windows ----------
+export interface World { buildings: { rect: Rect; upper: THREE.Group }[] }   // `upper` is hidden while you are on the ground floor inside that house
+const HOUSE_KINDS = ['house', 'inner', 'window', 'rail'];
+function buildHouses(scene: THREE.Scene, map: MapDef): World['buildings'] {
+  const out: World['buildings'] = [];
+  const std = (c: number, rough = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: rough });
+  const stairTex = () => canvas(128, 64, (g, w, h) => { g.fillStyle = '#9a7648'; g.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 16) { g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x, 0, 3, h); g.fillStyle = 'rgba(255,240,200,0.18)'; g.fillRect(x + 3, 0, 2, h); } });
+  for (const b of map.buildings ?? []) {
+    const f = b.rect, st = map.stairs![b.stair];
+    const inside = (r: Rect) => r.x >= f.x - 2 && r.x + r.w <= f.x + f.w + 2 && r.y >= f.y - 2 && r.y + r.h <= f.y + f.h + 2;
+    const ground = new THREE.Group(), upper = new THREE.Group();
+    scene.add(ground, upper);
+    const wall = (g: THREE.Group, r: Rect, base: number) => {
+      const solid = r.kind === 'house' || r.kind === 'inner';
+      const H = solid ? (base === 0 ? FLOOR_H - 4 : 62) : r.kind === 'window' ? 26 : 20;
+      const color = r.kind === 'inner' ? 0xd6cbb0 : 0xe9dfc8;
+      addBox(g, r.w, H, r.h, r.x + r.w / 2, base + H / 2, r.y + r.h / 2, faceMats(() => (solid ? plasterC(color, false) : stoneC()), r.w, H, r.h, 90, std(0x6e5a44)));
+      if (r.kind === 'window') addBox(g, r.w, 24, Math.max(2, r.h * 0.3), r.x + r.w / 2, base + 38, r.y + r.h / 2, new THREE.MeshStandardMaterial({ color: 0x9fc5e8, transparent: true, opacity: 0.22, roughness: 0.1 }), false);   // glass above the sill
+    };
+    for (const r of map.walls) if (HOUSE_KINDS.includes(r.kind ?? '') && inside(r)) wall(ground, r, 0);
+    for (const r of map.upper ?? []) if (inside(r)) wall(upper, r, FLOOR_H);
+    // the floor of the upper storey, with a hole where the stairs come up
+    const hx0 = st.x, hx1 = st.x + st.w, hy0 = st.y, hy1 = st.y + st.h;
+    const pieces: Rect[] = [{ x: f.x, y: f.y, w: hx0 - f.x, h: f.h }, { x: hx1, y: f.y, w: f.x + f.w - hx1, h: f.h }, { x: hx0, y: f.y, w: st.w, h: hy0 - f.y }, { x: hx0, y: hy1, w: st.w, h: f.y + f.h - hy1 }];
+    for (const p of pieces) if (p.w > 1 && p.h > 1) addBox(upper, p.w, 5, p.h, p.x + p.w / 2, FLOOR_H - 2.5, p.y + p.h / 2, [std(0x6e5a44), std(0x6e5a44), new THREE.MeshStandardMaterial({ map: tex(woodC(), p.w / 60, p.h / 60), roughness: 0.9 }), std(0x5a4a38), std(0x6e5a44), std(0x6e5a44)]);
+    // the ramp
+    const len = st.axis === 'x' ? st.w : st.h, wid = (st.axis === 'x' ? st.h : st.w) - 4, ang = Math.atan2(FLOOR_H, len);
+    const rampMat = new THREE.MeshStandardMaterial({ map: tex(stairTex(), len / 18, 1), roughness: 0.9 });
+    const ramp = new THREE.Mesh(st.axis === 'x' ? new THREE.BoxGeometry(len / Math.cos(ang), 5, wid) : new THREE.BoxGeometry(wid, 5, len / Math.cos(ang)), rampMat);
+    ramp.position.set(st.x + st.w / 2, FLOOR_H / 2 - 2.5, st.y + st.h / 2);
+    if (st.axis === 'x') ramp.rotation.z = st.dir === 1 ? ang : -ang; else ramp.rotation.x = st.dir === 1 ? -ang : ang;
+    ramp.castShadow = true; ramp.receiveShadow = true; ground.add(ramp);
+    // the bomb site upstairs: a hazard-bordered pad with its letter
+    for (const s of map.sites) {
+      if (!s.lv || !inside({ x: s.x - 1, y: s.y - 1, w: 2, h: 2 })) continue;
+      const pad = canvas(256, 256, (g) => {
+        g.fillStyle = 'rgba(255,225,120,0.16)'; g.fillRect(8, 8, 240, 240);
+        g.fillStyle = 'rgba(242,194,48,0.92)'; g.fillRect(4, 4, 248, 18); g.fillRect(4, 234, 248, 18); g.fillRect(4, 4, 18, 248); g.fillRect(234, 4, 18, 248);
+        g.fillStyle = 'rgba(255,240,170,0.8)'; g.font = 'bold 150px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s.id, 128, 136);
+      });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(s.r * 1.7, s.r * 1.7), new THREE.MeshBasicMaterial({ map: tex(pad), transparent: true, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2; m.position.set(s.x, FLOOR_H + 0.7, s.y); upper.add(m);
+      const lamp = new THREE.PointLight(0xffd9a0, 5000, 300, 2); lamp.position.set(s.x, FLOOR_H + 52, s.y); upper.add(lamp);
+    }
+    out.push({ rect: f, upper });
+  }
+  return out;
+}
+
+export function buildWorld(scene: THREE.Scene, map: MapDef, mode?: string): World {
+  buildWorldBase(scene, map, mode);
+  return { buildings: buildHouses(scene, map) };
+}
+
+function buildWorldBase(scene: THREE.Scene, map: MapDef, mode?: string) {
   const T = THEMES[map.theme];
   scene.background = new THREE.Color(T.sky);
   scene.fog = new THREE.Fog(T.sky, T.fogNear, T.fogFar);
@@ -573,6 +629,7 @@ export function buildWorld(scene: THREE.Scene, map: MapDef, mode?: string) {
   const iron = new THREE.MeshStandardMaterial({ color: 0x1c1d21, metalness: 0.6, roughness: 0.45 });
   const glass = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
   for (const s of map.sites) {
+    if (s.lv) continue;
     const tops: THREE.Vector3[] = [];
     for (const dx of [-120, 120]) for (const dz of [-100, 100]) {
       const x = s.x + dx, z = s.y + dz;

@@ -76,10 +76,19 @@ Healing (bandage 2 s +25, medkit 4 s +75, adrenaline 3 s +30 and a 10 s speed bo
 (40 s respawn), bots heal and throw. Item bar, using bar, flash whiteout, smoke / fire clouds, explosion shake, sounds, kill-feed names.
 Possible later: armor/helmet levels, ammo boxes, a throw-distance charge, touch buttons for items.
 
+## Done: multi-floor buildings (phase 4)
+Every map now has two enterable two-storey houses (mirrored) with a door, a ground floor, a stair ramp you walk up (z follows the ramp), an upper
+floor with windows (low walls you can shoot over) and an interior wall. Bomb site C is upstairs in one house. Floors are levels (lv 0/1):
+walls, bullets, grenades, smoke/fire, bomb plant/defuse and pickups all respect the floor; bots find the door, cross the interior and use the
+stairs to plant / defuse upstairs. Client: house geometry + stair ramp, upper floor hidden while you are on the ground floor inside,
+camera / characters / bullets / effects follow the floor height. Code: `house()` + `withBuildings()` in shared/src/maps.ts, level rules in
+shared/src/sim.ts (`wallsAt`, `botGoLv`), `buildHouses()` in client/src/world.ts.
+Possible next: a roof / third floor, jumping up onto ledges and crates, balcony ladders, more houses per map, hostages / cases upstairs.
+
 ## Roadmap the user asked for (in this order)
 2. (done: rescue + collect) more missions could be: escort a VIP, defend a point, capture-the-flag.
 3. (done: healing items, grenades, supplies)
-4. **Multi-floor buildings**: floors, stairs, jump up onto ledges, bomb sites upstairs. Needs a z-level on players/walls/bullets in the sim,
+4. (done) **Multi-floor buildings**: floors, stairs, jump up onto ledges, bomb sites upstairs. Needs a z-level on players/walls/bullets in the sim,
    floor + stairs geometry in world.ts, bot navigation per floor. The biggest change: everything is flat today.
 5. **Themed bigger maps** inspired by PUBG / IGI / Task Force / Delta Force / Call of Duty (use original layouts and names), each with its
    own mission text. Larger area than the current 2400 x 1800.

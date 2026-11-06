@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { initAudio, sfx, toggleMute } from './audio';
 import { music } from './music';
-import { buildWorld, makeWeaponModel, loadGunModels } from './world';
+import { buildWorld, makeWeaponModel, loadGunModels, type World } from './world';
 import {
   applyKneel, applyProne, applyArmIK, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
 } from './characters';
@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  levelWalls, FLOOR_H, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -173,7 +173,7 @@ interface Particle { s: THREE.Sprite; vx: number; vy: number; vz: number; life: 
 
 // ---------- game ----------
 interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode }
-interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
+interface Shown { x: number; y: number; z: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
   private renderer: THREE.WebGLRenderer;
@@ -469,9 +469,18 @@ class Game {
   }
 
   private worldMode: string = '';
+  private world: World | null = null;
+  /** The upper floor of a house is hidden while the camera's player is on the ground floor inside it, so the ground floor stays visible. */
+  private updateUpperFloors(s: Snapshot, camId: string) {
+    const p = s.players.find((q) => q.id === camId), d = this.shown.get(camId);
+    for (const b of this.world?.buildings ?? []) {
+      const inside = !!p && !!d && p.lv === 0 && d.x > b.rect.x - 12 && d.x < b.rect.x + b.rect.w + 12 && d.y > b.rect.y - 12 && d.y < b.rect.y + b.rect.h + 12;
+      b.upper.visible = !inside;
+    }
+  }
   private buildWorld(map: MapDef) {
     this.mapDef = map;
-    buildWorld(this.scene, map, this.worldMode || this.cfg.style);
+    this.world = buildWorld(this.scene, map, this.worldMode || this.cfg.style);
     if (this.quality > 0) this.applyQuality();
   }
 
@@ -605,7 +614,7 @@ class Game {
   private predict(dt: number, input: Input) {
     const me = this.me();
     if (!me) return;
-    const walls = this.mapDef?.walls;
+    const walls = this.mapDef ? levelWalls(this.mapDef, me.lv) : undefined;      // the walls of the floor I am on
     const frozen = !me.alive || this.snap?.round?.phase === 'buy' || !walls;
     if (!this.pred || frozen) { this.pred = { x: me.x, y: me.y }; return; }
     const len = Math.hypot(input.mx, input.my), k = len > 1 ? 1 / len : 1;
@@ -746,8 +755,9 @@ class Game {
       seen.add(p.id);
       let d = this.shown.get(p.id);
       const local = !this.replay && p.id === this.myId && !!this.pred && !!this.localInput && p.alive;
-      if (!d || Math.hypot(d.x - p.x, d.y - p.y) > 200) d = { x: p.x, y: p.y, angle: p.angle, moved: 0, vx: 0, vy: 0 };
+      if (!d || Math.hypot(d.x - p.x, d.y - p.y) > 200) d = { x: p.x, y: p.y, z: p.z, angle: p.angle, moved: 0, vx: 0, vy: 0 };
       const px = d.x, py = d.y;
+      d.z += (p.z - d.z) * Math.min(1, smooth * 1.6);                      // climbing a stair ramp: the height follows the server's
       if (local) { // the local player is drawn where the player's own input put it, with no wait for the server
         d.x = this.pred!.x; d.y = this.pred!.y; d.angle = this.localInput!.angle;
       } else {
@@ -795,7 +805,7 @@ class Game {
       const hop = posture === 2 ? Math.sin(Math.PI * Math.min(1, c.airT / JUMP_TIME)) * 34 : 0;   // the jump arc
       c.crouchK = (c.crouchK ?? 0) + ((posture === 1 ? 1 : 0) - (c.crouchK ?? 0)) * Math.min(1, dt * 12);
       c.proneK = (c.proneK ?? 0) + ((posture === 3 ? 1 : 0) - (c.proneK ?? 0)) * Math.min(1, dt * 7);
-      c.root.position.set(d.x, hop, d.y);
+      c.root.position.set(d.x, hop + d.z, d.y);
       c.root.rotation.y = -d.angle;
       const speed = Math.min(1, d.moved / 220);
       if (c.dead && c.mixer) { c.mixer.update(dt); continue; }
@@ -860,7 +870,7 @@ class Game {
     const n = Math.min(s.bullets.length, 600);
     for (let i = 0; i < n; i++) {
       const b = s.bullets[i], st = tracerStyle(b.w);
-      this.dummy.position.set(b.x - Math.cos(b.a) * st.len / 2, AIM_HEIGHT, b.y - Math.sin(b.a) * st.len / 2); // the head of the tracer is at the bullet
+      this.dummy.position.set(b.x - Math.cos(b.a) * st.len / 2, AIM_HEIGHT + b.z, b.y - Math.sin(b.a) * st.len / 2); // the head of the tracer is at the bullet
       this.dummy.rotation.set(0, -b.a, 0);
       this.dummy.scale.set(st.len, st.th, st.th);
       this.dummy.updateMatrix();
@@ -907,19 +917,20 @@ class Game {
     sc.style.transform = `scale(${(1.5 - 0.5 * ease).toFixed(3)})`;
     this.renderer.domElement.style.cursor = ease > 0.4 ? 'none' : '';
     if (me) {
-      if (camId === this.myId) this.camTarget.set(me.x + (this.aimPoint.x - me.x) * 0.5 * ease, 0, me.y + (this.aimPoint.y - me.y) * 0.5 * ease); // rigid follow: a lagging camera would move the aim point while running
-      else this.camTarget.lerp(this.tmp.set(me.x, 0, me.y), Math.min(1, dt * 8));
+      if (camId === this.myId) this.camTarget.set(me.x + (this.aimPoint.x - me.x) * 0.5 * ease, me.z, me.y + (this.aimPoint.y - me.y) * 0.5 * ease); // rigid follow: a lagging camera would move the aim point while running
+      else this.camTarget.lerp(this.tmp.set(me.x, me.z, me.y), Math.min(1, dt * 8));
     }
 
     this.syncObjectives(s, time);
     this.syncItems(s, time, dt);
+    this.updateUpperFloors(s, camId);
     // bomb: on the carrier's back, dropped on the floor, or armed at the site
     const bomb = s.round?.bomb;
     this.bombMesh.visible = !!bomb && bomb.status !== 'none';
     if (bomb && this.bombMesh.visible) {
       const car = bomb.carrier ? this.shown.get(bomb.carrier) : undefined;
-      if (bomb.status === 'carried' && car) this.bombMesh.position.set(car.x - Math.cos(car.angle) * 12, 38, car.y - Math.sin(car.angle) * 12);
-      else this.bombMesh.position.set(bomb.x, 5, bomb.y);
+      if (bomb.status === 'carried' && car) this.bombMesh.position.set(car.x - Math.cos(car.angle) * 12, 38 + car.z, car.y - Math.sin(car.angle) * 12);
+      else this.bombMesh.position.set(bomb.x, 5 + (bomb.lv ?? 0) * FLOOR_H, bomb.y);
       const blink = bomb.status === 'planted' ? 0.4 + 0.6 * Math.abs(Math.sin(time * (bomb.fuse < 10 ? 10 : 4))) : 0.3;
       (this.bombMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = blink * 2;
     }
@@ -936,11 +947,11 @@ class Game {
       const cp = Math.cos(this.pitch);
       this.camera.lookAt(me.x + Math.cos(this.yaw) * 100 * cp, eye + Math.sin(this.pitch) * 100, me.y + Math.sin(this.yaw) * 100 * cp);
     } else if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
-      this.camera.position.set(this.camTarget.x, 640 * zoom, this.camTarget.z + 0.01);
-      this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z);
+      this.camera.position.set(this.camTarget.x, 640 * zoom + this.camTarget.y, this.camTarget.z + 0.01);
+      this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
     } else {
-      this.camera.position.set(this.camTarget.x, 560 * zoom, this.camTarget.z + 430 * zoom);
-      this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
+      this.camera.position.set(this.camTarget.x, 560 * zoom + this.camTarget.y, this.camTarget.z + 430 * zoom);
+      this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z + 10);
     }
     if (this.shake > 0.02) {                                           // explosion shake
       this.camera.position.x += (Math.random() - 0.5) * 9 * this.shake; this.camera.position.y += (Math.random() - 0.5) * 6 * this.shake; this.camera.position.z += (Math.random() - 0.5) * 9 * this.shake;
@@ -1056,7 +1067,7 @@ class Game {
         (o as THREE.Mesh).castShadow = true; this.grenadeMeshes.set(g.id, o); this.scene.add(o);
         if (!this.lastGrenades.has(g.id)) sfx.throwGrenade();
       }
-      o.position.set(g.x, 10 + Math.abs(Math.sin(time * 9 + g.id)) * 3, g.y); o.rotation.x = time * 10;
+      o.position.set(g.x, 10 + g.lv * FLOOR_H + Math.abs(Math.sin(time * 9 + g.id)) * 3, g.y); o.rotation.x = time * 10;
     }
     for (const [id, o] of this.grenadeMeshes) if (!gl.has(id)) { this.scene.remove(o); this.grenadeMeshes.delete(id); }
     this.lastGrenades = gl;
@@ -1080,8 +1091,8 @@ class Game {
       const fade = Math.min(1, z.left / 1.5);
       for (const sp of sprites) {
         const a = sp.userData.a + time * (z.k === 'smoke' ? 0.12 : 0.6), rr = z.r * (0.25 + 0.65 * sp.userData.rr);
-        if (z.k === 'smoke') { sp.position.set(z.x + Math.cos(a) * rr, 28 + Math.sin(time * 0.8 + sp.userData.ph) * 8 + sp.userData.rr * 26, z.y + Math.sin(a) * rr); sp.scale.setScalar(z.r * 0.95); (sp.material as THREE.SpriteMaterial).opacity = 0.82 * fade; }
-        else { sp.position.set(z.x + Math.cos(a) * rr, 8 + ((time * 40 + sp.userData.ph * 20) % 34), z.y + Math.sin(a) * rr); sp.scale.setScalar(26 + Math.sin(time * 14 + sp.userData.ph) * 6); (sp.material as THREE.SpriteMaterial).opacity = 0.9 * fade; }
+        if (z.k === 'smoke') { sp.position.set(z.x + Math.cos(a) * rr, z.lv * FLOOR_H + 28 + Math.sin(time * 0.8 + sp.userData.ph) * 8 + sp.userData.rr * 26, z.y + Math.sin(a) * rr); sp.scale.setScalar(z.r * 0.95); (sp.material as THREE.SpriteMaterial).opacity = 0.82 * fade; }
+        else { sp.position.set(z.x + Math.cos(a) * rr, z.lv * FLOOR_H + 8 + ((time * 40 + sp.userData.ph * 20) % 34), z.y + Math.sin(a) * rr); sp.scale.setScalar(26 + Math.sin(time * 14 + sp.userData.ph) * 6); (sp.material as THREE.SpriteMaterial).opacity = 0.9 * fade; }
       }
     }
     for (const [id, sprites] of this.zoneSprites) if (!zl.has(id)) { for (const sp of sprites) { this.scene.remove(sp); sp.material.dispose(); } this.zoneSprites.delete(id); }
@@ -1096,7 +1107,7 @@ class Game {
       const id = ITEMS[b.k].id;
       if (id === 'frag') {
         sfx.frag(vol, pan);
-        this.spawnFx('flash', b.x, b.y, 26, 0, 0, 0, 0.16, 150);
+        this.spawnFx('flash', b.x, b.y, 26 + b.lv * FLOOR_H, 0, 0, 0, 0.16, 150);
         for (let i = 0; i < 14; i++) { const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 190; this.spawnFx('spark', b.x, b.y, 22, Math.cos(a) * sp, 60 + Math.random() * 140, Math.sin(a) * sp, 0.45, 6, -380); }
         for (let i = 0; i < 6; i++) { const a = Math.random() * Math.PI * 2; this.spawnFx('dust', b.x + Math.cos(a) * 14, b.y + Math.sin(a) * 14, 20, Math.cos(a) * 30, 24, Math.sin(a) * 30, 0.9, 38); }
         if (d < 380) this.shake = Math.max(this.shake, 1 - d / 380);
@@ -1144,7 +1155,7 @@ class Game {
       const d = this.shown.get(p.id);
       el.classList.toggle('speaking', p.id === this.myId ? (this.voice?.micLevel ?? 0) > 0.035 : !!this.voice?.isSpeaking(p.id));
       if (!p.alive || !d) { el.style.display = 'none'; continue; }
-      this.tmp.set(d.x, 78, d.y).project(this.camera);
+      this.tmp.set(d.x, 78 + d.z, d.y).project(this.camera);
       if (this.tmp.z > 1 || (this.fpActive && p.id === this.myId)) { el.style.display = 'none'; continue; }   // behind the camera / my own tag in first-person
       el.style.display = 'block';
       el.style.transform = `translate(${(this.tmp.x * 0.5 + 0.5) * w}px, ${(-this.tmp.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
@@ -1285,10 +1296,10 @@ class Game {
       const size = FLASH_SIZE[WEAPONS[b.w]?.cat ?? 'Sidearm'] ?? 20;
       const mine = this.fpActive && !!this.pred && Math.hypot(b.x - this.pred.x, b.y - this.pred.y) < 40;   // my own shots in first-person use the flash on my barrel
       if (!mine) {
-        this.spawnFx('flash', b.x - Math.cos(b.a) * 18, b.y - Math.sin(b.a) * 18, AIM_HEIGHT, 0, 0, 0, 0.07, size);
-        this.spawnFx('dust', b.x - Math.cos(b.a) * 12, b.y - Math.sin(b.a) * 12, AIM_HEIGHT, Math.cos(b.a) * 10, 14, Math.sin(b.a) * 10, 0.4, 7);   // a puff of muzzle smoke
+        this.spawnFx('flash', b.x - Math.cos(b.a) * 18, b.y - Math.sin(b.a) * 18, AIM_HEIGHT + b.z, 0, 0, 0, 0.07, size);
+        this.spawnFx('dust', b.x - Math.cos(b.a) * 12, b.y - Math.sin(b.a) * 12, AIM_HEIGHT + b.z, Math.cos(b.a) * 10, 14, Math.sin(b.a) * 10, 0.4, 7);   // a puff of muzzle smoke
         const rx = -Math.sin(b.a), rz = Math.cos(b.a);                                                                                           // the casing is thrown out to the right of the gun
-        this.spawnCasing(new THREE.Vector3(b.x - Math.cos(b.a) * 10, AIM_HEIGHT - 4, b.y - Math.sin(b.a) * 10), new THREE.Vector3(rx * (28 + Math.random() * 12) - Math.cos(b.a) * 6, 24 + Math.random() * 12, rz * (28 + Math.random() * 12) - Math.sin(b.a) * 6), WEAPONS[b.w]?.cat ?? 'Sidearm');
+        this.spawnCasing(new THREE.Vector3(b.x - Math.cos(b.a) * 10, AIM_HEIGHT - 4 + b.z, b.y - Math.sin(b.a) * 10), new THREE.Vector3(rx * (28 + Math.random() * 12) - Math.cos(b.a) * 6, 24 + Math.random() * 12, rz * (28 + Math.random() * 12) - Math.sin(b.a) * 6), WEAPONS[b.w]?.cat ?? 'Sidearm');
       }
     }
     this.lastBulletFx = Math.max(this.lastBulletFx, maxB);
@@ -1300,9 +1311,9 @@ class Game {
       const wall = e.kind === 'wall';
       for (let i = 0; i < (wall ? 6 : 5); i++) {
         const a = Math.random() * Math.PI * 2, sp = 50 + Math.random() * 110;
-        this.spawnFx(wall ? 'spark' : 'blood', e.x, e.y, AIM_HEIGHT, Math.cos(a) * sp, 30 + Math.random() * 70, Math.sin(a) * sp, 0.22 + Math.random() * 0.2, wall ? 4 : 5, -380);
+        this.spawnFx(wall ? 'spark' : 'blood', e.x, e.y, AIM_HEIGHT + e.z, Math.cos(a) * sp, 30 + Math.random() * 70, Math.sin(a) * sp, 0.22 + Math.random() * 0.2, wall ? 4 : 5, -380);
       }
-      if (wall) this.spawnFx('dust', e.x, e.y, AIM_HEIGHT, 0, 12, 0, 0.5, 16);
+      if (wall) this.spawnFx('dust', e.x, e.y, AIM_HEIGHT + e.z, 0, 12, 0, 0.5, 16);
     }
     this.lastImpactFx = Math.max(this.lastImpactFx, maxI);
 
@@ -1526,7 +1537,7 @@ class Game {
     } else if (me?.alive && r.phase === 'buy' && tdm) {
       sub = `You are ${TEAM_INFO[myTeam].name}. ${r.goal[myTeam]}`;
     } else if (me?.alive && r.phase === 'buy') {
-      sub = `You are ${TEAM_INFO[myTeam].name} (${TEAM_INFO[myTeam].role}). ` + (myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, ' + (isTouch ? 'hold PLANT' : 'hold E') + ' to plant' : 'Escort the bomb carrier') : 'Defend sites A and B');
+      sub = `You are ${TEAM_INFO[myTeam].name} (${TEAM_INFO[myTeam].role}). ` + (myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to a bomb site (A, B, or C upstairs in the house), ' + (isTouch ? 'hold PLANT' : 'hold E') + ' to plant' : 'Escort the bomb carrier') : 'Defend the bomb sites (A, B and C upstairs)');
     } else if (me?.alive && r.bomb.status === 'carried' && r.bomb.carrier === me.id) {
       sub = 'You carry the bomb - ' + (isTouch ? 'hold PLANT' : 'hold E') + ' inside a site to plant';
     } else if (r.bomb.status === 'planted') {

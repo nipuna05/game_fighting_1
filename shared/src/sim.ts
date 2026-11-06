@@ -1,7 +1,7 @@
 // Shared game simulation. Runs in the browser (single player) and on the server (multiplayer).
 // Two modes: 'dm' (free-for-all deathmatch, used by tests) and 'rounds' (CS-style bomb defusal).
 
-import { getMap, WORLD_W, WORLD_H, type MapDef, type Rect, type Site } from './maps';
+import { getMap, levelWalls, updateLevel, stairAt, stairEnd, FLOOR_H, WORLD_W, WORLD_H, type MapDef, type Rect, type Site } from './maps';
 export * from './maps';
 
 export const PLAYER_R = 18;
@@ -69,9 +69,9 @@ export const THROW_SPEED = 430, THROW_CD = 0.8, BOOST_TIME = 10, BOOST_SPEED = 1
 const FUSE = [0, 0, 0, 2.3, 1.2, 1.4, 1.7];                            // seconds until a throwable goes off (index = ITEMS index)
 const SUPPLY_WEIGHTS = [30, 12, 10, 16, 12, 12, 8];
 const rollItem = () => { let r = Math.random() * SUPPLY_WEIGHTS.reduce((a, b) => a + b, 0); for (let i = 0; i < SUPPLY_WEIGHTS.length; i++) { r -= SUPPLY_WEIGHTS[i]; if (r <= 0) return i; } return 0; };
-export interface GrenadeState { id: number; x: number; y: number; k: number }
-export interface ZoneState { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; left: number }
-export interface BlastEvent { id: number; t: number; x: number; y: number; k: number; r: number }
+export interface GrenadeState { id: number; x: number; y: number; k: number; lv: number }
+export interface ZoneState { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; left: number; lv: number }
+export interface BlastEvent { id: number; t: number; x: number; y: number; k: number; r: number; lv: number }
 export interface SupplyState { id: number; x: number; y: number; item: number }
 export const MAG_RESERVE = 5;      // spare magazines
 export const EQUIP_TIME = 0.35;    // seconds before you can fire after switching weapons
@@ -151,6 +151,8 @@ export interface PlayerState {
   hp: number; score: number; deaths: number; bot: boolean; alive: boolean; weapon: number;
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
   skin: number; // costume index, 0..SKIN_COUNT-1
+  lv: number;    // floor: 0 ground, 1 upper
+  z: number;     // height above the ground (follows stair ramps)
   st: 0 | 1 | 2 | 3; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping), 3 prone (lying flat)
   rs: number;    // seconds until I respawn (0 while alive)
   ch: number;    // the weapon I chose for my next spawn (free-loadout games), -1 = none
@@ -164,11 +166,12 @@ export interface PlayerState {
   bl: number;    // seconds I stay blinded by a flashbang
   bo: boolean;   // adrenaline boost is active
 }
-export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
-export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
+export interface BulletState { id: number; x: number; y: number; a: number; w: number; z: number } // a = direction (radians), w = weapon index
+export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body'; z: number }
 export interface PickupState { id: number; x: number; y: number; kind: 'heal' | 'cash'; amount?: number }
 export type BombStatus = 'none' | 'carried' | 'dropped' | 'planted';
 export interface BombState {
+  lv?: number;       // the floor the bomb is on
   status: BombStatus; x: number; y: number; carrier: string | null;
   fuse: number;      // seconds until explosion (planted only)
   progress: number;  // 0..1 plant or defuse progress
@@ -210,7 +213,7 @@ interface Player extends PlayerState {
   air: number; jumpCd: number; // seconds left in the current jump / until the next jump is allowed
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
-interface Bullet extends Omit<BulletState, 'a' | 'w'> { crouch: boolean; over: number; owner: string; team: Team; vx: number; vy: number; life: number; dmg: number; wid: number }
+interface Bullet extends Omit<BulletState, 'a' | 'w'> { lv: number; crouch: boolean; over: number; owner: string; team: Team; vx: number; vy: number; life: number; dmg: number; wid: number }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const other = (t: Team): Team => (t === 'T' ? 'CT' : 'T');
@@ -247,15 +250,15 @@ export const JUMP_TIME = 0.65;   // seconds in the air: long enough to hop over 
 export const JUMP_COOLDOWN = 0.9;
 export const JUMP_SPEED = 1.2;   // a little faster in the air, so a hop actually clears a 44 unit crate
 /** Low cover (crates, low walls, wagons): you can jump over it, and shots pass over it unless the shooter is kneeling. */
-export const isLow = (w: Rect) => w.kind === 'barrier' || w.kind === 'crate' || w.kind === 'scooter';
+export const isLow = (w: Rect) => w.kind === 'barrier' || w.kind === 'crate' || w.kind === 'scooter' || w.kind === 'window' || w.kind === 'rail';
 export function movePlayer(p: { x: number; y: number }, mx: number, my: number, dt: number, walls: Rect[], speed = PLAYER_SPEED, airborne = false) {
   p.x += mx * speed * dt;
   p.y += my * speed * dt;
   for (const w of walls) { if (airborne && isLow(w)) continue; circleRectPush(p, PLAYER_R, w); }
 }
 
-export function siteAt(x: number, y: number, sites: Site[]): Site | null {
-  for (const s of sites) if (Math.hypot(x - s.x, y - s.y) <= s.r) return s;
+export function siteAt(x: number, y: number, sites: Site[], lv = 0): Site | null {
+  for (const s of sites) if ((s.lv ?? 0) === lv && Math.hypot(x - s.x, y - s.y) <= s.r) return s;
   return null;
 }
 
@@ -272,14 +275,14 @@ export class Sim {
   private invincible: Set<string>;
   private pickupReadyAt: number[] = [];
   private lootTaken: boolean[] = [];
-  private drops: { id: number; x: number; y: number; amount: number }[] = [];
+  private drops: { id: number; x: number; y: number; amount: number; lv: number }[] = [];
   private nextDrop = 1;
   private killLog: KillEvent[] = [];
   private firstBloodDone = false;
   private impactLog: ImpactEvent[] = [];
   private nextImpact = 1;
-  private addImpact(x: number, y: number, kind: 'wall' | 'body') {
-    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind });
+  private addImpact(x: number, y: number, kind: 'wall' | 'body', z = 0) {
+    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind, z: Math.round(z) });
     if (this.impactLog.length > 40) this.impactLog.shift();
   }
   private nextKill = 1;
@@ -305,8 +308,8 @@ export class Sim {
   private items: { id: number; x: number; y: number; readyAt: number }[] = [];
   private tItems = 0;
   private ctItems = 0;
-  private grenades: { id: number; k: number; owner: string; team: Team; x: number; y: number; vx: number; vy: number; age: number }[] = [];
-  private zones: { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; until: number; owner: string; team: Team }[] = [];
+  private grenades: { id: number; k: number; owner: string; team: Team; x: number; y: number; vx: number; vy: number; age: number; lv: number }[] = [];
+  private zones: { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; until: number; owner: string; team: Team; lv: number }[] = [];
   private blastLog: BlastEvent[] = [];
   private supplies: { id: number; x: number; y: number; item: number; readyAt: number }[] = [];
   private nextThrow = 1;
@@ -337,6 +340,7 @@ export class Sim {
     const p = this.players.get(id);
     if (p) WEAPONS.forEach((w, i) => { if (custom && custom[w.id] !== undefined) p.custom[i] = cleanCustom(w.id, custom[w.id]); });
   }
+  private wallsAt(lv: number) { return levelWalls(this.map, lv); }
   private customOf(p: Player) { return p.custom[p.weapon] ?? defaultCustom(p.weapon); }
 
   addPlayer(id: string, name: string, bot = false, team: Team = 'T', skin = bot ? (team === 'CT' ? 2 : 0) + Math.floor(Math.random() * 2) : 0, sidearm = bot ? Math.floor(Math.random() * SIDEARM_COUNT) : 0) {
@@ -346,7 +350,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, inv: ITEMS.map(() => 0), usingItem: -1, useUntil: 0, boostUntil: 0, blindUntil: 0, throwCd: 0, itemReq: -1, botItemCd: 3 + Math.random() * 6, iv: [], us: -1, ul: 0, bl: 0, bo: false, protect: 0, air: 0, jumpCd: 0,
+      lv: 0, z: 0, st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, inv: ITEMS.map(() => 0), usingItem: -1, useUntil: 0, boostUntil: 0, blindUntil: 0, throwCd: 0, itemReq: -1, botItemCd: 3 + Math.random() * 6, iv: [], us: -1, ul: 0, bl: 0, bo: false, protect: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
@@ -467,7 +471,7 @@ export class Sim {
         if (Math.hypot(q.x - p.x, q.y - p.y) < 0.5) break;
       }
     }
-    p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0;
+    p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0; p.lv = 0; p.z = 0;
     p.ammoIn = WEAPONS.map((w) => w.mag); p.ammoRes = WEAPONS.map((w) => w.mag * MAG_RESERVE); p.reloadUntil = 0; p.equipUntil = 0;   // full magazines for a new life
     if (this.free) this.giveLoadout(p);
     this.resetItems(p);
@@ -550,7 +554,7 @@ export class Sim {
       }
       let who: Player | null = null;                                     // a Sentinel standing next to it and holding the use key
       for (const p of this.players.values()) {
-        if (p.team !== 'CT' || !p.alive || !p.input.use || Math.hypot(p.input.mx, p.input.my) > 0.1 || Math.hypot(p.x - h.x, p.y - h.y) > 46) continue;
+        if (p.team !== 'CT' || !p.alive || p.lv !== 0 || !p.input.use || Math.hypot(p.input.mx, p.input.my) > 0.1 || Math.hypot(p.x - h.x, p.y - h.y) > 46) continue;
         if (this.hostages.some((o) => o.carrier === p.id)) continue;     // one hostage at a time
         who = p; break;
       }
@@ -567,7 +571,7 @@ export class Sim {
     for (const it of this.items) {
       if (this.time < it.readyAt) continue;
       for (const p of this.players.values()) {
-        if (!p.alive || Math.hypot(p.x - it.x, p.y - it.y) > PLAYER_R + 16) continue;
+        if (!p.alive || p.lv !== 0 || Math.hypot(p.x - it.x, p.y - it.y) > PLAYER_R + 16) continue;
         it.readyAt = this.time + ITEM_RESPAWN;
         if (p.team === 'T') this.tItems++; else this.ctItems++;
         p.score++;
@@ -609,15 +613,15 @@ export class Sim {
       if (!c || !c.alive) {
         this.bomb = { ...b, status: 'dropped', carrier: null, progress: 0, actor: null };
       } else {
-        b.x = c.x; b.y = c.y;
-        if (c.input.use && standing(c) && siteAt(c.x, c.y, this.map.sites)) {
+        b.x = c.x; b.y = c.y; b.lv = c.lv;
+        if (c.input.use && standing(c) && siteAt(c.x, c.y, this.map.sites, c.lv)) {
           b.progress += dt / PLANT_TIME; b.actor = c.id;
-          if (b.progress >= 1) { this.bomb = { status: 'planted', x: c.x, y: c.y, carrier: null, fuse: BOMB_FUSE, progress: 0, actor: null }; }
+          if (b.progress >= 1) { this.bomb = { status: 'planted', x: c.x, y: c.y, lv: c.lv, carrier: null, fuse: BOMB_FUSE, progress: 0, actor: null }; }
         } else { b.progress = 0; b.actor = null; }
       }
     } else if (b.status === 'dropped') {
       for (const p of this.players.values()) {
-        if (p.team === 'T' && p.alive && Math.hypot(p.x - b.x, p.y - b.y) < PLAYER_R + 14) {
+        if (p.team === 'T' && p.alive && p.lv === (b.lv ?? 0) && Math.hypot(p.x - b.x, p.y - b.y) < PLAYER_R + 14) {
           this.bomb = { status: 'carried', x: p.x, y: p.y, carrier: p.id, fuse: 0, progress: 0, actor: null };
           break;
         }
@@ -626,7 +630,7 @@ export class Sim {
       b.fuse -= dt;
       let defuser: Player | null = null;
       for (const p of this.players.values()) {
-        if (p.team === 'CT' && p.alive && p.input.use && standing(p) && Math.hypot(p.x - b.x, p.y - b.y) <= DEFUSE_RANGE) { defuser = p; break; }
+        if (p.team === 'CT' && p.alive && p.lv === (b.lv ?? 0) && p.input.use && standing(p) && Math.hypot(p.x - b.x, p.y - b.y) <= DEFUSE_RANGE) { defuser = p; break; }
       }
       if (defuser) { b.progress += dt / DEFUSE_TIME; b.actor = defuser.id; } else { b.progress = 0; b.actor = null; }
       if (b.progress >= 1) { this.endRound('CT', 'Bomb defused'); return; }
@@ -660,7 +664,8 @@ export class Sim {
         if (p.input.jump && p.air <= 0 && p.jumpCd <= 0 && !p.input.prone) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
         p.st = p.air > 0 ? 2 : p.input.prone ? 3 : p.input.crouch ? 1 : 0;
         const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : p.st === 3 ? PRONE_SPEED : p.input.sneak ? SNEAK_SPEED : 1);
-        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult * customMods(this.customOf(p)).speed * (p.usingItem >= 0 ? 0.55 : 1) * (p.boostUntil > this.time ? BOOST_SPEED : 1), p.st === 2);
+        movePlayer(p, p.input.mx, p.input.my, dt, this.wallsAt(p.lv), PLAYER_SPEED * mult * customMods(this.customOf(p)).speed * (p.usingItem >= 0 ? 0.55 : 1) * (p.boostUntil > this.time ? BOOST_SPEED : 1), p.st === 2);
+        updateLevel(this.map, p);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -692,24 +697,24 @@ export class Sim {
           const spread = base * customMods(this.customOf(p)).spread * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1);   // lying is steadiest, kneeling steady, mid-air wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
-            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, crouch: p.st === 1 || p.st === 3, over: 0,
+            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, lv: p.lv, z: p.z, crouch: p.st === 1 || p.st === 3, over: 0,
             x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
             vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life,
           });
         }
       }
       this.map.heal.forEach((sp, i) => {
-        if (this.time >= this.pickupReadyAt[i] && p.hp < MAX_HP && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + PICKUP_R) {
+        if (p.lv === 0 && this.time >= this.pickupReadyAt[i] && p.hp < MAX_HP && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + PICKUP_R) {
           p.hp = Math.min(MAX_HP, p.hp + HEAL_AMOUNT);
           this.pickupReadyAt[i] = this.time + PICKUP_RESPAWN;
         }
       });
       if (this.rounds && this.phase === 'live') { // cash loot: stacks on the map and bags dropped by fallen players
         this.map.loot.forEach((sp, i) => {
-          if (!this.lootTaken[i] && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + 18) { this.lootTaken[i] = true; p.money = Math.min(MAX_MONEY, p.money + LOOT_AMOUNT); }
+          if (p.lv === 0 && !this.lootTaken[i] && Math.hypot(p.x - sp.x, p.y - sp.y) < PLAYER_R + 18) { this.lootTaken[i] = true; p.money = Math.min(MAX_MONEY, p.money + LOOT_AMOUNT); }
         });
         this.drops = this.drops.filter((d) => {
-          if (Math.hypot(p.x - d.x, p.y - d.y) >= PLAYER_R + 16) return true;
+          if (p.lv !== d.lv || Math.hypot(p.x - d.x, p.y - d.y) >= PLAYER_R + 16) return true;
           p.money = Math.min(MAX_MONEY, p.money + d.amount);
           return false;
         });
@@ -723,19 +728,19 @@ export class Sim {
       // Walls stop bullets. Low cover only stops shots from a kneeling shooter: a standing shooter fires over it, and a kneeling
       // target right behind it is then hidden (the bullet flew over their head). So: kneel behind cover to hide, stand up to shoot.
       let blocked = false;
-      for (const w of this.map.walls) {
+      for (const w of this.wallsAt(b.lv)) {
         if (b.x < w.x || b.x > w.x + w.w || b.y < w.y || b.y > w.y + w.h) continue;
         if (isLow(w) && !b.crouch) b.over = 0.3; else { blocked = true; break; }
       }
-      if (blocked) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall'); continue; }
+      if (blocked) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall', b.z); continue; }
       let hit = false;
       for (const p of this.players.values()) {
-        if (!p.alive || p.id === b.owner) continue;
+        if (!p.alive || p.id === b.owner || p.lv !== b.lv) continue;
         if (this.rounds && p.team === b.team) continue; // no friendly fire
         if (this.time < p.protect) continue;                // just respawned: untouchable for a moment
         if (b.over > 0 && (p.st === 1 || p.st === 3)) continue;   // kneeling or lying behind the cover this shot just flew over
         if (Math.hypot(p.x - b.x, p.y - b.y) <= (p.st === 3 ? PRONE_R : PLAYER_R)) {
-          this.addImpact(b.x, b.y, 'body');
+          this.addImpact(b.x, b.y, 'body', b.z);
           if (this.invincible.has(p.id)) { hit = true; break; }
           this.damage(p, b.dmg, b.owner, b.team, b.wid); hit = true;
           break;
@@ -756,7 +761,7 @@ export class Sim {
     p.usingItem = -1;                                                  // being hurt interrupts using an item
     if (p.hp > 0) return;
     p.alive = false; p.deaths++; p.respawnAt = this.time + RESPAWN_TIME; p.usingItem = -1;
-    if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT });
+    if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT, lv: p.lv });
     const killer = this.players.get(ownerId);
     if (killer && killer !== p) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
     if (this.rounds) { if (ownerTeam === 'T') this.tKills++; else this.ctKills++; }
@@ -792,18 +797,18 @@ export class Sim {
         else if (p.usingItem < 0 && (p.hp < MAX_HP || d.id === 'adrenaline')) { p.usingItem = req; p.useUntil = this.time + d.use; p.reloadUntil = 0; }
       } else if (canFire && this.time >= p.throwCd && p.usingItem < 0) {
         const c = Math.cos(p.angle), sn = Math.sin(p.angle);
-        this.grenades.push({ id: this.nextThrow++, k: req, owner: p.id, team: p.team, x: p.x + c * (PLAYER_R + 6), y: p.y + sn * (PLAYER_R + 6), vx: c * THROW_SPEED, vy: sn * THROW_SPEED, age: 0 });
+        this.grenades.push({ id: this.nextThrow++, k: req, owner: p.id, team: p.team, x: p.x + c * (PLAYER_R + 6), y: p.y + sn * (PLAYER_R + 6), vx: c * THROW_SPEED, vy: sn * THROW_SPEED, age: 0, lv: p.lv });
         p.inv[req]--; p.throwCd = this.time + THROW_CD;
       }
     }
     for (const sp of this.supplies) {                                   // supply crates: walk over to take the item
-      if (this.time < sp.readyAt || Math.hypot(p.x - sp.x, p.y - sp.y) > PLAYER_R + 16 || p.inv[sp.item] >= ITEMS[sp.item].max) continue;
+      if (p.lv !== 0 || this.time < sp.readyAt || Math.hypot(p.x - sp.x, p.y - sp.y) > PLAYER_R + 16 || p.inv[sp.item] >= ITEMS[sp.item].max) continue;
       p.inv[sp.item]++; sp.readyAt = this.time + SUPPLY_RESPAWN; sp.item = rollItem();
     }
   }
-  private smokeBlocks(x1: number, y1: number, x2: number, y2: number) {
+  private smokeBlocks(x1: number, y1: number, x2: number, y2: number, lv = 0) {
     for (const z of this.zones) {
-      if (z.k !== 'smoke' || this.time >= z.until) continue;
+      if (z.k !== 'smoke' || z.lv !== lv || this.time >= z.until) continue;
       const dx = x2 - x1, dy = y2 - y1, len2 = dx * dx + dy * dy || 1;
       const t = Math.max(0, Math.min(1, ((z.x - x1) * dx + (z.y - y1) * dy) / len2));
       if (Math.hypot(x1 + dx * t - z.x, y1 + dy * t - z.y) < z.r) return true;
@@ -811,9 +816,9 @@ export class Sim {
     return false;
   }
   private stepThrowables(dt: number) {
-    const walls = this.map.walls, inWall = (x: number, y: number) => walls.some((w) => x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h);
     const keep: typeof this.grenades = [];
     for (const g of this.grenades) {
+      const walls = this.wallsAt(g.lv), inWall = (x: number, y: number) => walls.some((w) => x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h);
       g.age += dt;
       const nx = g.x + g.vx * dt, ny = g.y + g.vy * dt;
       const hx = inWall(nx, g.y), hy = inWall(g.x, ny);
@@ -826,24 +831,26 @@ export class Sim {
     this.zones = this.zones.filter((z) => this.time < z.until);
     for (const z of this.zones) {
       if (z.k !== 'fire') continue;
-      for (const p of this.players.values()) {                         // standing in flames hurts everybody except the thrower's team
+      for (const p of this.players.values()) {
+        if (p.lv !== z.lv) continue;                         // standing in flames hurts everybody except the thrower's team
         if (p.alive && (p.id === z.owner || !this.rounds || p.team !== z.team) && Math.hypot(p.x - z.x, p.y - z.y) < z.r) this.damage(p, FIRE_DPS * dt, z.owner, z.team, WEAPONS.length + 6);
       }
     }
   }
-  private explode(g: { id: number; k: number; owner: string; team: Team; x: number; y: number }) {
+  private explode(g: { id: number; k: number; owner: string; team: Team; x: number; y: number; lv?: number }) {
+    const lv = g.lv ?? 0;
     const id = ITEMS[g.k].id, r = id === 'frag' ? FRAG_R : id === 'flash' ? FLASH_R : id === 'smoke' ? SMOKE_R : FIRE_R;
-    this.blastLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(g.x), y: Math.round(g.y), k: g.k, r });
+    this.blastLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(g.x), y: Math.round(g.y), k: g.k, r, lv });
     if (this.blastLog.length > 30) this.blastLog.shift();
     for (const p of this.players.values()) {
-      if (!p.alive) continue;
+      if (!p.alive || p.lv !== lv) continue;
       const d = Math.hypot(p.x - g.x, p.y - g.y);
-      if (d > r || (id !== 'smoke' && id !== 'molotov' && segmentHitsWalls(g.x, g.y, p.x, p.y, this.map.walls))) continue;
+      if (d > r || (id !== 'smoke' && id !== 'molotov' && segmentHitsWalls(g.x, g.y, p.x, p.y, this.wallsAt(lv)))) continue;
       if (id === 'frag' && (p.id === g.owner || !this.rounds || p.team !== g.team)) this.damage(p, FRAG_DMG * Math.pow(1 - d / r, 0.8), g.owner, g.team, WEAPONS.length + g.k);
       if (id === 'flash') p.blindUntil = Math.max(p.blindUntil, this.time + 1.2 + 3 * (1 - d / r));
     }
-    if (id === 'smoke') this.zones.push({ id: this.nextThrow++, x: g.x, y: g.y, r: SMOKE_R, k: 'smoke', until: this.time + SMOKE_TIME, owner: g.owner, team: g.team });
-    if (id === 'molotov') this.zones.push({ id: this.nextThrow++, x: g.x, y: g.y, r: FIRE_R, k: 'fire', until: this.time + FIRE_TIME, owner: g.owner, team: g.team });
+    if (id === 'smoke') this.zones.push({ id: this.nextThrow++, x: g.x, y: g.y, r: SMOKE_R, k: 'smoke', until: this.time + SMOKE_TIME, owner: g.owner, team: g.team, lv });
+    if (id === 'molotov') this.zones.push({ id: this.nextThrow++, x: g.x, y: g.y, r: FIRE_R, k: 'fire', until: this.time + FIRE_TIME, owner: g.owner, team: g.team, lv });
   }
   private botItems(p: Player, target: Player | null, dist: number, visible: boolean) {
     p.botItemCd -= 1 / TICK_RATE;
@@ -865,7 +872,7 @@ export class Sim {
       const d = Math.hypot(o.x - p.x, o.y - p.y);
       if (d < best) { best = d; target = o; }
     }
-    const visible = !!target && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y, this.map.walls) && !this.smokeBlocks(p.x, p.y, target.x, target.y);
+    const visible = !!target && target.lv === p.lv && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y, this.wallsAt(p.lv)) && !this.smokeBlocks(p.x, p.y, target.x, target.y, p.lv);
     this.botItems(p, target, best, visible);
 
     if (target && (visible || !this.rounds)) {
@@ -886,6 +893,54 @@ export class Sim {
       p.input = { mx: 0, my: 0, angle: p.angle, fire: false };
     }
     if (this.time < p.unstickUntil) { p.input.mx = p.unstickDir.x; p.input.my = p.unstickDir.y; }
+  }
+
+  /** Walk to a point on floor `glv`: through the door, round the interior wall, up or down the stairs and back out, as the target needs. */
+  private botGoLv(p: Player, gx: number, gy: number, glv: number, stopR: number, use = false) {
+    const map = this.map, blds = map.buildings ?? [];
+    const inRect = (r: Rect, x: number, y: number) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
+    const here = blds.find((b) => inRect(b.rect, p.x, p.y)), there = blds.find((b) => inRect(b.rect, gx, gy));
+    const onRamp = stairAt(map, p.x, p.y);
+    const funnel = (b: NonNullable<typeof here>) => Math.abs(p.y - b.door.out.y) < 55 && (b.side === 'W' ? p.x > b.rect.x - 70 && p.x < b.rect.x + 70 : p.x > b.rect.x + b.rect.w - 70 && p.x < b.rect.x + b.rect.w + 70);
+    // inside a house with a door on the east side, a partition separates the door from the stairs: line up with the gap, then cross
+    const go = (tx: number, ty: number, r: number, u = false) => {
+      if (here && here.side === 'E' && p.lv === 0 && inRect(here.rect, tx, ty)) {
+        const px = here.rect.x + here.rect.w * 0.58, gapY = here.door.in.y + 25;
+        if ((p.x > px) !== (tx > px)) {                                // the target is on the other side of the partition
+          if (Math.abs(p.y - gapY) > 22 && Math.abs(p.x - px) < 70) this.botGo(p, p.x, gapY, 10);        // first line up with the gap below the partition ...
+          else this.botGo(p, p.x > px ? px - 50 : px + 50, gapY, 10);                                       // ... then cross to the far side
+          return;
+        }
+      }
+      this.botGo(p, tx, ty, r, u);
+    };
+    if (onRamp) {                                                      // already on a ramp: keep going to the far end
+      const e = stairEnd(onRamp.stair, glv >= 1 ? 1 : 0, 34); this.botGo(p, e.x, e.y, 10); return;      // (on a ramp the floor flips halfway, so aim for the end of the floor we want)
+    }
+    if (glv === p.lv && (!there || here === there) && (!here || there)) { go(gx, gy, stopR, use); return; }   // same floor, same place: just walk
+    if (here && !there && p.lv === 0 && glv === 0) {                   // inside a building, the goal is outside: out through the door
+      const beyond = here.side === 'E' ? p.x > here.door.in.x - 40 : p.x < here.door.in.x + 40;
+      if (beyond) this.botGo(p, here.door.out.x, here.door.out.y, 18); else go(here.door.in.x, here.door.in.y, 16);
+      return;
+    }
+    const b = there ?? here;
+    if (!b) { this.botGo(p, gx, gy, stopR, use); return; }
+    const st = map.stairs![b.stair];
+    if (!here || here !== b) {                                         // outside the building: to the door, then in
+      if (funnel(b) || Math.hypot(p.x - b.door.out.x, p.y - b.door.out.y) < 70) this.botGo(p, b.door.in.x, b.door.in.y, 18); else this.botGo(p, b.door.out.x, b.door.out.y, 12);
+      return;
+    }
+    if (glv > p.lv) {                                                  // go up: to the foot of the stairs, then straight up the ramp
+      const e = stairEnd(st, 0, 30);
+      if (Math.hypot(p.x - e.x, p.y - e.y) < 34) { const f = stairEnd(st, 1, 40); this.botGo(p, f.x, f.y, 6); } else go(e.x, e.y, 14);
+      return;
+    }
+    if (glv < p.lv) {                                                  // go down: to the top of the stairs, then straight down the ramp
+      const e = stairEnd(st, 1, 30);
+      if (Math.hypot(p.x - e.x, p.y - e.y) < 34) { const f = stairEnd(st, 0, 40); this.botGo(p, f.x, f.y, 6); } else this.botGo(p, e.x, e.y, 14);
+      return;
+    }
+    go(gx, gy, stopR, use);                                            // arrived on the right floor
   }
 
   /** Walk toward a point (stop within stopR), optionally holding the use key. */
@@ -933,21 +988,20 @@ export class Sim {
     const b = this.bomb;
     let gx: number, gy: number, stopR = 40, use = false;
     const site = this.map.sites[p.botGoal];
+    const slv = site.lv ?? 0;
     if (p.team === 'T') {
       if (b.status === 'carried' && b.carrier === p.id) {
         gx = site.x; gy = site.y; stopR = 6;
-        use = Math.hypot(p.x - gx, p.y - gy) <= stopR + 14;
+        use = p.lv === slv && Math.hypot(p.x - gx, p.y - gy) <= stopR + 14;
       } else if (b.status === 'dropped') { gx = b.x; gy = b.y; stopR = 10; }
       else if (b.status === 'planted') { gx = b.x; gy = b.y; stopR = 130; } // guard the bomb
       else { gx = site.x; gy = site.y; stopR = 90; }                      // escort the carrier
     } else if (b.status === 'planted') {
       gx = b.x; gy = b.y; stopR = DEFUSE_RANGE - 12;
-      use = Math.hypot(p.x - gx, p.y - gy) <= DEFUSE_RANGE - 6;
+      use = p.lv === (b.lv ?? 0) && Math.hypot(p.x - gx, p.y - gy) <= DEFUSE_RANGE - 6;
     } else { gx = site.x; gy = site.y; stopR = 110; }                      // hold a site
-    const d = Math.hypot(gx - p.x, gy - p.y);
-    const ang = Math.atan2(gy - p.y, gx - p.x);
-    const move = d > stopR && !use;
-    p.input = { mx: move ? Math.cos(ang) * 0.75 : 0, my: move ? Math.sin(ang) * 0.75 : 0, angle: move ? ang : p.angle, fire: false, use };
+    const glv = b.status === 'planted' || b.status === 'dropped' ? (b.lv ?? 0) : slv;
+    this.botGoLv(p, gx, gy, glv, stopR, use);
   }
 
   // ---------- snapshot ----------
@@ -957,11 +1011,11 @@ export class Sim {
       t: this.time,
       players: [...this.players.values()].map((p) => ({
         iv: [...p.inv], us: p.usingItem, ul: p.usingItem >= 0 ? Math.round(Math.max(0, p.useUntil - this.time) * 10) / 10 : 0, bl: Math.round(Math.max(0, p.blindUntil - this.time) * 10) / 10, bo: p.boostUntil > this.time,
-        id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
+        lv: p.lv, z: Math.round(p.z * 10) / 10, id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
         team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, ch: p.ch, am: p.ammoIn[p.weapon] ?? 0, rv: p.ammoRes[p.weapon] ?? 0, rl: p.reloadUntil > 0 ? Math.round(Math.max(0, p.reloadUntil - this.time) * 10) / 10 : 0, cu: this.customOf(p), rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
       })),
-      bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid })),
+      bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid, z: b.z })),
       pickups: [
         ...this.map.heal.map((sp, i) => ({ id: i, x: sp.x, y: sp.y, kind: 'heal' as const })).filter((_, i) => this.time >= this.pickupReadyAt[i]),
         ...(this.rounds ? this.map.loot.map((sp, i) => ({ id: 100 + i, x: sp.x, y: sp.y, kind: 'cash' as const, amount: LOOT_AMOUNT })).filter((_, i) => !this.lootTaken[i]) : []),
@@ -969,8 +1023,8 @@ export class Sim {
       ],
       kills: this.killLog.filter((k) => this.time - k.t < 10),
       impacts: this.impactLog.filter((e) => this.time - e.t < 0.5),
-      grenades: this.grenades.map((g) => ({ id: g.id, x: r(g.x), y: r(g.y), k: g.k })),
-      zones: this.zones.map((z) => ({ id: z.id, x: r(z.x), y: r(z.y), r: z.r, k: z.k, left: Math.round(Math.max(0, z.until - this.time) * 10) / 10 })),
+      grenades: this.grenades.map((g) => ({ id: g.id, x: r(g.x), y: r(g.y), k: g.k, lv: g.lv })),
+      zones: this.zones.map((z) => ({ id: z.id, x: r(z.x), y: r(z.y), r: z.r, k: z.k, lv: z.lv, left: Math.round(Math.max(0, z.until - this.time) * 10) / 10 })),
       blasts: this.blastLog.filter((e) => this.time - e.t < 1.2),
       supplies: this.supplies.filter((sp) => this.time >= sp.readyAt).map((sp) => ({ id: sp.id, x: sp.x, y: sp.y, item: sp.item })),
       round: this.rounds ? {
@@ -989,7 +1043,7 @@ export class Sim {
           ? { T: 'Stop the Sentinels from rescuing the hostages. Guard them until time runs out', CT: 'Find the hostages (marked on screen), hold E next to one to untie it, then escort it to the extraction zone at your spawn' }
           : this.mode === 'collect'
           ? { T: `Collect ${COLLECT_TARGET} intel cases before the Sentinels do. Walk over a case to take it`, CT: `Collect ${COLLECT_TARGET} intel cases before the Raiders do. Walk over a case to take it` }
-          : { T: 'Plant the bomb at site A or B, then protect it until it explodes', CT: 'Defend sites A and B. If the bomb is planted, defuse it before it explodes' },
+          : { T: 'Plant the bomb at a bomb site (A, B or the one upstairs in the house), then protect it until it explodes', CT: 'Defend the bomb sites. If the bomb is planted, defuse it before it explodes' },
       } : null,
     };
   }
