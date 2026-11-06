@@ -118,10 +118,34 @@
     #scope .h { left: calc(50% - 33vmin); right: calc(50% - 33vmin); top: calc(50% - .75px); height: 1.5px; }
     #scope .v { top: calc(50% - 33vmin); bottom: calc(50% - 33vmin); left: calc(50% - .75px); width: 1.5px; }
     #scope .dot { position: absolute; left: calc(50% - 2px); top: calc(50% - 2px); width: 4px; height: 4px; border-radius: 50%; background: #ff2b2b; }
-    #touch { position: fixed; inset: 0; z-index: 5; display: none; touch-action: none; }
-    .stick { position: absolute; bottom: 8%; width: 130px; height: 130px; border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; }
-    .stick.left { left: 6%; } .stick.right { right: 6%; }
-    .knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #ffffff55; }
+    /* ---- touch controls (phones and tablets) ---- */
+    #touch { position: fixed; inset: 0; z-index: 5; display: none; pointer-events: none; touch-action: none; -webkit-user-select: none; user-select: none; }
+    .stick { --s: clamp(96px, 26vmin, 140px); position: absolute; bottom: calc(6% + env(safe-area-inset-bottom)); width: var(--s); height: var(--s); border-radius: 50%; border: 2px solid #ffffff40; background: #ffffff12; pointer-events: auto; touch-action: none; }
+    .stick.left { left: calc(5% + env(safe-area-inset-left)); } .stick.right { right: calc(5% + env(safe-area-inset-right)); }
+    .stick.right::after { content: 'AIM / FIRE'; position: absolute; left: 0; right: 0; top: 40%; text-align: center; font: 700 11px system-ui; color: #ffffff55; letter-spacing: .08em; pointer-events: none; }
+    .stick.left::after { content: 'MOVE'; position: absolute; left: 0; right: 0; top: 40%; text-align: center; font: 700 11px system-ui; color: #ffffff55; letter-spacing: .08em; pointer-events: none; }
+    .knob { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; border-radius: 50%; background: #ffffff55; }
+    .tbtn { position: absolute; width: clamp(54px, 15vmin, 72px); height: clamp(54px, 15vmin, 72px); border-radius: 50%; border: 2px solid #ffffff55; background: #0b0f14aa; color: #fff; font: 800 12px system-ui; letter-spacing: .04em; display: flex; align-items: center; justify-content: center; text-align: center; pointer-events: auto; touch-action: none; }
+    .tbtn.on { background: #2f6fedcc; border-color: #9cc0ff; } .tbtn.hide { display: none; }
+    #tUse { right: calc(5% + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); width: clamp(64px, 18vmin, 84px); height: clamp(64px, 18vmin, 84px); background: #d9822bcc; font-size: 14px; }
+    #tScope { right: calc(5% + clamp(64px, 18vmin, 84px) + 22px + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
+    #tSwap { left: calc(5% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-left)); bottom: calc(6% + env(safe-area-inset-bottom)); }
+    #tTalk { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
+    #tFull { right: calc(8px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); width: 38px; height: 38px; font-size: 18px; opacity: .8; }
+    #rotate { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; text-align: center; flex-direction: column; gap: 14px; background: #0b0f14f2; color: #fff; font: 700 20px system-ui; }
+    #rotate i { font-size: 56px; font-style: normal; display: block; animation: rot 1.6s ease-in-out infinite; } @keyframes rot { 0%, 30% { transform: rotate(0); } 70%, 100% { transform: rotate(-90deg); } }
+    @media (orientation: portrait) { body.touch.playing #rotate { display: flex; } }
+    /* HUD on small touch screens: keep the middle of the screen and the thumbs free */
+    body.touch #hud { font-size: 11px; padding: 3px 7px; max-width: 34vw; opacity: .85; }
+    body.touch #topbar { font-size: 14px; padding: 3px 12px; top: calc(6px + env(safe-area-inset-top)); } body.touch #topbar .tm { min-width: 96px; font-size: 13px; }
+    body.touch #banner { top: 14%; } body.touch #banner .big { font-size: 30px; } body.touch #banner .sub { font-size: 13px; max-width: 60vw; }
+    body.touch #wbar { left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); } body.touch #wbar button { min-width: 64px; padding: 8px 12px; }
+    body.touch #wbar button b { display: none; }
+    body.touch #buy { bottom: 4%; max-height: 86vh; overflow: auto; padding: 8px 10px; } body.touch #buy button { padding: 10px 12px; }
+    body.touch #mic { right: auto; left: 50%; transform: translateX(-50%); top: calc(44px + env(safe-area-inset-top)); bottom: auto; }
+    body.touch #feed { top: calc(54px + env(safe-area-inset-top)); right: calc(56px + env(safe-area-inset-right)); } body.touch #feed .k { font-size: 11px; padding: 2px 8px; }
+    body.touch #multi b { font-size: 34px; } body.touch #spec { bottom: 24%; }
+    @media (max-height: 520px) { #shell { padding: 8px 14px; } .logo { font-size: 26px; } .tag { display: none; } .pane { max-height: 62vh; } #panel { margin-top: 4px; } }
   </style>
 </head>
 <body>
@@ -144,7 +168,13 @@
   <div id="touch">
     <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
     <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
+    <div class="tbtn" id="tUse">PLANT<br>DEFUSE</div>
+    <div class="tbtn hide" id="tScope">SCOPE</div>
+    <div class="tbtn" id="tSwap">SWAP</div>
+    <div class="tbtn hide" id="tTalk">TALK</div>
+    <div class="tbtn" id="tFull">&#x26F6;</div>
   </div>
+  <div id="rotate"><i>&#x1F4F1;</i>Turn your phone sideways to play</div>
   <div id="menu">
     <div id="hero"></div>
     <div id="vignette"></div>

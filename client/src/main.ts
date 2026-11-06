@@ -31,9 +31,9 @@ function bindTouch() {
   layer.style.display = 'block';
   const setup = (el: HTMLElement, knob: HTMLElement, onMove: (nx: number, ny: number, active: boolean) => void) => {
     let pid = -1;
-    const R = 65;
     const update = (e: PointerEvent) => {
-      const b = el.getBoundingClientRect();
+      const b = el.getBoundingClientRect(), R = b.width / 2;
+      knob.dataset.r = String(R);
       let dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
       const len = Math.hypot(dx, dy);
       if (len > R) { dx = (dx / len) * R; dy = (dy / len) * R; }
@@ -49,11 +49,30 @@ function bindTouch() {
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
   };
+  document.body.classList.add('touch', 'playing');
+  // action buttons: hold USE to plant / defuse, SCOPE toggles the sniper zoom, SWAP flips to the other weapon, TALK is push-to-talk
+  const hold = (id: string, down: () => void, up: () => void) => {
+    const el = $(id);
+    el.addEventListener('pointerdown', (e) => { el.setPointerCapture(e.pointerId); el.classList.add('on'); down(); });
+    const end = () => { el.classList.remove('on'); up(); };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  };
+  hold('tUse', () => { keys.use = true; }, () => { keys.use = false; });
+  hold('tTalk', () => game?.talk(true), () => game?.talk(false));
+  $('tSwap').addEventListener('pointerdown', () => game?.lastWeapon());
+  $('tScope').addEventListener('pointerdown', () => { keys.scope = !keys.scope; $('tScope').classList.toggle('on', keys.scope); });
+  $('tFull').addEventListener('pointerdown', () => { if (document.fullscreenElement) void document.exitFullscreen(); else void goFullscreen(); });
   setup($('stickL'), $('knobL'), (x, y) => { stick.mx = x; stick.my = y; });
   setup($('stickR'), $('knobR'), (x, y, active) => {
     stick.aiming = active && Math.hypot(x, y) > 0.2;
     if (active && Math.hypot(x, y) > 0.05) stick.aimAngle = Math.atan2(y, x);
   });
+}
+
+/** Phones: fill the screen and stay in landscape (the browser only allows this after a tap, so it is called from the Play button). */
+async function goFullscreen() {
+  try { await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }); } catch { /* not allowed (e.g. iPhone Safari): the game still works */ }
+  try { await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'); } catch { /* not supported */ }
 }
 
 const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement | null)?.tagName ?? '');
@@ -411,7 +430,7 @@ class Game {
       if (this.raycaster.ray.intersectPlane(this.aimPlane, this.tmp)) { angle = Math.atan2(this.tmp.z - me.y, this.tmp.x - me.x); this.aimPoint = { x: this.tmp.x, y: this.tmp.z }; }
     }
     const myP = this.me();
-    const scoped = (mouse.right || keys.scope) && !isTouch && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
+    const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
     return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped };
   }
 
@@ -446,7 +465,17 @@ class Game {
   }
 
   /** Frame-rate watchdog (drops graphics quality when slow) and the F3 overlay. */
+  /** Show the SCOPE button only while holding a sniper, and TALK only when push-to-talk voice is on. */
+  private touchUi() {
+    const me = this.me();
+    const sniper = !!me && me.alive && WEAPONS[me.weapon]?.cat === 'Sniper';
+    $('tScope').classList.toggle('hide', !sniper);
+    if (!sniper && keys.scope) { keys.scope = false; $('tScope').classList.remove('on'); }
+    $('tTalk').classList.toggle('hide', !(this.voice && profile.options.voice === 'ptt' && this.voice.status === 'ready'));
+  }
+
   private monitor(deltaMs: number) {
+    if (isTouch) this.touchUi();
     if (this.voice) {
       this.voice.update();
       this.micAcc += deltaMs;
@@ -967,11 +996,11 @@ class Game {
     } else if (me && !me.alive && r.phase === 'live') {
       sub = '';   // the spectator banner at the bottom says who you are watching
     } else if (me?.alive && r.phase === 'buy') {
-      sub = `You are ${TEAM_INFO[myTeam].name} (${TEAM_INFO[myTeam].role}). ` + (myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, hold E to plant' : 'Escort the bomb carrier') : 'Defend sites A and B');
+      sub = `You are ${TEAM_INFO[myTeam].name} (${TEAM_INFO[myTeam].role}). ` + (myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, ' + (isTouch ? 'hold PLANT' : 'hold E') + ' to plant' : 'Escort the bomb carrier') : 'Defend sites A and B');
     } else if (me?.alive && r.bomb.status === 'carried' && r.bomb.carrier === me.id) {
-      sub = 'You carry the bomb - hold E inside a site to plant';
+      sub = 'You carry the bomb - ' + (isTouch ? 'hold PLANT' : 'hold E') + ' inside a site to plant';
     } else if (r.bomb.status === 'planted') {
-      sub = myTeam === 'CT' ? 'Bomb planted! Hold E next to it to defuse' : 'Bomb planted - protect it';
+      sub = myTeam === 'CT' ? 'Bomb planted! Hold ' + (isTouch ? 'DEFUSE' : 'E') + ' next to it to defuse' : 'Bomb planted - protect it';
     } else if (r.bomb.status === 'dropped') {
       sub = 'The bomb was dropped';
     }
@@ -1025,7 +1054,7 @@ async function start(mode: 'single' | 'multi') {
   saveProfile(profile);
   $('menu').style.display = 'none';
   initAudio();
-  if (isTouch) bindTouch();
+  if (isTouch) { void goFullscreen(); bindTouch(); }
   if (!template) await loadTemplate();
   await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
