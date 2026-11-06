@@ -140,6 +140,7 @@
     #tUse { right: calc(5% + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); width: clamp(64px, 18vmin, 84px); height: clamp(64px, 18vmin, 84px); background: #d9822bcc; font-size: 14px; }
     #tScope { right: calc(5% + clamp(64px, 18vmin, 84px) + 22px + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
     #tSwap { left: calc(5% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-left)); bottom: calc(6% + env(safe-area-inset-bottom)); }
+    #tProne { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(54px, 15vmin, 72px) + 10px + env(safe-area-inset-bottom)); }
     #tTalk { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
     #tJump { right: calc(5% + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(64px, 18vmin, 84px) + 10px + env(safe-area-inset-bottom)); }
     #tCrouch { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
@@ -198,6 +199,7 @@
     <div class="tbtn" id="tJump">JUMP</div>
     <div class="tbtn" id="tFire">FIRE</div>
     <div class="tbtn" id="tCrouch">KNEEL</div>
+    <div class="tbtn" id="tProne">PRONE</div>
     <div class="tbtn" id="tFull">&#x26F6;</div>
   </div>
   <button id="menubtn" title="Menu (Esc)">&#9776; Menu</button>
@@ -240,7 +242,7 @@
           <h4>Options</h4>
           <label class="opt"><input type="checkbox" id="optreplay" /> Show a slow-motion replay of how I died</label>
           <label class="opt">Camera view
-            <select id="optview"><option value="top">Top-down (default)</option><option value="fps">First-person (through the soldier's eyes)</option></select></label>
+            <select id="optview"><option value="fps">First-person (through the soldier's eyes, default)</option><option value="top">Top-down</option></select></label>
           <p class="note">You can switch while playing with <b>P</b>. In first-person: move the mouse to look, W/S walk forward/back, A/D strafe. Click the game once to capture the mouse; Esc releases it.</p>
           <label class="opt">Team voice chat
             <select id="optvoice"><option value="off">Off</option><option value="ptt">Push-to-talk (hold a key)</option><option value="open">Open microphone</option></select></label>
@@ -261,7 +263,7 @@
         </div>
         <div id="menumsg"></div>
       </section>
-      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
+      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; X lie down (prone) &middot; hold Shift sneak &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

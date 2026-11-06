@@ -66,14 +66,14 @@ export const DEFUSE_TIME = 5;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
 
-export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean }
+export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean; prone?: boolean; sneak?: boolean }
 
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
   hp: number; score: number; deaths: number; bot: boolean; alive: boolean; weapon: number;
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
   skin: number; // costume index, 0..SKIN_COUNT-1
-  st: 0 | 1 | 2; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping)
+  st: 0 | 1 | 2 | 3; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping), 3 prone (lying flat)
   rs: number;    // seconds until I respawn (0 while alive)
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
@@ -143,6 +143,9 @@ export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number,
 /** Moves a player one step with wall collision. The server and the client's prediction use this same function. */
 export const SCOPED_SPEED = 0.5; // movement multiplier while scoped with a sniper
 export const CROUCH_SPEED = 0.5; // movement multiplier while kneeling
+export const PRONE_SPEED = 0.22;  // crawling
+export const SNEAK_SPEED = 0.45;  // slow walk (hold Shift)
+export const PRONE_R = 12;        // a prone soldier is a much smaller target
 export const JUMP_TIME = 0.65;   // seconds in the air: long enough to hop over a crate or a low wall
 export const JUMP_COOLDOWN = 0.9;
 export const JUMP_SPEED = 1.2;   // a little faster in the air, so a hop actually clears a 44 unit crate
@@ -270,7 +273,7 @@ export class Sim {
     const mx = num(i.mx), my = num(i.my);
     const len = Math.hypot(mx, my);
     const k = len > 1 ? 1 / len : 1;
-    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped, crouch: !!i.crouch, jump: !!i.jump };
+    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped, crouch: !!i.crouch, jump: !!i.jump, prone: !!i.prone, sneak: !!i.sneak };
     if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1) p.weapon = i.weapon!;
   }
 
@@ -437,9 +440,9 @@ export class Sim {
         const px = p.x, py = p.y;
         const scoped = !!p.input.scoped && WEAPONS[p.weapon].cat === 'Sniper';
         p.jumpCd -= dt; if (p.air > 0) p.air -= dt;
-        if (p.input.jump && p.air <= 0 && p.jumpCd <= 0) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
-        p.st = p.air > 0 ? 2 : p.input.crouch ? 1 : 0;
-        const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : 1);
+        if (p.input.jump && p.air <= 0 && p.jumpCd <= 0 && !p.input.prone) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
+        p.st = p.air > 0 ? 2 : p.input.prone ? 3 : p.input.crouch ? 1 : 0;
+        const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : p.st === 3 ? PRONE_SPEED : p.input.sneak ? SNEAK_SPEED : 1);
         movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult, p.st === 2);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
@@ -457,10 +460,10 @@ export class Sim {
         p.cooldown = w.cooldown;
         for (let i = 0; i < w.pellets; i++) {
           const base = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
-          const spread = base * (p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : 1);      // kneeling is steadier, shooting in mid-air is wild
+          const spread = base * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1);   // lying is steadiest, kneeling steady, mid-air wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
-            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, crouch: p.st === 1, over: 0,
+            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, crouch: p.st === 1 || p.st === 3, over: 0,
             x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
             vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life,
           });
@@ -501,8 +504,8 @@ export class Sim {
         if (!p.alive || p.id === b.owner) continue;
         if (this.rounds && p.team === b.team) continue; // no friendly fire
         if (this.time < p.protect) continue;                // just respawned: untouchable for a moment
-        if (b.over > 0 && p.st === 1) continue;           // kneeling behind the cover this shot just flew over
-        if (Math.hypot(p.x - b.x, p.y - b.y) <= PLAYER_R) {
+        if (b.over > 0 && (p.st === 1 || p.st === 3)) continue;   // kneeling or lying behind the cover this shot just flew over
+        if (Math.hypot(p.x - b.x, p.y - b.y) <= (p.st === 3 ? PRONE_R : PLAYER_R)) {
           this.addImpact(b.x, b.y, 'body');
           if (this.invincible.has(p.id)) { hit = true; break; }
           let dmg = b.dmg;

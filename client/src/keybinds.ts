@@ -9,6 +9,8 @@ export const ACTIONS: ActionDef[] = [
   { id: 'right', label: 'Move right', group: 'Movement', defaults: ['KeyD', 'ArrowRight'] },
   { id: 'jump', label: 'Jump (over low cover)', group: 'Movement', defaults: ['Space'] },
   { id: 'crouch', label: 'Kneel down (hold)', group: 'Movement', defaults: ['KeyC', 'ControlLeft'] },
+  { id: 'prone', label: 'Lie down / get up (prone, crawl)', group: 'Movement', defaults: ['KeyX'] },
+  { id: 'sneak', label: 'Walk slowly / sneak (hold)', group: 'Movement', defaults: ['ShiftLeft'] },
   { id: 'use', label: 'Plant / defuse the bomb (hold)', group: 'Round', defaults: ['KeyE'] },
   { id: 'buyArmor', label: 'Buy armor', group: 'Round', defaults: ['KeyV'] },
   { id: 'rebuy', label: 'Rebuy last weapon pack', group: 'Round', defaults: ['KeyB'] },

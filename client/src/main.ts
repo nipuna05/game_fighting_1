@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { initAudio, sfx, toggleMute } from './audio';
 import { buildWorld, makeWeaponModel, loadGunModels } from './world';
 import {
-  applyKneel, applyArmIK, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
+  applyKneel, applyProne, applyArmIK, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
 } from './characters';
 import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
@@ -10,7 +10,7 @@ import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
 import {
-  Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
+  Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
@@ -19,7 +19,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
-const keys = { up: false, down: false, left: false, right: false, use: false, scope: false, crouch: false, jump: false };
+const keys = { up: false, down: false, left: false, right: false, use: false, scope: false, crouch: false, jump: false, prone: false, sneak: false };
 const profile = loadProfile();
 applyBinds(profile.keybinds); // the player's own key bindings (Controls tab in the menu)
 let game: Game | null = null;
@@ -61,6 +61,7 @@ function bindTouch() {
   hold('tTalk', () => game?.talk(true), () => game?.talk(false));
   hold('tFire', () => { stick.fireBtn = true; }, () => { stick.fireBtn = false; });
   hold('tJump', () => { keys.jump = true; game?.queueJump(); }, () => { keys.jump = false; });
+  $('tProne').addEventListener('pointerdown', () => { keys.prone = !keys.prone; $('tProne').classList.toggle('on', keys.prone); });
   $('tCrouch').addEventListener('pointerdown', () => { keys.crouch = !keys.crouch; $('tCrouch').classList.toggle('on', keys.crouch); });
   $('tSwap').addEventListener('pointerdown', () => game?.lastWeapon());
   $('tScope').addEventListener('pointerdown', () => { keys.scope = !keys.scope; $('tScope').classList.toggle('on', keys.scope); });
@@ -98,9 +99,11 @@ function setKey(code: string, v: boolean): boolean {
     case 'right': keys.right = v; break;
     case 'use': keys.use = v; break;
     case 'scope': keys.scope = v; break;
-    case 'crouch': keys.crouch = v; break;
+    case 'crouch': if (v && keys.prone) keys.prone = false; keys.crouch = v; break;                // kneeling from the ground: get up on one knee
+    case 'prone': if (v) keys.prone = !keys.prone; break;                                         // lie down / get up
+    case 'sneak': keys.sneak = v; break;
     case 'view': if (v) game?.toggleView(); break;
-    case 'jump': keys.jump = v; if (v) game?.queueJump(); break;
+    case 'jump': if (v && keys.prone) { keys.prone = false; break; } keys.jump = v; if (v) game?.queueJump(); break;   // from the ground the first press only gets you up
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
     case 'rebuy': if (v) game?.rebuy(); break;
     case 'sidearm': if (v) game?.selectSlot(1); break;
@@ -418,7 +421,7 @@ class Game {
   }
   toggleView() {
     this.fp = !this.fp;
-    profile.options.view = this.fp ? 'fps' : 'top'; saveProfile(profile);
+    profile.options.view = this.fp ? 'fps' : 'top'; profile.options.viewSet = true; saveProfile(profile);
     const me = this.me(); if (this.fp && me) this.yaw = me.angle;
     document.body.classList.toggle('fp', this.fp);
     if (!this.fp && document.pointerLockElement) { this.releasing = true; document.exitPointerLock(); }
@@ -491,7 +494,7 @@ class Game {
     this.predCd -= dt; if (this.predAir > 0) this.predAir -= dt;          // same jump rules as the server
     if (input.jump && this.predAir <= 0 && this.predCd <= 0) { this.predAir = JUMP_TIME; this.predCd = JUMP_COOLDOWN; }
     const air = this.predAir > 0;
-    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1) * (air ? JUMP_SPEED : input.crouch ? CROUCH_SPEED : 1);
+    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1) * (air ? JUMP_SPEED : input.prone ? PRONE_SPEED : input.crouch ? CROUCH_SPEED : input.sneak ? SNEAK_SPEED : 1);
     movePlayer(this.pred, input.mx * k, input.my * k, dt, walls, speed, air);
     // The server's copy is a little behind (network delay + tick). Aim at where it will be by now, so the correction is
     // gentle while running and settles exactly onto the server position once the player stops.
@@ -532,7 +535,7 @@ class Game {
     }
     const myP = this.me();
     const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
-    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending };
+    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending, prone: keys.prone, sneak: keys.sneak };
   }
 
   private fpDt = 0.016;
@@ -673,6 +676,7 @@ class Game {
       c.airT = posture === 2 ? (c.airT ?? 0) + dt : 0;
       const hop = posture === 2 ? Math.sin(Math.PI * Math.min(1, c.airT / JUMP_TIME)) * 34 : 0;   // the jump arc
       c.crouchK = (c.crouchK ?? 0) + ((posture === 1 ? 1 : 0) - (c.crouchK ?? 0)) * Math.min(1, dt * 12);
+      c.proneK = (c.proneK ?? 0) + ((posture === 3 ? 1 : 0) - (c.proneK ?? 0)) * Math.min(1, dt * 7);
       c.root.position.set(d.x, hop, d.y);
       c.root.rotation.y = -d.angle;
       const speed = Math.min(1, d.moved / 220);
@@ -718,6 +722,7 @@ class Game {
         c.mixer.update(dt);
         for (const tb of c.twistBones ?? []) tb.bone.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * tb.k); // after the animation pose is applied
         applyKneel(c, (c.crouchK ?? 0) * (1 - 0.4 * Math.min(1, speed * 2.5)));   // less folded while creeping along
+        applyProne(c, c.proneK ?? 0);
         applyArmIK(c);                                                              // hands on the weapon, whatever the body is doing
       } else {
         c.phase += dt * 11 * speed;
@@ -806,7 +811,7 @@ class Game {
     $('fphint').style.display = fpNow && !isTouch && !document.pointerLockElement && !this.paused ? 'block' : 'none';
     if (fpNow && me) {
       const ch = this.chars.get(this.myId);
-      const eye = 52 - 20 * (ch?.crouchK ?? 0) + (ch?.root.position.y ?? 0);   // eye height: lower when kneeling, higher in a jump
+      const eye = 52 - 20 * (ch?.crouchK ?? 0) - 38 * (ch?.proneK ?? 0) + (ch?.root.position.y ?? 0);   // eye height: lower when kneeling, higher in a jump
       this.camera.position.set(me.x, eye, me.y);
       this.camera.lookAt(me.x + Math.cos(this.yaw) * 100, eye, me.y + Math.sin(this.yaw) * 100);
     } else if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
@@ -918,6 +923,7 @@ class Game {
     const el = $('respawn');
     if (!me || !this.snap?.round) { el.style.display = 'none'; return; }
     if (me.alive) {
+      if (this.respawnWas) { keys.prone = false; }
       if (this.respawnWas) { this.respawnWas = false; this.toast('BACK IN THE FIGHT'); }
       if (this.replay) this.endReplay();                       // the kill cam stops when I am alive again
       el.style.display = 'none';

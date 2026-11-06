@@ -15,6 +15,7 @@ export interface Character {
   runBase?: number; runGain?: number;                         // run animation speed = runBase + runGain * (how fast the character moves)
   walk?: THREE.AnimationAction; strideWalk?: number; strideRun?: number; // ground speed (units/s) that the walk / run clips cover at normal playback speed
   arms?: { side: number; upper: THREE.Object3D; fore: THREE.Object3D; hand: THREE.Object3D }[]; armGunIdx?: number; gunLen?: number; gunH?: number;
+  proneK?: number; modelBaseY?: number; gunBase?: { pos: THREE.Vector3; quat: THREE.Quaternion };
   gunOnBody?: boolean;                                                           // the weapon follows the chest bone (so it needs no separate offset)
   airT?: number; crouchK?: number; gunBaseY?: number;                            // jump timer, and how far into the kneel pose (0..1) the character is
   kneel?: { hips: THREE.Object3D; hipsY: number; thighs: THREE.Object3D[]; shins: THREE.Object3D[] };
@@ -193,6 +194,7 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
     }
     chest.attach(gunHolder); gunOnBody = true;
   }
+  const gunBase = { pos: gunHolder.position.clone(), quat: gunHolder.quaternion.clone() };   // where the weapon rests on the chest when standing
   const pre2 = t.rig === 'mixamo' ? 'mixamorig' : '';
   const armBones = (side: 'Left' | 'Right', k: number) => {
     const upper = model.getObjectByName(`${pre2}${side}Arm`), fore = model.getObjectByName(`${pre2}${side}ForeArm`), hand = model.getObjectByName(`${pre2}${side}Hand`);
@@ -202,7 +204,7 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
   const dummy = () => new THREE.Group();
   const cole = t.rig === 'cole' || t.rig === 'mixamo';
   return {
-    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, gunOnBody, arms, holder, twistBones, mixer, idle, run, walk, strideWalk: stride.walk, strideRun: stride.run, death, ring, kneel,
+    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, gunOnBody, gunBase, modelBaseY: model.position.y, arms, holder, twistBones, mixer, idle, run, walk, strideWalk: stride.walk, strideRun: stride.run, death, ring, kneel,
     runBase: cole ? 0.8 : 0.6, runGain: cole ? 0.5 : 0.8,
   };
 }
@@ -354,5 +356,30 @@ export function applyArmIK(c: Character, weight = 1) {
     // the hand follows the weapon's direction so the fingers wrap around the grip
     a.hand.getWorldQuaternion(_wq); const gq = c.gunHolder.getWorldQuaternion(new THREE.Quaternion());
     void gq;
+  }
+}
+
+/**
+ * Prone: the whole body lies face down along the aiming direction (head forward), resting on the ground, and the weapon is held out in
+ * front of the shoulders along the floor. k = 0 standing .. 1 lying. Called after the animation, before the arm IK.
+ */
+const _pv = new THREE.Vector3(), _pq1 = new THREE.Quaternion(), _pq2 = new THREE.Quaternion();
+export function applyProne(c: Character, k: number) {
+  const model = c.holder?.children[0];
+  if (!model) { c.root.scale.y = 1 - 0.7 * k; return; }                       // simple rigs: just squash flat
+  model.rotation.x = k * 1.45;                                                 // face down, head forward
+  model.position.set(0, (c.modelBaseY ?? 0) + 7 * k, -27 * k);                 // centred on the spot and resting on the floor (not in it)
+  if (c.gunOnBody && c.gunBase) {
+    const g = c.gunHolder, par = g.parent;
+    if (par && k > 0.001) {
+      c.root.updateMatrixWorld(true);
+      // weapon target: in front of the shoulders, on the ground, pointing along the aim (the root faces the aim)
+      _pv.set(36, 6, 0); c.root.localToWorld(_pv);
+      par.updateWorldMatrix(true, false);
+      const lp = par.worldToLocal(_pv.clone());
+      par.getWorldQuaternion(_pq1).invert(); c.root.getWorldQuaternion(_pq2);
+      g.position.copy(c.gunBase.pos).lerp(lp, k);
+      g.quaternion.copy(c.gunBase.quat).slerp(_pq1.multiply(_pq2), k);
+    } else { g.position.copy(c.gunBase.pos); g.quaternion.copy(c.gunBase.quat); }
   }
 }
