@@ -255,15 +255,18 @@ export class Sim {
 
   setInput(id: string, i: Input) {
     const p = this.players.get(id);
-    if (!p) return;
-    const len = Math.hypot(i.mx, i.my);
+    if (!p || !i || typeof i !== 'object') return;          // network data: anything can arrive here
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    const mx = num(i.mx), my = num(i.my);
+    const len = Math.hypot(mx, my);
     const k = len > 1 ? 1 / len : 1;
-    p.input = { mx: i.mx * k, my: i.my * k, angle: Number.isFinite(i.angle) ? i.angle : 0, fire: !!i.fire, use: !!i.use, scoped: !!i.scoped };
+    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped };
     if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1) p.weapon = i.weapon!;
   }
 
   /** Buy a weapon (0..3) or armor (ARMOR_ITEM). Only allowed during the buy phase. */
   buy(id: string, item: number): boolean {
+    if (!Number.isInteger(item)) return false;
     const p = this.players.get(id);
     if (!p || !this.rounds || this.phase !== 'buy' || !p.alive) return false;
     if (item === ARMOR_ITEM) {

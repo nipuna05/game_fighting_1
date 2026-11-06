@@ -258,19 +258,31 @@ class Game {
     requestAnimationFrame(() => this.frame());
   }
 
+  private retries = 0;
   private connect() {
-    this.status = 'Connecting...';
+    this.status = this.retries ? 'Reconnecting...' : 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map }));
+    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map })); };
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
-      if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; this.buildWorld(getMap(m.map)); this.startVoice(m.id); }
+      if (m.type === 'welcome') {
+        this.myId = m.id; this.status = `Room: ${m.room}`;
+        if (!this.mapDef) this.buildWorld(getMap(m.map));
+        this.voice?.disable(); this.voice = null; this.startVoice(m.id);   // a reconnect is a new player id
+      }
       else if (m.type === 'snap') this.snap = m.snap;
       else this.voice?.handle(m);               // 'voice' / 'rtc': team voice chat set-up
     };
-    this.ws.onclose = () => { this.status = 'Disconnected (is the server running?)'; };
+    this.ws.onclose = (ev) => {
+      if (ev.code === 1013) { this.status = 'Room is full - go back and pick another room code'; this.toast('Room is full'); return; }
+      // the connection dropped (server restart, wifi change, phone sleep): try again instead of leaving the player stuck
+      this.snap = null;
+      if (this.retries >= 20) { this.status = 'Disconnected (is the server running?)'; return; }
+      this.retries++; this.status = `Connection lost - reconnecting (${this.retries})...`;
+      setTimeout(() => this.connect(), Math.min(4000, 500 * this.retries));
+    };
   }
 
   private me() { return this.snap?.players.find((p) => p.id === this.myId); }
