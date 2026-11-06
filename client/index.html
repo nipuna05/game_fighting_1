@@ -131,7 +131,17 @@
     #tScope { right: calc(5% + clamp(64px, 18vmin, 84px) + 22px + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
     #tSwap { left: calc(5% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-left)); bottom: calc(6% + env(safe-area-inset-bottom)); }
     #tTalk { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
-    #tFull { right: calc(8px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); width: 38px; height: 38px; font-size: 18px; opacity: .8; }
+    #tJump { right: calc(5% + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(64px, 18vmin, 84px) + 10px + env(safe-area-inset-bottom)); }
+    #tCrouch { left: calc(5% + env(safe-area-inset-left)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + env(safe-area-inset-bottom)); }
+    #tTalk { left: calc(5% + clamp(54px, 15vmin, 72px) + 12px + env(safe-area-inset-left)); }
+    #tFull { right: calc(56px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); width: 38px; height: 38px; font-size: 18px; opacity: .8; }
+    #menubtn { position: fixed; right: calc(8px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); z-index: 7; font: 700 13px system-ui; color: #fff; background: #0b0f14cc; border: 1px solid #ffffff44; border-radius: 10px; padding: 9px 12px; cursor: pointer; display: none; }
+    body.playing #menubtn { display: block; } body.touch #menubtn { padding: 10px 12px; }
+    .ovl { position: fixed; inset: 0; z-index: 12; display: none; align-items: center; justify-content: center; background: #05080dcc; }
+    .ovl.on { display: flex; } .ovl .card { background: #121a25; border: 1px solid #2f3d52; border-radius: 14px; padding: 22px 26px; text-align: center; min-width: min(86vw, 320px); }
+    .ovl h2 { margin: 0 0 6px; font: 900 30px Impact, 'Arial Black', system-ui; letter-spacing: .08em; } .ovl p { margin: 4px 0 14px; color: #b8c4d4; font-size: 14px; }
+    .ovl .btn { display: block; width: 100%; margin: 8px 0 0; padding: 12px 14px; border-radius: 10px; font: 700 15px system-ui; cursor: pointer; border: 1px solid #2f3d52; color: #fff; background: #1c2735; }
+    .ovl .btn.go { background: #c9611a; border-color: #ff9a3d; }
     #rotate { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; text-align: center; flex-direction: column; gap: 14px; background: #0b0f14f2; color: #fff; font: 700 20px system-ui; }
     #rotate i { font-size: 56px; font-style: normal; display: block; animation: rot 1.6s ease-in-out infinite; } @keyframes rot { 0%, 30% { transform: rotate(0); } 70%, 100% { transform: rotate(-90deg); } }
     @media (orientation: portrait) { body.touch.playing #rotate { display: flex; } }
@@ -172,8 +182,15 @@
     <div class="tbtn hide" id="tScope">SCOPE</div>
     <div class="tbtn" id="tSwap">SWAP</div>
     <div class="tbtn hide" id="tTalk">TALK</div>
+    <div class="tbtn" id="tJump">JUMP</div>
+    <div class="tbtn" id="tCrouch">KNEEL</div>
     <div class="tbtn" id="tFull">&#x26F6;</div>
   </div>
+  <button id="menubtn" title="Menu (Esc)">&#9776; Menu</button>
+  <div id="pause" class="ovl"><div class="card"><h2>Paused</h2><p id="pausenote"></p>
+    <button id="resumebtn" class="btn go">Resume</button><button id="leavebtn" class="btn alt">Leave game</button></div></div>
+  <div id="endscreen" class="ovl"><div class="card"><h2 id="endtitle"></h2><p id="endsub"></p><p class="note" id="endnext"></p>
+    <button id="endleave" class="btn go">Exit to menu</button><button id="endstay" class="btn alt">Watch / play next game</button></div></div>
   <div id="rotate"><i>&#x1F4F1;</i>Turn your phone sideways to play</div>
   <div id="menu">
     <div id="hero"></div>
@@ -224,7 +241,7 @@
         </div>
         <div id="menumsg"></div>
       </section>
-      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; hold E plant / defuse &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
+      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; hold E plant / defuse &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

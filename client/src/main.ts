@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { initAudio, sfx, toggleMute } from './audio';
 import { buildWorld, makeWeaponModel, loadGunModels } from './world';
 import {
-  QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
+  applyKneel, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
 } from './characters';
 import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
@@ -10,7 +10,7 @@ import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
 import {
-  Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
+  Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
@@ -19,7 +19,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 // ---------- input sources ----------
-const keys = { up: false, down: false, left: false, right: false, use: false, scope: false };
+const keys = { up: false, down: false, left: false, right: false, use: false, scope: false, crouch: false, jump: false };
 const profile = loadProfile();
 applyBinds(profile.keybinds); // the player's own key bindings (Controls tab in the menu)
 let game: Game | null = null;
@@ -59,6 +59,8 @@ function bindTouch() {
   };
   hold('tUse', () => { keys.use = true; }, () => { keys.use = false; });
   hold('tTalk', () => game?.talk(true), () => game?.talk(false));
+  hold('tJump', () => { keys.jump = true; game?.queueJump(); }, () => { keys.jump = false; });
+  $('tCrouch').addEventListener('pointerdown', () => { keys.crouch = !keys.crouch; $('tCrouch').classList.toggle('on', keys.crouch); });
   $('tSwap').addEventListener('pointerdown', () => game?.lastWeapon());
   $('tScope').addEventListener('pointerdown', () => { keys.scope = !keys.scope; $('tScope').classList.toggle('on', keys.scope); });
   $('tFull').addEventListener('pointerdown', () => { if (document.fullscreenElement) void document.exitFullscreen(); else void goFullscreen(); });
@@ -75,8 +77,11 @@ async function goFullscreen() {
   try { await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'); } catch { /* not supported */ }
 }
 
+/** Back to the main menu from anywhere in a game (the page is simply reloaded without the dev parameters). */
+function leaveGame() { try { game?.leave(); } finally { location.assign(location.pathname); } }
+
 const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement | null)?.tagName ?? '');
-window.addEventListener('keydown', (e) => { if (typing(e) || e.repeat) return; if (setKey(e.code, true) && game) e.preventDefault(); });
+window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && game) { game.togglePause(); return; } if (typing(e) || e.repeat) return; if (setKey(e.code, true) && game) e.preventDefault(); });
 window.addEventListener('keyup', (e) => { setKey(e.code, false); });
 /** Handles one key press / release using the current bindings. Returns true if the key is bound to something. */
 function setKey(code: string, v: boolean): boolean {
@@ -88,6 +93,8 @@ function setKey(code: string, v: boolean): boolean {
     case 'right': keys.right = v; break;
     case 'use': keys.use = v; break;
     case 'scope': keys.scope = v; break;
+    case 'crouch': keys.crouch = v; break;
+    case 'jump': keys.jump = v; if (v) game?.queueJump(); break;
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
     case 'rebuy': if (v) game?.rebuy(); break;
     case 'sidearm': if (v) game?.selectSlot(1); break;
@@ -180,6 +187,12 @@ class Game {
   private specId: string | null = null;
   private voice: Voice | null = null;               // team voice chat (multiplayer, if the player turned it on)
   private micAcc = 0;
+  paused = false;
+  private jumpPending = false;
+  /** A quick tap must still count: keep the jump request until the next input has been sent. */
+  queueJump() { this.jumpPending = true; }
+  private endDismissed = false;
+  private predAir = 0; private predCd = 0;      // local copy of the jump timers (for prediction)
   // bullet effects and the sniper scope
   private lastBulletFx = -1;
   private lastImpactFx = -1;
@@ -246,6 +259,12 @@ class Game {
     this.bombMesh.castShadow = true; this.bombMesh.visible = false;
     this.scene.add(this.bombMesh);
     this.buildBuyMenu();
+    $('menubtn').addEventListener('click', () => this.togglePause(true));
+    $('resumebtn').addEventListener('click', () => this.togglePause(false));
+    $('leavebtn').addEventListener('click', leaveGame);
+    $('endleave').addEventListener('click', leaveGame);
+    $('endstay').addEventListener('click', () => { this.endDismissed = true; $('endscreen').classList.remove('on'); });
+    document.body.classList.add('playing');
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
@@ -379,6 +398,18 @@ class Game {
     this.voice = new Voice(id, (msg) => { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }, profile.options.voice);
     void this.voice.enable();
   }
+  togglePause(force?: boolean) {
+    this.paused = force ?? !this.paused;
+    $('pause').classList.toggle('on', this.paused);
+    $('pausenote').textContent = this.sim ? 'The game is paused.' : 'The match keeps running for the other players while this menu is open.';
+    if (this.paused) { keys.up = keys.down = keys.left = keys.right = keys.use = keys.crouch = keys.jump = false; mouse.down = false; }
+  }
+  /** Tidy up before returning to the menu: tell the server we are gone and release the microphone. */
+  leave() {
+    this.retries = 99;                           // do not auto-reconnect
+    this.voice?.disable();
+    try { this.ws?.close(); } catch { /* already closed */ }
+  }
   /** Hold-to-talk key (push-to-talk mode). */
   talk(on: boolean) { this.voice?.setTalking(on); }
 
@@ -410,8 +441,11 @@ class Game {
     const frozen = !me.alive || this.snap?.round?.phase === 'buy' || !walls;
     if (!this.pred || frozen) { this.pred = { x: me.x, y: me.y }; return; }
     const len = Math.hypot(input.mx, input.my), k = len > 1 ? 1 / len : 1;
-    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1);
-    movePlayer(this.pred, input.mx * k, input.my * k, dt, walls, speed);
+    this.predCd -= dt; if (this.predAir > 0) this.predAir -= dt;          // same jump rules as the server
+    if (input.jump && this.predAir <= 0 && this.predCd <= 0) { this.predAir = JUMP_TIME; this.predCd = JUMP_COOLDOWN; }
+    const air = this.predAir > 0;
+    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1) * (air ? JUMP_SPEED : input.crouch ? CROUCH_SPEED : 1);
+    movePlayer(this.pred, input.mx * k, input.my * k, dt, walls, speed, air);
     // The server's copy is a little behind (network delay + tick). Aim at where it will be by now, so the correction is
     // gentle while running and settles exactly onto the server position once the player stops.
     const lag = this.ws ? Math.min(0.25, this.pingMs / 2000 + 1 / TICK_RATE) : 1 / TICK_RATE;
@@ -444,7 +478,7 @@ class Game {
     }
     const myP = this.me();
     const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
-    return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped };
+    return { mx, my, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending };
   }
 
   private frame() {
@@ -452,16 +486,16 @@ class Game {
     const delta = Math.min(now - this.last, 100);
     this.last = now;
 
-    const input = this.readInput();
+    const input = this.paused ? { mx: 0, my: 0, angle: this.snap?.players.find((p) => p.id === this.myId)?.angle ?? 0, fire: false } : this.readInput();
     this.localInput = input;
     this.predict(delta / 1000, input);
     this.monitor(delta);
     if (this.sim) {
       this.sim.setInput(this.myId, input);
-      this.pendingWeapon = null;
+      this.pendingWeapon = null; this.jumpPending = false;
       this.acc += (delta / 1000) * (QS.has('timescale') ? Number(QS.get('timescale')) : 1); // dev: ?timescale=40 fast-forwards single player
       const dt = 1 / TICK_RATE;
-      while (this.acc >= dt) { this.sim.step(dt); this.acc -= dt; }
+      while (this.acc >= dt) { if (!this.paused) this.sim.step(dt); this.acc -= dt; }
       this.snap = this.sim.snapshot();
     } else if (this.ws?.readyState === WebSocket.OPEN) {
       this.pingAcc += delta;
@@ -470,7 +504,7 @@ class Game {
       if (this.sendAcc >= 1000 / TICK_RATE) {
         this.sendAcc = 0;
         this.ws.send(JSON.stringify({ type: 'input', input }));
-        this.pendingWeapon = null;
+        this.pendingWeapon = null; this.jumpPending = false;
       }
     }
     this.draw(delta / 1000, now / 1000);
@@ -577,7 +611,11 @@ class Game {
       c.root.visible = p.alive || !!c.dead;
       c.gunHolder.visible = p.alive;
       if (c.ring) c.ring.visible = p.alive;
-      c.root.position.set(d.x, 0, d.y);
+      const posture = p.alive ? (p.st ?? 0) : 0;
+      c.airT = posture === 2 ? (c.airT ?? 0) + dt : 0;
+      const hop = posture === 2 ? Math.sin(Math.PI * Math.min(1, c.airT / JUMP_TIME)) * 34 : 0;   // the jump arc
+      c.crouchK = (c.crouchK ?? 0) + ((posture === 1 ? 1 : 0) - (c.crouchK ?? 0)) * Math.min(1, dt * 12);
+      c.root.position.set(d.x, hop, d.y);
       c.root.rotation.y = -d.angle;
       const speed = Math.min(1, d.moved / 220);
       if (c.dead && c.mixer) { c.mixer.update(dt); continue; }
@@ -610,11 +648,13 @@ class Game {
         if (c.holder) c.holder.rotation.y = MODEL_YAW + twist; // lower body faces c.legYaw, root faces the aim
         c.mixer.update(dt);
         for (const tb of c.twistBones ?? []) tb.bone.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * tb.k); // after the animation pose is applied
+        applyKneel(c, c.crouchK ?? 0);
       } else {
         c.phase += dt * 11 * speed;
         const swing = Math.sin(c.phase) * 0.8 * speed;
         c.legL.rotation.z = swing; c.legR.rotation.z = -swing;
-        c.root.position.y = Math.abs(Math.sin(c.phase)) * 1.5 * speed;
+        c.root.position.y = hop + Math.abs(Math.sin(c.phase)) * 1.5 * speed;
+        applyKneel(c, c.crouchK ?? 0);
       }
     }
     for (const [id, c] of this.chars) {
@@ -1012,6 +1052,17 @@ class Game {
     $('tm').textContent = `R${r.roundNo}  ${clock}`;
 
     // banner: round result, bomb actions, role hints
+    const endEl = $('endscreen');
+    if (r.phase === 'over' && !this.endDismissed) {
+      const won = !!me && r.winner === me.team;
+      endEl.classList.add('on');
+      $('endtitle').textContent = won ? 'VICTORY' : 'DEFEAT'; $('endtitle').style.color = won ? '#7dff9c' : '#ff6b6b';
+      $('endsub').textContent = `${TEAM_INFO[r.winner ?? 'CT'].name} win the game - ${r.reason}. +${this.lastCoins} coins saved to your profile.`;
+      $('endnext').textContent = `A new game starts in ${Math.ceil(r.timeLeft)} s`;
+    } else {
+      endEl.classList.remove('on');
+      if (r.phase !== 'over') this.endDismissed = false;
+    }
     let big = '', sub = '', prog = 0;
     if (r.phase === 'post' || r.phase === 'over') {
       big = `${TEAM_INFO[r.winner ?? 'CT'].name.toUpperCase()} WIN${r.phase === 'over' ? ' THE MATCH' : ''}`;

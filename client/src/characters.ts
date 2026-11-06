@@ -13,6 +13,8 @@ export interface Character {
   twistBones?: { bone: THREE.Object3D; k: number }[];         // torso/neck bones that share the upper-body twist toward the aim
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
   runBase?: number; runGain?: number;                         // run animation speed = runBase + runGain * (how fast the character moves)
+  airT?: number; crouchK?: number; gunBaseY?: number;                            // jump timer, and how far into the kneel pose (0..1) the character is
+  kneel?: { hips: THREE.Object3D; hipsY: number; thighs: THREE.Object3D[]; shins: THREE.Object3D[] };
   death?: THREE.AnimationAction; dead?: boolean; ring?: THREE.Object3D; // realistic soldier: falls down and stays down until the next round
 }
 
@@ -166,10 +168,15 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
     : t.rig === 'mixamo'
       ? [...pick('mixamorigSpine1', 0.5), ...pick('mixamorigSpine2', 0.35), ...pick('mixamorigNeck', 0.1)]
       : [...pick('Spine', 0.8), ...pick('Neck', 0.15)];
+  const pre = t.rig === 'mixamo' ? 'mixamorig' : '';
+  const bone = (n: string) => model.getObjectByName(pre + n);
+  const hips = bone('Hips');
+  const kneel = hips && t.rig !== 'other' && bone('LeftUpLeg') && bone('RightUpLeg') && bone('LeftLeg') && bone('RightLeg')
+    ? { hips, hipsY: hips.position.y, thighs: [bone('LeftUpLeg')!, bone('RightUpLeg')!], shins: [bone('LeftLeg')!, bone('RightLeg')!] } : undefined;
   const dummy = () => new THREE.Group();
   const cole = t.rig === 'cole' || t.rig === 'mixamo';
   return {
-    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, death, ring,
+    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, death, ring, kneel,
     runBase: cole ? 0.8 : 0.6, runGain: cole ? 0.5 : 0.8,
   };
 }
@@ -222,3 +229,16 @@ export function makeCharacter(color: number): Character {
   return { root, legL, legR, armL, armR, phase: Math.random() * 6, gunHolder, gunIdx: -1 };
 }
 
+
+/** Kneel pose, applied after the animation each frame: hips drop, thighs come forward, shins fold back. k = 0..1 (eased in by the caller). */
+export const KNEEL = { thigh: QS.has('kt') ? Number(QS.get('kt')) : -1.15, shin: QS.has('ks') ? Number(QS.get('ks')) : 1.85, drop: 0.36 };
+export function applyKneel(c: Character, k: number) {
+  c.gunBaseY ??= c.gunHolder.position.y;
+  c.gunHolder.position.y = c.gunBaseY - 11 * k * (c.kneel ? 1 : 0.6);       // the weapon comes down with the body
+  if (k < 0.01) { if (!c.mixer) c.root.scale.y = 1; return; }
+  if (!c.kneel) { c.root.scale.y = 1 - 0.3 * k; return; }                // simple rigs: squash the body down instead
+  const kn = c.kneel;
+  kn.hips.position.y = kn.hipsY * (1 - KNEEL.drop * k) + (kn.hips.position.y - kn.hipsY);   // keep the animation's own bounce
+  for (const b of kn.thighs) b.rotateX(KNEEL.thigh * k);
+  for (const b of kn.shins) b.rotateX(KNEEL.shin * k);
+}

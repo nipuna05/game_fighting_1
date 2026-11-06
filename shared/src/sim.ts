@@ -53,8 +53,8 @@ export const SKIN_COUNT = 4; // costumes a player can choose from
 export const BUY_TIME = 10;
 export const LIVE_TIME = 100;
 export const POST_TIME = 4;
-export const OVER_TIME = 8;
-export const WINS_TO_WIN = 6;
+export const OVER_TIME = 15;
+export const WINS_TO_WIN = 1;   // a game is a single round: whoever wins it wins the game
 export const START_MONEY = 1600;
 export const WIN_MONEY = 3000;
 export const LOSE_MONEY = 1400;
@@ -67,13 +67,14 @@ export const DEFUSE_TIME = 5;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
 
-export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean }
+export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean }
 
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
   hp: number; score: number; deaths: number; bot: boolean; alive: boolean; weapon: number;
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
   skin: number; // costume index, 0..SKIN_COUNT-1
+  st: 0 | 1 | 2; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping)
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
 export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
@@ -108,9 +109,10 @@ export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletSt
 
 interface Player extends PlayerState {
   sidearm: number; input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
+  air: number; jumpCd: number; // seconds left in the current jump / until the next jump is allowed
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
-interface Bullet extends Omit<BulletState, 'a' | 'w'> { owner: string; team: Team; vx: number; vy: number; life: number; dmg: number; wid: number }
+interface Bullet extends Omit<BulletState, 'a' | 'w'> { crouch: boolean; over: number; owner: string; team: Team; vx: number; vy: number; life: number; dmg: number; wid: number }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const other = (t: Team): Team => (t === 'T' ? 'CT' : 'T');
@@ -139,10 +141,16 @@ export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number,
 
 /** Moves a player one step with wall collision. The server and the client's prediction use this same function. */
 export const SCOPED_SPEED = 0.5; // movement multiplier while scoped with a sniper
-export function movePlayer(p: { x: number; y: number }, mx: number, my: number, dt: number, walls: Rect[], speed = PLAYER_SPEED) {
+export const CROUCH_SPEED = 0.5; // movement multiplier while kneeling
+export const JUMP_TIME = 0.65;   // seconds in the air: long enough to hop over a crate or a low wall
+export const JUMP_COOLDOWN = 0.9;
+export const JUMP_SPEED = 1.2;   // a little faster in the air, so a hop actually clears a 44 unit crate
+/** Low cover (crates, low walls, wagons): you can jump over it, and shots pass over it unless the shooter is kneeling. */
+export const isLow = (w: Rect) => w.kind === 'barrier' || w.kind === 'crate' || w.kind === 'scooter';
+export function movePlayer(p: { x: number; y: number }, mx: number, my: number, dt: number, walls: Rect[], speed = PLAYER_SPEED, airborne = false) {
   p.x += mx * speed * dt;
   p.y += my * speed * dt;
-  for (const w of walls) circleRectPush(p, PLAYER_R, w);
+  for (const w of walls) { if (airborne && isLow(w)) continue; circleRectPush(p, PLAYER_R, w); }
 }
 
 export function siteAt(x: number, y: number, sites: Site[]): Site | null {
@@ -213,6 +221,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
+      st: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
@@ -260,7 +269,7 @@ export class Sim {
     const mx = num(i.mx), my = num(i.my);
     const len = Math.hypot(mx, my);
     const k = len > 1 ? 1 / len : 1;
-    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped };
+    p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped, crouch: !!i.crouch, jump: !!i.jump };
     if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1) p.weapon = i.weapon!;
   }
 
@@ -304,7 +313,7 @@ export class Sim {
         if (Math.hypot(q.x - p.x, q.y - p.y) < 0.5) break;
       }
     }
-    p.hp = MAX_HP; p.alive = true; p.cooldown = 0;
+    p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0;
   }
 
   // ---------- rounds ----------
@@ -425,7 +434,11 @@ export class Sim {
       if (!frozen) {
         const px = p.x, py = p.y;
         const scoped = !!p.input.scoped && WEAPONS[p.weapon].cat === 'Sniper';
-        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * (scoped ? SCOPED_SPEED : 1));
+        p.jumpCd -= dt; if (p.air > 0) p.air -= dt;
+        if (p.input.jump && p.air <= 0 && p.jumpCd <= 0) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
+        p.st = p.air > 0 ? 2 : p.input.crouch ? 1 : 0;
+        const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : 1);
+        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult, p.st === 2);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -441,10 +454,11 @@ export class Sim {
         const w = WEAPONS[p.weapon];
         p.cooldown = w.cooldown;
         for (let i = 0; i < w.pellets; i++) {
-          const spread = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
+          const base = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
+          const spread = base * (p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : 1);      // kneeling is steadier, shooting in mid-air is wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
-            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon,
+            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, crouch: p.st === 1, over: 0,
             x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
             vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life,
           });
@@ -470,13 +484,21 @@ export class Sim {
 
     const alive: Bullet[] = [];
     for (const b of this.bullets) {
-      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt; b.over -= dt;
       if (b.life <= 0) continue;
-      if (this.map.walls.some((w) => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h)) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall'); continue; }
+      // Walls stop bullets. Low cover only stops shots from a kneeling shooter: a standing shooter fires over it, and a kneeling
+      // target right behind it is then hidden (the bullet flew over their head). So: kneel behind cover to hide, stand up to shoot.
+      let blocked = false;
+      for (const w of this.map.walls) {
+        if (b.x < w.x || b.x > w.x + w.w || b.y < w.y || b.y > w.y + w.h) continue;
+        if (isLow(w) && !b.crouch) b.over = 0.3; else { blocked = true; break; }
+      }
+      if (blocked) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall'); continue; }
       let hit = false;
       for (const p of this.players.values()) {
         if (!p.alive || p.id === b.owner) continue;
         if (this.rounds && p.team === b.team) continue; // no friendly fire
+        if (b.over > 0 && p.st === 1) continue;           // kneeling behind the cover this shot just flew over
         if (Math.hypot(p.x - b.x, p.y - b.y) <= PLAYER_R) {
           this.addImpact(b.x, b.y, 'body');
           if (this.invincible.has(p.id)) { hit = true; break; }
@@ -578,7 +600,7 @@ export class Sim {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
-        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin,
+        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st,
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid })),
       pickups: [
