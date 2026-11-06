@@ -455,8 +455,9 @@ function decalCanvas(map: MapDef): HTMLCanvasElement {
     }
     g.strokeStyle = 'rgba(255,245,225,0.35)'; g.lineWidth = 5; g.setLineDash([26, 22]);
     const line = (x1: number, y1: number, x2: number, y2: number) => { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
-    line(300, 600, 730, 600); line(870, 600, 1300, 600);
-    line(800, 340, 800, 490); line(800, 710, 800, 860);
+    const mx = WORLD_W / 2, my = WORLD_H / 2;
+    line(mx - 520, my, mx - 70, my); line(mx + 70, my, mx + 520, my);
+    line(mx, my - 260, mx, my - 110); line(mx, my + 110, mx, my + 260);
     g.setLineDash([]);
 
     for (const sp of map.heal) {
@@ -489,7 +490,7 @@ function decalCanvas(map: MapDef): HTMLCanvasElement {
       const dir = t === 'T' ? 1 : -1;
       g.strokeStyle = `rgba(${col},0.85)`; g.lineWidth = 7; g.lineCap = 'round';
       for (let i = 0; i < 3; i++) {
-        const ax = (t === 'T' ? z.x + z.w + 30 : z.x - 30) + dir * i * 22, ay = 600;
+        const ax = (t === 'T' ? z.x + z.w + 30 : z.x - 30) + dir * i * 22, ay = WORLD_H / 2;
         g.beginPath(); g.moveTo(ax - dir * 12, ay - 20); g.lineTo(ax + dir * 6, ay); g.lineTo(ax - dir * 12, ay + 20); g.stroke();
       }
     });
@@ -538,11 +539,11 @@ export function buildWorld(scene: THREE.Scene, map: MapDef) {
   scene.add(new THREE.HemisphereLight(T.hemi[0], T.hemi[1], T.hemi[2]));
   const sun = new THREE.DirectionalLight(T.sun[0], T.sun[1]);
   const cx = WORLD_W / 2, cz = WORLD_H / 2;
-  sun.position.set(cx - 500, 900, cz + 400);
+  sun.position.set(cx - 750, 1300, cz + 600);
   sun.target.position.set(cx, 0, cz);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { left: -1100, right: 1100, top: 900, bottom: -900, near: 100, far: 2400 });
+  sun.shadow.mapSize.set(3072, 3072);
+  Object.assign(sun.shadow.camera, { left: -WORLD_W * 0.72, right: WORLD_W * 0.72, top: WORLD_H * 0.62, bottom: -WORLD_H * 0.62, near: 100, far: 3600 });
   sun.shadow.bias = -0.0005;
   scene.add(sun, sun.target);
 

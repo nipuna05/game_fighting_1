@@ -32,6 +32,11 @@ impacts, sniper scope (right mouse, zoom animation), key rebinding (Controls tab
 6. Put the game online (host the server, https, accounts so profiles and coins follow the player). Before that: compress the
    soldier models (about 9 MB each) with meshopt / KTX2.
 
+## Done since: jump / kneel / bigger maps
+Jump (Space) hops over low cover, kneel (C, hold) is steadier and hides you behind low cover, standing shooters fire over low cover
+and kneeling ones are blocked by it. All maps are 2400 x 1800 (1.5x per side) with 20-26 pieces of low cover. A game is one round.
+Esc or the Menu button leaves the game at any time; there is an end-of-game screen.
+
 ## Known issues / notes
 - Bots give the Raiders about 58% of rounds on every map (bot AI, not the layouts).
 - Coins, unlocks, titles and key bindings live in the browser (localStorage) and are not tamper-proof.

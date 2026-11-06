@@ -1,11 +1,9 @@
 // Shared game simulation. Runs in the browser (single player) and on the server (multiplayer).
 // Two modes: 'dm' (free-for-all deathmatch, used by tests) and 'rounds' (CS-style bomb defusal).
 
-import { getMap, type MapDef, type Rect, type Site } from './maps';
+import { getMap, WORLD_W, WORLD_H, type MapDef, type Rect, type Site } from './maps';
 export * from './maps';
 
-export const WORLD_W = 1600;
-export const WORLD_H = 1200;
 export const PLAYER_R = 18;
 export const PLAYER_SPEED = 220;
 export const MAX_HP = 100;
@@ -51,7 +49,7 @@ export type Phase = 'buy' | 'live' | 'post' | 'over';
 export const TEAM_SIZE = 3;
 export const SKIN_COUNT = 4; // costumes a player can choose from
 export const BUY_TIME = 10;
-export const LIVE_TIME = 100;
+export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
 export const OVER_TIME = 15;
 export const WINS_TO_WIN = 1;   // a game is a single round: whoever wins it wins the game

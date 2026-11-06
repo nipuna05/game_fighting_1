@@ -1,5 +1,6 @@
 // Landing page background: the real game map at golden hour with posed soldiers, a slow camera sweep and drifting dust.
 import * as THREE from 'three';
+import { MAP_SCALE } from '@fight/shared';
 import { getMap, WEAPONS } from '@fight/shared';
 import { buildWorld, makeWeaponModel } from './world';
 import { template, makeModelCharacter, makeCharacter, type Character } from './characters';
@@ -13,7 +14,7 @@ export interface Landing {
 
 interface Initial { map: string; skin: number; primary: number | null }
 
-const STAGE = new THREE.Vector3(660, 0, 760); // an open patch of ground on all three maps
+const STAGE = new THREE.Vector3(660 * MAP_SCALE, 0, 760 * MAP_SCALE); // an open patch of ground on all three maps
 const AK47 = WEAPONS.findIndex((w) => w.id === 'ak47');
 const M4A1 = WEAPONS.findIndex((w) => w.id === 'm4a1');
 const MP5 = WEAPONS.findIndex((w) => w.id === 'mp5');

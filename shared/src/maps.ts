@@ -18,7 +18,10 @@ export interface MapDef {
   loot: { x: number; y: number }[]; // cash stacks (refill every round)
 }
 
-const W = 1600, H = 1200;
+const W = 1600, H = 1200;                 // the layouts below are drawn on this base grid ...
+export const MAP_SCALE = 1.5;                // ... and then enlarged: 2.25x the playing area, with extra cover to hide behind
+export const WORLD_W = W * MAP_SCALE;        // 2400
+export const WORLD_H = H * MAP_SCALE;        // 1800
 const outer = (): Rect[] => [
   { x: 0, y: 0, w: W, h: 20, kind: 'outer' },
   { x: 0, y: H - 20, w: W, h: 20, kind: 'outer' },
@@ -114,13 +117,65 @@ const village: MapDef = {
   loot: [{ x: 300, y: 150 }, { x: 1300, y: 1050 }, { x: 560, y: 720 }, { x: 1040, y: 480 }, { x: 660, y: 330 }, { x: 940, y: 870 }],
 };
 
-export const MAPS: Record<string, MapDef> = { town, dock, desert, village };
+// ---------- enlarge every map ----------
+const isLow = (r: Rect) => r.kind === 'crate' || r.kind === 'barrier' || r.kind === 'scooter';
+const overlaps = (a: Rect, b: Rect, m = 0) => a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y;
+const K = MAP_SCALE;
+/** Positions stretch by K, buildings grow by 1.25 (so the streets between them get wide), low cover keeps its size. */
+const grow = (r: Rect): Rect => {
+  const sz = isLow(r) ? 1 : 1.25, w = r.w * sz, h = r.h * sz;
+  return { ...r, x: Math.round((r.x + r.w / 2) * K - w / 2), y: Math.round((r.y + r.h / 2) * K - h / 2), w: Math.round(w), h: Math.round(h) };
+};
+const spot = (p: { x: number; y: number }) => ({ x: Math.round(p.x * K), y: Math.round(p.y * K) });
+
+/**
+ * Low cover scattered over the open ground: crates and low walls you can jump over, kneel behind (hidden from standing shooters)
+ * and stand up from to shoot. Defined on the base grid and mirrored. Any piece that would land on a building, a spawn or a
+ * bomb site is dropped automatically, so the same candidates work on every map.
+ */
+const COVER: Rect[] = [
+  { x: 430, y: 470, w: 44, h: 44, kind: 'crate' }, { x: 474, y: 470, w: 44, h: 44, kind: 'crate' },
+  { x: 300, y: 700, w: 44, h: 44, kind: 'crate' }, { x: 640, y: 700, w: 96, h: 28, kind: 'barrier' },
+  { x: 1000, y: 150, w: 96, h: 28, kind: 'barrier' }, { x: 260, y: 330, w: 28, h: 96, kind: 'barrier' },
+  { x: 700, y: 880, w: 44, h: 44, kind: 'crate' }, { x: 560, y: 1000, w: 34, h: 16, kind: 'scooter' },
+  { x: 560, y: 120, w: 44, h: 44, kind: 'crate' }, { x: 820, y: 420, w: 96, h: 28, kind: 'barrier' },
+  { x: 380, y: 880, w: 28, h: 96, kind: 'barrier' }, { x: 900, y: 700, w: 44, h: 44, kind: 'crate' },
+  { x: 1180, y: 520, w: 34, h: 16, kind: 'scooter' }, { x: 700, y: 1080, w: 96, h: 28, kind: 'barrier' },
+];
+
+function enlarge(m: MapDef): MapDef {
+  const keep = m.walls.filter((r) => r.kind !== 'outer');
+  const base = [...keep];
+  const extra: Rect[] = [];
+  for (const c of withMirror(COVER)) {
+    if (extra.some((e) => overlaps(e, c, 6))) continue;
+    if (base.some((b) => overlaps(b, c, 30))) continue;                                   // not on / against a building
+    if (m.sites.some((st) => Math.hypot(c.x + c.w / 2 - st.x, c.y + c.h / 2 - st.y) < st.r + 40)) continue; // keep bomb sites clear
+    if (Object.values(m.spawns).some((z) => overlaps(z, c, 50))) continue;                // keep spawns clear
+    extra.push(c);
+  }
+  const outerBig = (): Rect[] => [
+    { x: 0, y: 0, w: WORLD_W, h: 20, kind: 'outer' }, { x: 0, y: WORLD_H - 20, w: WORLD_W, h: 20, kind: 'outer' },
+    { x: 0, y: 0, w: 20, h: WORLD_H, kind: 'outer' }, { x: WORLD_W - 20, y: 0, w: 20, h: WORLD_H, kind: 'outer' },
+  ];
+  const sp = (z: Rect): Rect => ({ ...z, y: Math.round((z.y + z.h / 2) * K - z.h / 2) });
+  return {
+    ...m,
+    walls: [...outerBig(), ...[...keep, ...extra].map(grow)],
+    sites: m.sites.map((st) => ({ ...st, ...spot(st), r: 100 })),
+    spawns: { T: sp(m.spawns.T), CT: { ...sp(m.spawns.CT), x: WORLD_W - m.spawns.CT.w - 70 } },
+    heal: m.heal.map(spot),
+    loot: [...m.loot.map(spot), ...extra.filter((e) => e.kind === 'crate').slice(0, 6).map((e) => { const g = grow(e); return { x: g.x + g.w / 2, y: g.y + g.h + 26 }; })],
+  };
+}
+
+export const MAPS: Record<string, MapDef> = { town: enlarge(town), dock: enlarge(dock), desert: enlarge(desert), village: enlarge(village) };
 export const MAP_IDS = Object.keys(MAPS);
 export const getMap = (id?: string): MapDef => (id && MAPS[id]) || MAPS.town;
 
 // The first map doubles as the default / backwards-compatible set of constants.
-export const WALLS = town.walls;
-export const SITES = town.sites;
-export const SPAWN_ZONES = town.spawns;
-export const PICKUP_SPOTS = town.heal;
-export const LOOT_SPOTS = town.loot;
+export const WALLS = MAPS.town.walls;
+export const SITES = MAPS.town.sites;
+export const SPAWN_ZONES = MAPS.town.spawns;
+export const PICKUP_SPOTS = MAPS.town.heal;
+export const LOOT_SPOTS = MAPS.town.loot;
