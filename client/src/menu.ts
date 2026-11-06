@@ -1,7 +1,7 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
 import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
 import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
-import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, type Profile, type TeamPref } from './profile';
+import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
 
 import { music } from './music';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -25,7 +25,20 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     msgTimer = window.setTimeout(() => el.classList.remove('on'), 3500);
   };
   const save = () => saveProfile(profile);
-  const renderCoins = () => { $('coins').textContent = `Coins ${profile.coins}`; };
+  // ---------- rank: a simple level from how much you have played ----------
+  const RANKS = ['Recruit', 'Bronze I', 'Bronze II', 'Bronze III', 'Silver I', 'Silver II', 'Silver III', 'Gold I', 'Gold II', 'Gold III', 'Platinum', 'Diamond', 'Elite'];
+  const RANK_XP = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4200, 5500, 7500];
+  const xpOf = () => profile.totals.matches * 20 + profile.totals.wins * 100 + profile.totals.kills * 10;
+  const rankOf = () => {
+    const xp = xpOf(); let i = 0; while (i + 1 < RANK_XP.length && xp >= RANK_XP[i + 1]) i++;
+    const next = RANK_XP[i + 1], pct = next === undefined ? 100 : Math.round(((xp - RANK_XP[i]) / (next - RANK_XP[i])) * 100);
+    return { name: RANKS[i], xp, next, pct };
+  };
+  const renderChip = () => {
+    const r = rankOf();
+    $('chip').innerHTML = `<div class="av">${esc((profile.name || 'P').slice(0, 1).toUpperCase())}</div><div style="flex:1"><b>${esc(profile.name || 'Player')}</b><small>${esc(r.name)}</small><div class="xp"><i style="width:${r.pct}%"></i></div></div>`;
+  };
+  const renderCoins = () => { $('coins').textContent = `Coins ${profile.coins}`; renderChip(); };
 
   // Unlocking needs a second click on the same card, so there are no browser pop-ups.
   let pending = '';
@@ -142,12 +155,16 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     let html = '';
     if (SIGHT_GUNS.includes(custSel)) html += `<h4>Sight</h4><div class="crow">${SIGHT_NAMES.map((n, k) => `<button class="cbtn${sight === k ? ' on' : ''}" data-sight="${k}">${esc(n)}</button>`).join('')}</div>`;
     if (GRIP_GUNS.includes(custSel)) html += `<h4>Foregrip</h4><div class="crow"><button class="cbtn${grip ? '' : ' on'}" data-grip="0">None</button><button class="cbtn${grip ? ' on' : ''}" data-grip="1">Tactical foregrip</button></div>`;
-    html += `<h4>Finish</h4><div class="crow">${TINT_NAMES.map((n, k) => `<button class="cbtn${tint === k ? ' on' : ''}" data-tint="${k}"><i class="sw" style="background:${TINT_CSS[k]}"></i>${esc(n)}</button>`).join('')}</div>`;
+    html += `<h4>Finish</h4><div class="crow">${TINT_NAMES.map((n, k) => `<button class="cbtn${tint === k ? ' on' : ''}${profile.unlocks.tints.includes(k) ? '' : ' locked'}" data-tint="${k}"><i class="sw" style="background:${TINT_CSS[k]}"></i>${esc(n)}${profile.unlocks.tints.includes(k) ? '' : ' &#128274;'}</button>`).join('')}</div>`;
     html += `<p class="note">Spread ${m.spread < 1 ? Math.round((1 - m.spread) * 100) + '% tighter' : 'normal'} &middot; move speed ${m.speed < 1 ? Math.round((1 - m.speed) * 100) + '% slower' : 'normal'} &middot; reload ${m.reload > 1 ? Math.round((m.reload - 1) * 100) + '% slower' : 'normal'}. Better sights tighten your aim but slow you down; a foregrip steadies the gun but slows the reload.</p>`;
     opts.innerHTML = html;
     opts.querySelectorAll<HTMLElement>('[data-sight]').forEach((el) => el.addEventListener('click', () => set((code & ~3) | Number(el.dataset.sight))));
     opts.querySelectorAll<HTMLElement>('[data-grip]').forEach((el) => el.addEventListener('click', () => set((code & ~4) | (Number(el.dataset.grip) << 2))));
-    opts.querySelectorAll<HTMLElement>('[data-tint]').forEach((el) => el.addEventListener('click', () => set((code & 7) | (Number(el.dataset.tint) << 3))));
+    opts.querySelectorAll<HTMLElement>('[data-tint]').forEach((el) => el.addEventListener('click', () => {
+      const k = Number(el.dataset.tint);
+      if (!profile.unlocks.tints.includes(k)) { say(`${TINT_NAMES[k]} finish is locked: unlock it in the Shop (${TINT_PRICES[k]} coins) or win it in the daily rewards.`); return; }
+      set((code & 7) | (k << 3));
+    }));
   };
 
   // ---------- Costume tab ----------
@@ -273,10 +290,94 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     } catch { box.textContent = 'Credits could not be loaded.'; }
   };
 
+  // ---------- daily rewards: one per day you log in, 28 in a cycle ----------
+  type Reward = { kind: 'coins' | 'skin' | 'sidearm' | 'tint'; v: number };
+  const C = (v: number): Reward => ({ kind: 'coins', v });
+  const REWARDS: Reward[] = [
+    C(100), C(150), { kind: 'sidearm', v: 1 }, C(150), C(200), { kind: 'tint', v: 4 }, C(300),
+    C(150), C(200), { kind: 'skin', v: 2 }, C(200), C(250), C(300), { kind: 'sidearm', v: 2 },
+    C(250), C(300), { kind: 'tint', v: 5 }, C(300), C(350), { kind: 'skin', v: 3 }, C(400),
+    C(300), C(350), C(400), C(450), C(500), C(500), C(1000),
+  ];
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const canClaim = () => profile.daily.last !== today();
+  const rewardInfo = (r: Reward) => {
+    if (r.kind === 'coins') return { icon: '<i class="coin"></i>', label: `${r.v} coins` };
+    if (r.kind === 'skin') return { icon: '<span class="ic">&#127894;</span>', label: `Costume ${r.v + 1}` };
+    if (r.kind === 'sidearm') return { icon: '<span class="ic">&#128299;</span>', label: WEAPONS[r.v].name };
+    return { icon: '<span class="ic">&#127912;</span>', label: `${TINT_NAMES[r.v]} finish` };
+  };
+  const grant = (r: Reward) => {
+    if (r.kind === 'coins') profile.coins += r.v;
+    else if (r.kind === 'skin' && !profile.unlocks.skins.includes(r.v)) profile.unlocks.skins.push(r.v);
+    else if (r.kind === 'sidearm' && !profile.unlocks.sidearms.includes(r.v)) profile.unlocks.sidearms.push(r.v);
+    else if (r.kind === 'tint' && !profile.unlocks.tints.includes(r.v)) profile.unlocks.tints.push(r.v);
+  };
+  const claimDaily = () => {
+    if (!canClaim()) return;
+    if (profile.daily.claimed >= 28) profile.daily.claimed = 0;                 // a new cycle begins
+    const r = REWARDS[profile.daily.claimed];
+    grant(r); profile.daily.claimed++; profile.daily.last = today(); save();
+    renderCoins(); renderRewards(); renderShop(); renderSidearms(); renderSkins(); renderCustom(); renderPlayExtra();
+    say(`Day ${profile.daily.claimed} reward claimed: ${rewardInfo(r).label}!`);
+  };
+  const untilTomorrow = () => { const n = new Date(), t = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1); const ms = t.getTime() - n.getTime(); return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`; };
+  const renderRewards = () => {
+    const done = profile.daily.claimed, claimable = canClaim();
+    const nextIdx = done >= 28 ? 0 : done;
+    $('days').innerHTML = REWARDS.map((r, i) => {
+      const info = rewardInfo(r), isDone = i < done && !(done >= 28 && claimable), isNext = claimable ? i === nextIdx : false;
+      return `<div class="day${isDone ? ' done' : ''}${isNext ? ' next' : ''}${i === 27 ? ' big' : ''}"><small>DAY ${i + 1}</small>${info.icon}<b>${esc(info.label)}</b></div>`;
+    }).join('');
+    const shown = done >= 28 && claimable ? 0 : done;
+    $('dayprog').textContent = `DAY ${Math.min(28, shown + (claimable ? 1 : 0))} / 28`;
+    ($('dayfill') as HTMLElement).style.width = `${Math.round((shown / 28) * 100)}%`;
+    const btn = $('claimbtn') as HTMLButtonElement;
+    btn.disabled = !claimable;
+    btn.textContent = claimable ? `Claim day ${nextIdx + 1}: ${rewardInfo(REWARDS[nextIdx]).label}` : 'Claimed today';
+    $('claimnote').textContent = claimable ? 'Your reward for today is ready.' : `Next reward in ${untilTomorrow()}`;
+    $('rdot').classList.toggle('on', claimable);
+  };
+  $('claimbtn').addEventListener('click', claimDaily);
+  window.setInterval(() => { if ($('tab-rewards').classList.contains('on') || true) renderRewards(); }, 30000);
+
+  // ---------- shop: everything that can be unlocked with coins ----------
+  const renderShop = () => {
+    const box = $('shopbox');
+    const sec = (title: string, items: { key: string; name: string; sub: string; owned: boolean; price: number; buy: () => void }[]) =>
+      `<div class="shopsec"><h4>${title}</h4><div class="shopgrid">${items.map((it) => `<div class="shopitem${it.owned ? ' own' : ''}"><b>${esc(it.name)}</b><span>${esc(it.sub)}</span>${it.owned ? '<span class="tag2">OWNED</span>' : `<button class="btn ghost" data-buy="${it.key}">Unlock &middot; ${it.price} coins</button>`}</div>`).join('')}</div></div>`;
+    const list: Record<string, { name: string; price: number; buy: () => void }> = {};
+    const skins = [2, 3].map((i) => { list[`skin${i}`] = { name: `Costume ${i + 1}`, price: SKIN_PRICES[i], buy: () => { profile.unlocks.skins.push(i); } }; return { key: `skin${i}`, name: `Costume ${i + 1}`, sub: 'A new soldier look', owned: profile.unlocks.skins.includes(i), price: SKIN_PRICES[i], buy: () => undefined }; });
+    const sides = [1, 2].map((i) => { list[`sidearm${i}`] = { name: WEAPONS[i].name, price: SIDEARM_PRICES[i], buy: () => { profile.unlocks.sidearms.push(i); } }; return { key: `sidearm${i}`, name: WEAPONS[i].name, sub: 'Sidearm', owned: profile.unlocks.sidearms.includes(i), price: SIDEARM_PRICES[i], buy: () => undefined }; });
+    const tints = [4, 5].map((i) => { list[`tint${i}`] = { name: `${TINT_NAMES[i]} finish`, price: TINT_PRICES[i], buy: () => { profile.unlocks.tints.push(i); } }; return { key: `tint${i}`, name: `${TINT_NAMES[i]} weapon finish`, sub: 'Paint any gun', owned: profile.unlocks.tints.includes(i), price: TINT_PRICES[i], buy: () => undefined }; });
+    box.innerHTML = sec('Costumes', skins) + sec('Sidearms', sides) + sec('Weapon finishes', tints);
+    box.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) => b.addEventListener('click', () => {
+      const it = list[b.dataset.buy!];
+      askUnlock(b.dataset.buy!, it.name, it.price, () => it.buy(), () => { renderShop(); renderSidearms(); renderSkins(); renderCustom(); });
+    }));
+  };
+
+  // ---------- Play page extras: rank progress and today's reward ----------
+  const renderPlayExtra = () => {
+    const r = rankOf();
+    $('playextra').innerHTML = `<div class="rankbox">RANK <b>${esc(r.name)}</b> &middot; ${r.xp} XP${r.next !== undefined ? ` &middot; ${r.next - r.xp} XP to the next rank` : ' &middot; top rank!'}<div class="bar"><i style="width:${r.pct}%"></i></div></div>`
+      + (canClaim() ? `<div class="minireward"><span>&#127873; Your daily reward is ready: <b>${esc(rewardInfo(REWARDS[profile.daily.claimed >= 28 ? 0 : profile.daily.claimed]).label)}</b></span><button class="btn go" id="minclaim">Claim</button></div>` : '');
+    const mc = document.getElementById('minclaim'); if (mc) mc.addEventListener('click', () => { claimDaily(); });
+  };
+
+  const renderLast = () => {
+    const m = MAPS[profile.map]?.name ?? '', st = GAME_MODES.find((g) => g.id === profile.style)?.name ?? '', ws = WEAPON_SETS.find((w) => w.id === profile.weaponSet)?.name ?? '';
+    $('lastplay').textContent = `Last setup: ${m} · ${st} · ${ws.replace(/ \(.*\)/, '')}`;
+  };
+
   // ---------- tabs and buttons ----------
   const showTab = (name: string) => {
-    document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-    document.querySelectorAll<HTMLElement>('.pane').forEach((p) => p.classList.toggle('on', p.id === `tab-${name}`));
+    document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === (name === 'setup' ? 'play' : name)));
+    document.querySelectorAll<HTMLElement>('.pane').forEach((p) => p.classList.toggle('on', p.id === `tab-${name}` || (name === 'loadout' && p.id === 'tab-costume')));   // Equipment = weapons + costume
+    $('panel').classList.toggle('wide', name !== 'play');
+    if (name === 'rewards') renderRewards();
+    if (name === 'shop') renderShop();
+    if (name === 'play') { renderPlayExtra(); renderLast(); }
     if (name === 'profile') renderProfile();
     if (name === 'credits') void renderCredits();
   };
@@ -285,12 +386,23 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     if (!confirmClear) { confirmClear = true; renderProfile(); window.setTimeout(() => { confirmClear = false; renderProfile(); }, 3500); return; }
     confirmClear = false; clearHistory(profile); renderProfile(); renderCoins();
   });
-  $('single').addEventListener('click', () => hooks.onPlay('single'));
-  $('multi').addEventListener('click', () => hooks.onPlay('multi'));
+  // the home screen only picks single player or multiplayer; the details are on the next screen
+  let setupMode: 'single' | 'multi' = 'single';
+  const showSetup = (mode: 'single' | 'multi') => {
+    setupMode = mode;
+    $('setuptitle').textContent = mode === 'single' ? 'Single player: match setup' : 'Multiplayer: match setup';
+    $('roomrow').style.display = mode === 'multi' ? 'block' : 'none';
+    $('startgo').textContent = mode === 'single' ? 'Start the game' : 'Join the game';
+    showTab('setup');
+  };
+  $('homeSingle').addEventListener('click', () => showSetup('single'));
+  $('homeMulti').addEventListener('click', () => showSetup('multi'));
+  $('setupback').addEventListener('click', () => showTab('play'));
+  $('startgo').addEventListener('click', () => hooks.onPlay(setupMode));
   const armor = $('autoarmor') as HTMLInputElement;
   armor.checked = profile.autoBuy.armor;
   armor.addEventListener('change', () => { profile.autoBuy.armor = armor.checked; save(); });
   ($('name') as HTMLInputElement).value = profile.name;
 
-  renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
+  renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderRewards(); renderShop(); renderPlayExtra(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
 }

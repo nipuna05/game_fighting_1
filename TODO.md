@@ -53,7 +53,14 @@ Magazines and reload (R; auto-reload when empty; ammo HUD; swap takes 0.35 s and
 first-person look up/down, weapon customization (sight / foregrip / finish, saved in the profile, seen by other players, small trade-offs in
 `customMods`), and a generated "mission" soundtrack (`client/src/music.ts`: calm / game / intense moods, volume slider in Controls, M mutes).
 
-## Next UI idea from the user (screenshots of another game's menu)
+## Done: new menu (replaces the idea below)
+Left navigation (Play, Equipment, Rewards, Shop, Profile, Settings, Credits), profile chip with a rank (from XP = matches*20 + wins*100 + kills*10),
+a home screen with just Single player / Multiplayer, a separate match-setup screen (map, style, weapons, team, room code) with a sticky Start
+button, a 28-day daily reward calendar (coins, costumes, sidearms, finishes; one claim per day, nothing resets if a day is missed), a Shop for
+coin unlocks (costumes, sidearms, Arctic / Gold finishes). FIXED: the menu's Multiplayer button had the same id as the in-game multi-kill
+popup (`#multi`), so it was invisible and dead; the menu buttons are now `homeSingle` / `homeMulti`. Keep ids unique!
+
+## (old idea, now done) UI from the user's screenshots of another game's menu
 Left-hand navigation (Play, Practice, Equipment, Shop, Rewards, Settings, Community), currency bar, a 28-day "daily login rewards" calendar
 (coins, weapon finishes), crate slots, a featured-item card and a season / battle-pass strip. Build it with coins only (no real-money items).
 

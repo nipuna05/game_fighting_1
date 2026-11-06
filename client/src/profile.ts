@@ -23,15 +23,17 @@ export type TeamPref = 'auto' | 'CT' | 'T';
 export const SKIN_PRICES = [0, 0, 300, 400];
 export const SIDEARM_PRICES = [0, 500, 250]; // USP, Desert Eagle, Glock 18
 export const START_COINS = 400;
-export interface Unlocks { skins: number[]; sidearms: number[] }
+export interface Unlocks { skins: number[]; sidearms: number[]; tints: number[] }
+export interface Daily { claimed: number; last: string }     // days claimed in this 28-day cycle, and the date of the last claim (YYYY-MM-DD)
+export const TINT_PRICES = [0, 0, 0, 0, 400, 900];          // weapon finishes: Factory, Black, Desert, Olive are free; Arctic and Gold cost coins or come from daily rewards
 export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean; music: number } // replay = slow-motion kill cam; voice = team voice chat mode
-export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; custom: Record<string, number>; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; custom: Record<string, number>; daily: Daily; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55 }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', custom: {}, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55 }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0], tints: [0, 1, 2, 3] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', custom: {}, daily: { claimed: 0, last: '' }, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -57,7 +59,9 @@ export function loadProfile(): Profile {
       unlocks: {
         skins: [...new Set([0, 1, ...(Array.isArray(p.unlocks?.skins) ? p.unlocks!.skins.filter((n) => Number.isInteger(n) && n >= 0 && n < SKIN_PRICES.length) : [])])],
         sidearms: [...new Set([0, ...(Array.isArray(p.unlocks?.sidearms) ? p.unlocks!.sidearms.filter((n) => Number.isInteger(n) && n >= 0 && n < SIDEARM_PRICES.length) : [])])],
+        tints: [...new Set([0, 1, 2, 3, ...(Array.isArray(p.unlocks?.tints) ? p.unlocks!.tints.filter((n) => Number.isInteger(n) && n >= 0 && n < TINT_PRICES.length) : [])])],
       },
+      daily: { claimed: Number.isInteger(p.daily?.claimed) ? Math.max(0, Math.min(28, p.daily!.claimed)) : 0, last: typeof p.daily?.last === 'string' ? p.daily.last.slice(0, 10) : '' },
       coins: Number.isFinite(p.coins) ? Math.max(0, Math.floor(p.coins as number)) : START_COINS,
       name: typeof p.name === 'string' ? p.name.slice(0, 14) : base.name,
       skin: Number.isInteger(p.skin) ? Math.max(0, Math.min(3, p.skin as number)) : 0,
