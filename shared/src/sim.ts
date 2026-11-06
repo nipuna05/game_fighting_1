@@ -7,7 +7,8 @@ export * from './maps';
 export const PLAYER_R = 18;
 export const PLAYER_SPEED = 220;
 export const MAX_HP = 100;
-export const RESPAWN_TIME = 2.5; // dm only
+export const RESPAWN_TIME = 5;      // seconds down before you are back in the fight (unlimited lives)
+export const SPAWN_PROTECT = 2;     // seconds nobody can hurt you after you respawn
 export const TICK_RATE = 30;
 
 export type WeaponSlot = 'sidearm' | 'primary';
@@ -73,6 +74,7 @@ export interface PlayerState {
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
   skin: number; // costume index, 0..SKIN_COUNT-1
   st: 0 | 1 | 2; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping)
+  rs: number;    // seconds until I respawn (0 while alive)
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
 export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
@@ -107,6 +109,7 @@ export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletSt
 
 interface Player extends PlayerState {
   sidearm: number; input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
+  protect: number; // no damage until this time (just respawned)
   air: number; jumpCd: number; // seconds left in the current jump / until the next jump is allowed
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
@@ -219,7 +222,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      st: 0, air: 0, jumpCd: 0,
+      st: 0, rs: 0, protect: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
@@ -311,7 +314,8 @@ export class Sim {
         if (Math.hypot(q.x - p.x, q.y - p.y) < 0.5) break;
       }
     }
-    p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0;
+    p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0;
+    if (this.rounds && this.phase === 'live') { p.armor = 0; p.protect = this.time + SPAWN_PROTECT; }   // back from the dead: armor is gone, a short grace period
   }
 
   // ---------- rounds ----------
@@ -411,9 +415,9 @@ export class Sim {
 
     let tAlive = 0, ctAlive = 0;
     for (const p of this.players.values()) if (p.alive) (p.team === 'T' ? tAlive++ : ctAlive++);
-    if (ctAlive === 0) this.endRound('T', `${TEAM_INFO.CT.name} eliminated`);
-    else if (tAlive === 0 && this.bomb.status !== 'planted') this.endRound('CT', `${TEAM_INFO.T.name} eliminated`);
-    else if (this.time >= this.phaseEndsAt && this.bomb.status !== 'planted') this.endRound('CT', 'Time ran out');
+    // Everyone respawns, so a team can never be wiped out: the game ends when the bomb goes off (Raiders), the bomb is defused or the clock runs out (Sentinels).
+    void tAlive; void ctAlive;
+    if (this.time >= this.phaseEndsAt && this.bomb.status !== 'planted') this.endRound('CT', 'Time ran out');
   }
 
   // ---------- main step ----------
@@ -425,7 +429,7 @@ export class Sim {
 
     for (const p of this.players.values()) {
       if (!p.alive) {
-        if (!this.rounds && this.time >= p.respawnAt) this.spawn(p);
+        if (this.time >= p.respawnAt && (!this.rounds || this.phase === 'live')) this.spawn(p);   // unlimited lives: back after RESPAWN_TIME
         continue;
       }
       if (p.bot) this.thinkBot(p, dt);
@@ -496,6 +500,7 @@ export class Sim {
       for (const p of this.players.values()) {
         if (!p.alive || p.id === b.owner) continue;
         if (this.rounds && p.team === b.team) continue; // no friendly fire
+        if (this.time < p.protect) continue;                // just respawned: untouchable for a moment
         if (b.over > 0 && p.st === 1) continue;           // kneeling behind the cover this shot just flew over
         if (Math.hypot(p.x - b.x, p.y - b.y) <= PLAYER_R) {
           this.addImpact(b.x, b.y, 'body');
@@ -598,7 +603,7 @@ export class Sim {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
-        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st,
+        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid })),
       pickups: [

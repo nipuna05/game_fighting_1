@@ -607,6 +607,7 @@ class Game {
 
   private draw(dt: number, time: number) {
     this.record(this.snap);
+    this.updateRespawn();
     if (this.replay) this.advanceReplay(dt * 1000);
     const s = this.replay ? this.replay.snap : this.snap;
     if (s) this.updateScene(s, this.replay ? dt * this.replay.speed : dt, time);
@@ -895,6 +896,24 @@ class Game {
     const i = list.findIndex((p) => p.id === this.specId);
     this.specId = list[(i + 1) % list.length].id;
   }
+  /** "RESPAWN IN 5": the countdown while I am down (unlimited lives), and the end of the kill cam when I am back. */
+  private respawnWas = false;
+  private updateRespawn() {
+    const me = this.snap?.players.find((p) => p.id === this.myId);
+    const el = $('respawn');
+    if (!me || !this.snap?.round) { el.style.display = 'none'; return; }
+    if (me.alive) {
+      if (this.respawnWas) { this.respawnWas = false; this.toast('BACK IN THE FIGHT'); }
+      if (this.replay) this.endReplay();                       // the kill cam stops when I am alive again
+      el.style.display = 'none';
+      return;
+    }
+    this.respawnWas = true;
+    const live = this.snap.round.phase === 'live';
+    el.style.display = 'block';
+    el.innerHTML = live ? `<span>YOU ARE DOWN</span><b>${Math.max(0, Math.ceil(me.rs))}</b><span>RESPAWNING</span>` : `<span>YOU ARE DOWN</span><b>&middot;</b><span>BACK NEXT ROUND</span>`;
+  }
+
   private updateSpectate(s: Snapshot) {
     const me = s.players.find((p) => p.id === this.myId);
     const el = $('spec');
