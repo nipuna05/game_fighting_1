@@ -189,7 +189,7 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
     const sp = t.rig === 'mixamo' ? 'mixamorig' : '', rS = model.getObjectByName(`${sp}RightArm`), lS = model.getObjectByName(`${sp}LeftArm`);
     if (rS && lS) {
       const m = root.worldToLocal(rS.getWorldPosition(new THREE.Vector3())).add(root.worldToLocal(lS.getWorldPosition(new THREE.Vector3()))).multiplyScalar(0.5);
-      gunHolder.position.set(m.x + 4, m.y - 6, m.z);
+      gunHolder.position.set(m.x + 4, m.y - 8.5, m.z);
     }
     chest.attach(gunHolder); gunOnBody = true;
   }
@@ -335,7 +335,7 @@ export function applyArmIK(c: Character, weight = 1) {
   for (const a of c.arms) {
     const right = a.side > 0;
     // grip points in the weapon's own space (x = along the barrel, y = up)
-    const target = right ? _T.set(-0.03 * L, -(c.gunH ?? 6) * 0.25, 0) : _T.set(pistol ? 0.02 * L : Math.min(0.2 * L, 5.5), -(c.gunH ?? 6) * (pistol ? 0.4 : 0.2), 0);
+    const target = right ? _T.set(-0.03 * L, -(c.gunH ?? 6) * 0.25, 0) : _T.set(pistol ? 0.02 * L : Math.min(0.16 * L, 4.5), -(c.gunH ?? 6) * (pistol ? 0.4 : 0.2), 0);
     c.gunHolder.localToWorld(target);
     a.upper.updateWorldMatrix(true, false);
     a.upper.getWorldPosition(_A); a.fore.getWorldPosition(_B); a.hand.getWorldPosition(_C);
