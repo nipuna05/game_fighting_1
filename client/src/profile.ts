@@ -1,3 +1,4 @@
+import type { GameMode, WeaponSet, PickMode } from '@fight/shared';
 // Player profile, saved in this browser's localStorage (name, costume, last weapon pack, recent fights).
 // It is per browser. Accounts that follow you across devices need a server database (a later step).
 import type { Team } from '@fight/shared';
@@ -24,13 +25,13 @@ export const SIDEARM_PRICES = [0, 500, 250]; // USP, Desert Eagle, Glock 18
 export const START_COINS = 400;
 export interface Unlocks { skins: number[]; sidearms: number[] }
 export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean } // replay = slow-motion kill cam; voice = team voice chat mode
-export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -62,6 +63,9 @@ export function loadProfile(): Profile {
       team: p.team === 'CT' || p.team === 'T' ? p.team : 'auto',
       sidearm: Number.isInteger(p.sidearm) ? Math.max(0, Math.min(2, p.sidearm as number)) : 0,
       map: typeof p.map === 'string' ? p.map.slice(0, 20) : base.map,
+      style: p.style === 'tdm' ? 'tdm' : 'bomb',
+      weaponSet: (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as string[]).includes(p.weaponSet as string) ? p.weaponSet as WeaponSet : 'all',
+      pick: p.pick === 'auto' ? 'auto' : 'manual',
       autoBuy: {
         primary: p.autoBuy && Number.isInteger(p.autoBuy.primary) && (p.autoBuy.primary as number) >= 3 ? (p.autoBuy.primary as number) : null,
         armor: !!p.autoBuy?.armor,

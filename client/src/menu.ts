@@ -1,5 +1,5 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
-import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, type GameMode, type WeaponSet } from '@fight/shared';
 import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
 import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, type Profile, type TeamPref } from './profile';
 
@@ -53,6 +53,25 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     { id: 'CT', label: TEAM_INFO.CT.name, sub: TEAM_INFO.CT.role, cls: 'ct' },
     { id: 'T', label: TEAM_INFO.T.name, sub: TEAM_INFO.T.role, cls: 't' },
   ];
+  const renderRules = () => {
+    const st = $('style') as HTMLSelectElement, ws = $('wset') as HTMLSelectElement, pk = $('wpick') as HTMLSelectElement;
+    if (!st.options.length) {
+      st.innerHTML = GAME_MODES.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+      ws.innerHTML = WEAPON_SETS.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+      st.addEventListener('change', () => { profile.style = st.value as GameMode; if (profile.style === 'tdm' && profile.weaponSet === 'all') profile.weaponSet = 'random'; save(); renderRules(); });
+      ws.addEventListener('change', () => { profile.weaponSet = ws.value as WeaponSet; save(); renderRules(); });
+      pk.addEventListener('change', () => { profile.pick = pk.value as 'manual' | 'auto'; save(); renderRules(); });
+    }
+    st.value = profile.style; ws.value = profile.weaponSet; pk.value = profile.pick;
+    const free = isFreeLoadout(profile.style, profile.weaponSet);
+    // "All guns" means buying with cash, which only exists in the bomb mission
+    Array.from(ws.options).forEach((o) => { o.disabled = profile.style === 'tdm' && o.value === 'all'; });
+    $('wpickrow').style.display = free ? 'flex' : 'none';
+    $('stylenote').textContent = GAME_MODES.find((m) => m.id === profile.style)?.blurb ?? '';
+    $('wsetnote').textContent = !free ? 'You start with $1600 and buy guns in the buy phase.'
+      : profile.pick === 'auto' ? 'Everyone gets a random weapon from this set each time they spawn. Nothing to buy.'
+      : 'Everyone gets a free weapon from this set. Pick yours in the weapon panel (before the game and while waiting to respawn).';
+  };
   const renderTeams = () => {
     const box = $('teams');
     box.innerHTML = '';
@@ -235,5 +254,5 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   armor.addEventListener('change', () => { profile.autoBuy.armor = armor.checked; save(); });
   ($('name') as HTMLInputElement).value = profile.name;
 
-  renderCoins(); renderMaps(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
+  renderCoins(); renderMaps(); renderRules(); renderTeams(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
 }

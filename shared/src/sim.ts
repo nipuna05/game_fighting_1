@@ -53,6 +53,31 @@ export const BUY_TIME = 10;
 export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
 export const OVER_TIME = 15;
+// ---- game styles and weapon rules ----
+export type GameMode = 'bomb' | 'tdm';
+export type WeaponSet = 'all' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'sniper' | 'random';
+export type PickMode = 'manual' | 'auto';
+export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
+  { id: 'bomb', name: 'Bomb mission', blurb: 'Raiders plant the bomb at a site, Sentinels stop them. One round decides the game.' },
+  { id: 'tdm', name: 'Team deathmatch', blurb: 'Kills only: the first team to reach the kill target wins. You respawn after 5 seconds.' },
+];
+export const WEAPON_SETS: { id: WeaponSet; name: string }[] = [
+  { id: 'all', name: 'All guns (bomb mission: buy with cash)' }, { id: 'pistol', name: 'Pistols only' }, { id: 'smg', name: 'SMGs only' },
+  { id: 'shotgun', name: 'Shotguns only' }, { id: 'rifle', name: 'Rifles only' }, { id: 'sniper', name: 'Snipers only' }, { id: 'random', name: 'Random weapon every life' },
+];
+export const KILL_TARGET = 25;   // team deathmatch: first team to this many kills
+export const TDM_TIME = 300;     // team deathmatch: time limit in seconds
+const SET_CAT: Record<string, string> = { smg: 'SMG', shotgun: 'Shotgun', rifle: 'Rifle', sniper: 'Sniper' };
+/** Free loadouts: no cash. Team deathmatch always uses them; the bomb mission uses them whenever a weapon set other than "all" is chosen. */
+export const isFreeLoadout = (mode: GameMode, set: WeaponSet) => mode === 'tdm' || set !== 'all';
+/** Weapon indexes a player may pick in a free-loadout game. */
+export function allowedWeapons(set: WeaponSet): number[] {
+  const out: number[] = [];
+  WEAPONS.forEach((w, i) => {
+    if (set === 'pistol' ? w.slot === 'sidearm' : set in SET_CAT ? w.cat === SET_CAT[set] : w.slot === 'primary') out.push(i);
+  });
+  return out;
+}
 export const WINS_TO_WIN = 1;   // a game is a single round: whoever wins it wins the game
 export const START_MONEY = 1600;
 export const WIN_MONEY = 3000;
@@ -75,6 +100,7 @@ export interface PlayerState {
   skin: number; // costume index, 0..SKIN_COUNT-1
   st: 0 | 1 | 2 | 3; // posture: 0 standing, 1 kneeling (crouched), 2 in the air (jumping), 3 prone (lying flat)
   rs: number;    // seconds until I respawn (0 while alive)
+  ch: number;    // the weapon I chose for my next spawn (free-loadout games), -1 = none
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
 export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
@@ -89,6 +115,9 @@ export interface BombState {
 export interface RoundState {
   phase: Phase; timeLeft: number; tWins: number; ctWins: number; roundNo: number;
   winner: Team | null; reason: string; bomb: BombState;
+  mode: GameMode; weaponSet: WeaponSet; pick: PickMode; free: boolean;       // how this game is played
+  tKills: number; ctKills: number; killTarget: number;                      // team deathmatch score
+  goal: Record<Team, string>;                                                // the instruction text for each team
 }
 export interface KillEvent {
   id: number; t: number;
@@ -162,7 +191,7 @@ export function siteAt(x: number, y: number, sites: Site[]): Site | null {
   return null;
 }
 
-export interface SimOptions { rounds?: boolean; map?: string; invincible?: string[] } // invincible: dev/testing only
+export interface SimOptions { rounds?: boolean; map?: string; invincible?: string[]; mode?: GameMode; weaponSet?: WeaponSet; pick?: PickMode } // invincible: dev/testing only
 
 export class Sim {
   time = 0;
@@ -198,9 +227,18 @@ export class Sim {
   private reason = '';
   private freshMatch = true;
   private bomb: BombState = { status: 'none', x: 0, y: 0, carrier: null, fuse: 0, progress: 0, actor: null };
+  readonly mode: GameMode;
+  readonly weaponSet: WeaponSet;
+  readonly pick: PickMode;
+  private tKills = 0;
+  private ctKills = 0;
+  get free() { return this.rounds && isFreeLoadout(this.mode, this.weaponSet); }
 
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
+    this.mode = opts.mode === 'tdm' ? 'tdm' : 'bomb';
+    this.weaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(opts.weaponSet as WeaponSet) ? opts.weaponSet as WeaponSet : 'all';
+    this.pick = opts.pick === 'auto' ? 'auto' : 'manual';
     this.map = getMap(opts.map);
     this.invincible = new Set(opts.invincible ?? []);
     this.pickupReadyAt = this.map.heal.map(() => 0);
@@ -225,15 +263,15 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      st: 0, rs: 0, protect: 0, air: 0, jumpCd: 0,
+      st: 0, rs: 0, ch: -1, protect: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
     this.spawn(p);
     if (this.rounds && this.phase !== 'buy') p.alive = false; // late joiners wait for the next round
     this.players.set(id, p);
-    if (this.rounds && bot) this.botBuy(p);
-    if (this.rounds && this.phase === 'buy' && team === 'T' && this.bomb.status === 'none') {
+    if (this.rounds && bot && !this.free) this.botBuy(p);
+    if (this.rounds && this.mode === 'bomb' && this.phase === 'buy' && team === 'T' && this.bomb.status === 'none') {
       this.bomb = { status: 'carried', x: p.x, y: p.y, carrier: id, fuse: 0, progress: 0, actor: null };
     }
   }
@@ -277,10 +315,31 @@ export class Sim {
     if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1) p.weapon = i.weapon!;
   }
 
+  /** Free-loadout games: choose the weapon for my next spawn (and take it right away during the buy phase). */
+  pickWeapon(id: string, item: number): boolean {
+    const p = this.players.get(id);
+    if (!p || !this.free || this.pick === 'auto' || !Number.isInteger(item) || !allowedWeapons(this.weaponSet).includes(item)) return false;
+    p.ch = item;
+    if (p.alive && this.phase === 'buy') this.giveLoadout(p);
+    return true;
+  }
+  /** Gives a spawning player the weapon for this game: their own choice (manual) or a random one from the allowed set (automatic, bots). */
+  private giveLoadout(p: Player) {
+    const allowed = allowedWeapons(this.weaponSet);
+    if (!allowed.length) return;
+    const chosen = !p.bot && this.pick === 'manual' ? (allowed.includes(p.ch) ? p.ch : allowed[0]) : allowed[Math.floor(Math.random() * allowed.length)];
+    p.owned = WEAPONS[chosen].slot === 'sidearm' ? 1 << chosen : (1 << p.sidearm) | (1 << chosen);
+    p.weapon = chosen;
+  }
+
   /** Buy a weapon (0..3) or armor (ARMOR_ITEM). Only allowed during the buy phase. */
   buy(id: string, item: number): boolean {
     if (!Number.isInteger(item)) return false;
     const p = this.players.get(id);
+    if (p && this.free) {                                               // free loadouts: nothing costs money; weapon clicks are picks
+      if (item === ARMOR_ITEM) { if (!p.alive || this.phase !== 'buy' || p.armor >= 100) return false; p.armor = 100; return true; }
+      return this.pickWeapon(id, item);
+    }
     if (!p || !this.rounds || this.phase !== 'buy' || !p.alive) return false;
     if (item === ARMOR_ITEM) {
       if (p.armor >= 100 || p.money < ARMOR_COST) return false;
@@ -318,6 +377,7 @@ export class Sim {
       }
     }
     p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0;
+    if (this.free) this.giveLoadout(p);
     if (this.rounds && this.phase === 'live') { p.armor = 0; p.protect = this.time + SPAWN_PROTECT; }   // back from the dead: armor is gone, a short grace period
   }
 
@@ -342,11 +402,11 @@ export class Sim {
     }
     this.freshMatch = false;
     const ts = [...this.players.values()].filter((p) => p.team === 'T');
-    const carrier = ts.length ? ts[Math.floor(Math.random() * ts.length)] : null;
+    const carrier = this.mode === 'bomb' && ts.length ? ts[Math.floor(Math.random() * ts.length)] : null;
     this.bomb = carrier
       ? { status: 'carried', x: carrier.x, y: carrier.y, carrier: carrier.id, fuse: 0, progress: 0, actor: null }
       : { status: 'none', x: 0, y: 0, carrier: null, fuse: 0, progress: 0, actor: null };
-    for (const p of this.players.values()) if (p.bot) this.botBuy(p);
+    for (const p of this.players.values()) if (p.bot && !this.free) this.botBuy(p);
   }
 
   private botBuy(p: Player) {
@@ -371,20 +431,29 @@ export class Sim {
   }
 
   private resetMatch() {
-    this.tWins = 0; this.ctWins = 0; this.roundNo = 0; this.freshMatch = true;
+    this.tWins = 0; this.ctWins = 0; this.roundNo = 0; this.freshMatch = true; this.tKills = 0; this.ctKills = 0;
     for (const p of this.players.values()) { p.money = START_MONEY; p.score = 0; p.deaths = 0; }
     this.startRound();
   }
 
   private stepRound(dt: number) {
     if (this.phase === 'buy') {
-      if (this.time >= this.phaseEndsAt) { this.phase = 'live'; this.phaseEndsAt = this.time + LIVE_TIME; }
+      if (this.time >= this.phaseEndsAt) { this.phase = 'live'; this.phaseEndsAt = this.time + (this.mode === 'tdm' ? TDM_TIME : LIVE_TIME); }
       return;
     }
     if (this.phase === 'post') { if (this.time >= this.phaseEndsAt) this.startRound(); return; }
     if (this.phase === 'over') { if (this.time >= this.phaseEndsAt) this.resetMatch(); return; }
 
     // live
+    if (this.mode === 'tdm') {                                  // team deathmatch: kills only
+      if (this.tKills >= KILL_TARGET) this.endRound('T', `${TEAM_INFO.T.name} reached ${KILL_TARGET} kills`);
+      else if (this.ctKills >= KILL_TARGET) this.endRound('CT', `${TEAM_INFO.CT.name} reached ${KILL_TARGET} kills`);
+      else if (this.time >= this.phaseEndsAt) {
+        const t = this.tKills > this.ctKills;
+        this.endRound(t ? 'T' : 'CT', this.tKills === this.ctKills ? `Time up, tied ${this.tKills}-${this.ctKills}: the defenders hold` : `Time up: ${t ? this.tKills : this.ctKills}-${t ? this.ctKills : this.tKills}`);
+      }
+      return;
+    }
     const b = this.bomb;
     const standing = (p: Player) => Math.hypot(p.input.mx, p.input.my) < 0.1;
     if (b.status === 'carried') {
@@ -516,6 +585,7 @@ export class Sim {
             if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT });
             const killer = this.players.get(b.owner);
             if (killer) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
+            if (this.rounds) { if (b.team === 'T') this.tKills++; else this.ctKills++; }
             const st = this.streaks.get(b.owner);
             const multi = st && this.time - st.t <= MULTI_WINDOW ? st.n + 1 : 1; // kills in quick succession build a multi-kill
             this.streaks.set(b.owner, { n: multi, t: this.time });
@@ -606,7 +676,7 @@ export class Sim {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
-        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
+        team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, ch: p.ch, rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid })),
       pickups: [
@@ -620,6 +690,11 @@ export class Sim {
         phase: this.phase, timeLeft: Math.max(0, this.phaseEndsAt - this.time),
         tWins: this.tWins, ctWins: this.ctWins, roundNo: this.roundNo,
         winner: this.winner, reason: this.reason, bomb: { ...this.bomb, x: r(this.bomb.x), y: r(this.bomb.y) },
+        mode: this.mode, weaponSet: this.weaponSet, pick: this.pick, free: this.free,
+        tKills: this.tKills, ctKills: this.ctKills, killTarget: KILL_TARGET,
+        goal: this.mode === 'tdm'
+          ? { T: `Eliminate the Sentinels: the first team to ${KILL_TARGET} kills wins`, CT: `Eliminate the Raiders: the first team to ${KILL_TARGET} kills wins` }
+          : { T: 'Plant the bomb at site A or B, then protect it until it explodes', CT: 'Defend sites A and B. If the bomb is planted, defuse it before it explodes' },
       } : null,
     };
   }
@@ -627,7 +702,7 @@ export class Sim {
 
 // ---- network protocol ----
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string }
+  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number }
   | { type: 'ping'; t: number }

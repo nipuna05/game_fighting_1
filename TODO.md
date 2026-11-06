@@ -43,6 +43,22 @@ about 11 MB: compress before going online). The weapon rides on the chest bone a
 (`applyArmIK` in characters.ts). Credits tab reads `client/public/credits.json` (gun authors still to confirm).
 Phone / wrapper work is optional and postponed: the target is the responsive web version.
 
+## Done: game styles + weapon sets (phase 1 of the roadmap)
+Bomb mission and Team deathmatch (kills only, first to 25 or 5 minutes). Weapon sets: all guns (buy), pistols, SMGs, shotguns, rifles,
+snipers, random every life; choice: I choose / automatic. Free loadouts (no cash) for everything except bomb + "all guns". Each team gets
+an instruction text (`RoundState.goal`) shown under the top bar. Public rooms are per style. Dev URL: `?style=tdm&wset=sniper&pick=auto`.
+
+## Roadmap the user asked for (in this order)
+2. **Missions with instruction text**: rescue the hostage, collect items / intel, escort, defend. The `goal` text and mode framework are ready;
+   add `GameMode`s (e.g. 'rescue', 'collect') with their own objective entities in the sim.
+3. **Items (PUBG style)**: medkit / bandage / painkillers / energy drink (heal over time), armor and helmet levels, grenade types (frag,
+   smoke, flash), and different bombs. Pickups on the map + an inventory bar.
+4. **Multi-floor buildings**: floors, stairs, jump up onto ledges, bomb sites upstairs. Needs a z-level on players/walls/bullets in the sim,
+   floor + stairs geometry in world.ts, bot navigation per floor. The biggest change: everything is flat today.
+5. **Themed bigger maps** inspired by PUBG / IGI / Task Force / Delta Force / Call of Duty (use original layouts and names), each with its
+   own mission text. Larger area than the current 2400 x 1800.
+(Prone + sneak, first-person default, attachments, respawn, etc. are done.)
+
 ## Known issues / notes
 - Bots give the Raiders about 58% of rounds on every map (bot AI, not the layouts).
 - Coins, unlocks, titles and key bindings live in the browser (localStorage) and are not tamper-proof.

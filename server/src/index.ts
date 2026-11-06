@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { Sim, TICK_RATE, TEAM_SIZE, type ClientMsg, type ServerMsg } from '@fight/shared';
+import { Sim, TICK_RATE, TEAM_SIZE, type ClientMsg, type ServerMsg, type SimOptions, type GameMode, type WeaponSet, type PickMode } from '@fight/shared';
 
 const portArg = process.argv.find((a) => a.startsWith('--port='))?.slice(7);
 const PORT = Number(portArg ?? process.env.PORT ?? 8080);   // dev 8080, test environment 8081 (--port=8081)
@@ -10,9 +10,9 @@ const rooms = new Map<string, Room>();
 const heartbeat = new Map<WebSocket, () => void>();   // drops dead connections (a closed laptop / phone) so ghost players leave
 const staleCheck = new Map<WebSocket, () => void>();
 
-function getRoom(code: string, mapId?: string): Room {
+function getRoom(code: string, mapId?: string, rules: Partial<SimOptions> = {}): Room {
   let r = rooms.get(code);
-  if (!r) { r = { code, sim: new Sim({ rounds: true, map: mapId }), clients: new Map(), voice: new Set() }; rooms.set(code, r); } // the first player picks the room's map
+  if (!r) { r = { code, sim: new Sim({ rounds: true, map: mapId, ...rules }), clients: new Map(), voice: new Set() }; rooms.set(code, r); } // the first player picks the room's map
   return r;
 }
 
@@ -45,8 +45,12 @@ wss.on('connection', (ws) => {
   function handle(msg: ClientMsg) {
     if (msg.type === 'ping') { send(ws, { type: 'pong', t: Number(msg.t) || 0 }); return; }
     if (msg.type === 'join' && !room) {
-      const code = String(msg.room || 'public').slice(0, 16).replace(/[^\w-]/g, '') || 'public';
-      const r = getRoom(code, msg.map);
+      const style: GameMode = msg.style === 'tdm' ? 'tdm' : 'bomb';
+      const wset: WeaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(msg.wset as WeaponSet) ? msg.wset as WeaponSet : 'all';
+      const pick: PickMode = msg.pick === 'auto' ? 'auto' : 'manual';
+      // the public room is per game style, so people who want different rules never end up in the same game
+      const code = String(msg.room || `public-${style}-${wset}-${pick}`).slice(0, 28).replace(/[^\w-]/g, '') || 'public';
+      const r = getRoom(code, msg.map, { mode: style, weaponSet: wset, pick });
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
       r.clients.set(id, ws);

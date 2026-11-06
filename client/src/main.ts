@@ -11,7 +11,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -168,7 +168,7 @@ function glowTexture(inner: string, outer: string): THREE.CanvasTexture {
 interface Particle { s: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; size: number; grav: number }
 
 // ---------- game ----------
-interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string }
+interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode }
 interface Shown { x: number; y: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
@@ -289,7 +289,7 @@ class Game {
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
-      this.sim = new Sim({ rounds: true, map: cfg.map, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
+      this.sim = new Sim({ rounds: true, map: cfg.map, mode: cfg.style, weaponSet: cfg.weaponSet, pick: cfg.pick, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
       this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team);
       this.sim.fillBots(TEAM_SIZE);
     } else {
@@ -303,7 +303,7 @@ class Game {
     this.status = this.retries ? 'Reconnecting...' : 'Connecting...';
     const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map })); };
+    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick })); };
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
@@ -363,6 +363,45 @@ class Game {
   }
 
   /** Builds the buy menu: primaries grouped by type, plus armor and rebuy. */
+  private menuKind: 'buy' | 'loadout' | '' = '';
+  private loadoutKey = '';
+  /** Free-loadout games (team deathmatch, weapon sets): no cash, just choose your weapon for the next spawn. */
+  private updateLoadout(r: NonNullable<Snapshot['round']>, me: Snapshot['players'][number] | undefined, show: boolean) {
+    const box = $('buy');
+    box.style.display = show ? 'block' : 'none';
+    if (!show || !me) return;
+    const key = `${r.weaponSet}|${r.pick}|${me.ch}|${me.owned}|${me.alive}|${me.armor}`;
+    $('buytime').textContent = me.alive ? `${Math.ceil(r.timeLeft)}s` : `respawn in ${Math.ceil(me.rs)}s`;
+    if (this.menuKind === 'loadout' && key === this.loadoutKey) return;
+    this.menuKind = 'loadout'; this.loadoutKey = key;
+    const h3 = box.querySelector('h3'); if (h3) h3.innerHTML = `${me.alive ? 'CHOOSE YOUR WEAPON' : 'NEXT SPAWN'} &mdash; <span id="buytime"></span>`;
+    $('buytime').textContent = me.alive ? `${Math.ceil(r.timeLeft)}s` : `respawn in ${Math.ceil(me.rs)}s`;
+    const grid = $('buygrid'); grid.innerHTML = '';
+    if (r.pick === 'auto') {
+      grid.innerHTML = '<div class="pickhint">Automatic: you get a random weapon from the set every time you spawn.</div>';
+    } else {
+      const note = document.createElement('div'); note.className = 'pickhint';
+      note.textContent = me.alive ? 'Pick your weapon (you keep it until you are down, then your pick applies again):' : 'Pick the weapon you want when you respawn:';
+      grid.appendChild(note);
+      const row = document.createElement('div'); row.className = 'row'; row.style.justifyContent = 'center';
+      for (const i of allowedWeapons(r.weaponSet)) {
+        const b = document.createElement('button');
+        b.dataset.item = String(i);
+        b.className = (me.ch === i || (me.ch < 0 && ((me.owned >> i) & 1))) ? 'cur' : '';
+        b.innerHTML = `${esc(WEAPONS[i].name)}<small>${esc(WEAPONS[i].cat)}</small>`;
+        b.addEventListener('click', () => this.buy(i));
+        row.appendChild(b);
+      }
+      grid.appendChild(row);
+    }
+    if (me.alive && r.phase === 'buy') {
+      const armor = document.createElement('button'); armor.dataset.item = String(ARMOR_ITEM); armor.disabled = me.armor >= 100;
+      armor.innerHTML = `[${keyLabel(currentBinds().buyArmor[0])}] Armor<small>free</small>`; armor.style.marginTop = '8px';
+      armor.addEventListener('click', () => this.buy(ARMOR_ITEM));
+      grid.appendChild(armor);
+    }
+  }
+
   private buildBuyMenu() {
     const grid = $('buygrid');
     grid.innerHTML = '';
@@ -1153,10 +1192,14 @@ class Game {
     this.updateWeaponBar();
     const me = s.players.find((p) => p.id === this.myId);
     const myTeam: Team = me?.team ?? 'CT';
-    $('ctw').textContent = `${TEAM_INFO.CT.short} ${r.ctWins}`;
-    $('tw').textContent = `${r.tWins} ${TEAM_INFO.T.short}`;
-    const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? 'BUY' : r.phase === 'live' ? fmt(r.timeLeft) : '';
-    $('tm').textContent = `R${r.roundNo}  ${clock}`;
+    const tdm = r.mode === 'tdm';
+    $('ctw').textContent = `${TEAM_INFO.CT.short} ${tdm ? r.ctKills : r.ctWins}`;
+    $('tw').textContent = `${tdm ? r.tKills : r.tWins} ${TEAM_INFO.T.short}`;
+    const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? (r.free ? 'GET READY' : 'BUY') : r.phase === 'live' ? fmt(r.timeLeft) : '';
+    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : `R${r.roundNo}  ${clock}`;
+    const goalEl = $('goal');                                       // the instruction text: what do we have to do in this game?
+    goalEl.style.display = r.phase === 'live' || r.phase === 'buy' ? 'block' : 'none';
+    goalEl.textContent = r.goal[myTeam];
 
     // banner: round result, bomb actions, role hints
     const endEl = $('endscreen');
@@ -1179,6 +1222,8 @@ class Game {
       prog = r.bomb.progress;
     } else if (me && !me.alive && r.phase === 'live') {
       sub = '';   // the spectator banner at the bottom says who you are watching
+    } else if (me?.alive && r.phase === 'buy' && tdm) {
+      sub = `You are ${TEAM_INFO[myTeam].name}. ${r.goal[myTeam]}`;
     } else if (me?.alive && r.phase === 'buy') {
       sub = `You are ${TEAM_INFO[myTeam].name} (${TEAM_INFO[myTeam].role}). ` + (myTeam === 'T' ? (r.bomb.carrier === me.id ? 'You have the bomb: go to site A or B, ' + (isTouch ? 'hold PLANT' : 'hold E') + ' to plant' : 'Escort the bomb carrier') : 'Defend sites A and B');
     } else if (me?.alive && r.bomb.status === 'carried' && r.bomb.carrier === me.id) {
@@ -1195,7 +1240,10 @@ class Game {
     (bar.firstElementChild as HTMLElement).style.width = `${Math.min(1, prog) * 100}%`;
 
     // buy panel: only in the buy phase while alive
-    const showBuy = !!me && me.alive && r.phase === 'buy';
+    const showBuy = !!me && (r.free ? (r.phase === 'buy' || (!me.alive && r.phase === 'live')) : me.alive && r.phase === 'buy');
+    if (r.free) { this.updateLoadout(r, me, showBuy); }
+    else {
+    if (this.menuKind !== 'buy') { this.buildBuyMenu(); this.menuKind = 'buy'; const h3 = $('buy').querySelector('h3'); if (h3) h3.innerHTML = 'BUY &mdash; <span id="buytime"></span>'; }
     ($('rebuy') as HTMLButtonElement).disabled = !profile.pack;
     $('buy').style.display = showBuy ? 'block' : 'none';
     if (showBuy && me) {
@@ -1210,6 +1258,7 @@ class Game {
           (btn as HTMLButtonElement).disabled = have || me.money < cost;
         });
       }
+    }
     }
 
     const owned = WEAPONS.filter((_, i) => ((me?.owned ?? 1) >> i) & 1).map((w) => w.name).join(' / ');
@@ -1242,7 +1291,10 @@ async function start(mode: 'single' | 'multi') {
   if (!template) await loadTemplate();
   await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
-  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map });
+  const style = (QS.get('style') === 'tdm' ? 'tdm' : QS.get('style') === 'bomb' ? 'bomb' : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
+  const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
+  const pick = (QS.get('pick') ?? profile.pick) as PickMode;
+  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });
 }
 initMenu(profile, {
   onPlay: (mode) => void start(mode),

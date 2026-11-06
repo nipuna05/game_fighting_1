@@ -111,6 +111,9 @@
     body.touch #respawn b { font-size: 44px; }
     #spec b { display: block; font: 800 20px system-ui; color: #fff; letter-spacing: .04em; margin-bottom: 2px; }
     .opt { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #cdd7e4; padding: 5px 0; } .opt select { background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+    .sel { width: 100%; background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 9px 10px; font-size: 14px; }
+    #goal { position: fixed; left: 50%; top: calc(54px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 4; max-width: 70vw; text-align: center; pointer-events: none; font: 600 13px system-ui; color: #e8eef5; background: #000a; padding: 5px 14px; border-radius: 8px; display: none; }
+    #buy .pickhint { color: #b8c4d4; font-size: 13px; margin: 4px 0 10px; } #buy button.cur { background: #1b3a2c; border-color: #3ddc84; }
     #mic { position: fixed; right: 12px; bottom: 12px; z-index: 6; display: none; font: 600 13px system-ui, sans-serif; color: #cfd8e3; background: #000a; padding: 6px 12px; border-radius: 8px; pointer-events: none; }
     #mic.talk { color: #fff; background: #b3261e; } #mic.bad { color: #ffd34d; }
     .lbl.speaking span::before { content: '\1F50A '; } .lbl.speaking span { text-shadow: 0 0 8px #3ddc84, 0 1px 2px #000; color: #b9ffd0 !important; }
@@ -186,6 +189,7 @@
   <div id="multi"><b id="multit"></b><span id="multis"></span></div>
   <div id="perf"></div>
   <div id="wbar"></div>
+  <div id="goal"></div>
   <div id="topbar"><span class="ct" id="ctw"></span><span class="tm" id="tm"></span><span class="t" id="tw"></span></div>
   <div id="banner"><div class="big" id="bigtxt"></div><div class="sub" id="subtxt"></div><div id="bar"><b></b></div></div>
   <div id="buy"><h3>BUY &mdash; <span id="buytime"></span></h3><div id="buygrid"></div></div>
@@ -224,6 +228,10 @@
         <div class="pane on" id="tab-play">
           <h4>Callsign</h4><input id="name" type="text" maxlength="14" placeholder="Your name" />
           <h4>Map</h4><div id="maps" class="cards maps"></div>
+          <h4>Game style</h4><select id="style" class="sel"></select><p class="note" id="stylenote"></p>
+          <h4>Weapons</h4><select id="wset" class="sel"></select>
+          <label class="opt" id="wpickrow">Weapon choice <select id="wpick"><option value="manual">I choose my weapon</option><option value="auto">Automatic (random)</option></select></label>
+          <p class="note" id="wsetnote"></p>
           <h4>Team</h4><div id="teams"></div>
           <div class="row"><button id="single" class="btn go">Play single player</button></div>
           <div class="row"><input id="room" type="text" maxlength="16" placeholder="Room code (blank = public)" /><button id="multi" class="btn alt">Multiplayer</button></div>
