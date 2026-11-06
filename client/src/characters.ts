@@ -13,6 +13,7 @@ export interface Character {
   twistBones?: { bone: THREE.Object3D; k: number }[];         // torso/neck bones that share the upper-body twist toward the aim
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
   runBase?: number; runGain?: number;                         // run animation speed = runBase + runGain * (how fast the character moves)
+  walk?: THREE.AnimationAction; strideWalk?: number; strideRun?: number; // ground speed (units/s) that the walk / run clips cover at normal playback speed
   airT?: number; crouchK?: number; gunBaseY?: number;                            // jump timer, and how far into the kneel pose (0..1) the character is
   kneel?: { hips: THREE.Object3D; hipsY: number; thighs: THREE.Object3D[]; shins: THREE.Object3D[] };
   death?: THREE.AnimationAction; dead?: boolean; ring?: THREE.Object3D; // realistic soldier: falls down and stays down until the next round
@@ -157,7 +158,10 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
   const runClip = named('run') ?? t.clips.find((c) => /run|jog|walk/i.test(c.name)) ?? idleClip;
   const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
   const run = runClip ? mixer.clipAction(runClip) : undefined;
-  idle?.play(); run?.play();
+  const walkClip = named('walk');
+  const walk = walkClip ? mixer.clipAction(walkClip) : undefined;
+  idle?.play(); run?.play(); walk?.play();
+  const stride = strideOf(t, root, model, mixer, [walkClip, runClip]);
   const deathClip = named('death');
   const death = deathClip ? mixer.clipAction(deathClip) : undefined;
   if (death) { death.setLoop(THREE.LoopOnce, 1); death.clampWhenFinished = true; }
@@ -176,7 +180,7 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
   const dummy = () => new THREE.Group();
   const cole = t.rig === 'cole' || t.rig === 'mixamo';
   return {
-    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, death, ring, kneel,
+    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, walk, strideWalk: stride.walk, strideRun: stride.run, death, ring, kneel,
     runBase: cole ? 0.8 : 0.6, runGain: cole ? 0.5 : 0.8,
   };
 }
@@ -241,4 +245,44 @@ export function applyKneel(c: Character, k: number) {
   kn.hips.position.y = kn.hipsY * (1 - KNEEL.drop * k) + (kn.hips.position.y - kn.hipsY);   // keep the animation's own bounce
   for (const b of kn.thighs) b.rotateX(KNEEL.thigh * k);
   for (const b of kn.shins) b.rotateX(KNEEL.shin * k);
+}
+
+// ---- gait: how fast the ground slides past the feet in each clip, so the animation can be played at the speed that matches the movement ----
+const strideCache = new WeakMap<Template, { walk: number; run: number }>();
+function strideOf(t: Template, root: THREE.Object3D, model: THREE.Object3D, _mixer: THREE.AnimationMixer, clips: (THREE.AnimationClip | undefined)[]): { walk: number; run: number } {
+  const cached = strideCache.get(t);
+  if (cached) return cached;
+  const out = { walk: 55, run: 110 };                                         // sensible defaults when the feet cannot be found
+  const pre = t.rig === 'mixamo' ? 'mixamorig' : '';
+  const find = (n: string) => model.getObjectByName(pre + n);
+  const hips = find('Hips'), feet = [find('LeftFoot'), find('RightFoot')];
+  if (hips && feet[0] && feet[1]) {
+    const temp = new THREE.AnimationMixer(model);
+    const hp = new THREE.Vector3(), fp = new THREE.Vector3();
+    clips.forEach((clip, idx) => {
+      if (!clip) return;
+      const N = 48, dur = clip.duration, rows: number[][][] = [];
+      const act = temp.clipAction(clip); act.play();
+      for (let i = 0; i <= N; i++) {
+        temp.setTime((i / N) * dur * 0.9999);
+        root.updateMatrixWorld(true);
+        const h = root.worldToLocal(hips.getWorldPosition(hp.set(0, 0, 0)).clone());
+        rows.push(feet.map((f) => { const w = f!.getWorldPosition(fp.set(0, 0, 0)); const l = root.worldToLocal(w.clone()); return [l.x - h.x, w.y]; }));
+      }
+      const speeds: number[] = [], dt = dur / N;
+      for (let k = 0; k < 2; k++) {                                            // while a foot is planted (low), it moves backwards past the hips at ground speed
+        const ys = rows.map((r) => r[k][1]), lo = Math.min(...ys), hi = Math.max(...ys);
+        if (hi - lo < 0.5) continue;
+        for (let i = 0; i < N; i++) if (Math.min(ys[i], ys[i + 1]) < lo + (hi - lo) * 0.25) speeds.push(-(rows[i + 1][k][0] - rows[i][k][0]) / dt);
+      }
+      speeds.sort((a, b) => a - b);
+      const med = speeds.length ? speeds[Math.floor(speeds.length / 2)] : 0;
+      if (med > 20 && med < 400) { if (idx === 0) out.walk = med; else out.run = med; }
+      temp.stopAllAction();
+    });
+    temp.uncacheRoot(model);
+  }
+  if (QS.has('debug')) console.info(`gait ${t.rig}: walk covers ${out.walk.toFixed(0)} units/s, run ${out.run.toFixed(0)} units/s`);
+  strideCache.set(t, out);
+  return out;
 }

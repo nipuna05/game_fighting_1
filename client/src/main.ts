@@ -82,6 +82,9 @@ async function goFullscreen() {
 /** Back to the main menu from anywhere in a game (the page is simply reloaded without the dev parameters). */
 function leaveGame() { try { game?.leave(); } finally { location.assign(location.pathname); } }
 
+/** smooth 0..1 ramp between two values */
+const smooth01 = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
 const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement | null)?.tagName ?? '');
 window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && game) { game.togglePause(); return; } if (typing(e) || e.repeat) return; if (setKey(e.code, true) && game) e.preventDefault(); });
 window.addEventListener('keyup', (e) => { setKey(e.code, false); });
@@ -675,8 +678,13 @@ class Game {
       const speed = Math.min(1, d.moved / 220);
       if (c.dead && c.mixer) { c.mixer.update(dt); continue; }
       if (c.mixer) { // loaded model: blend between its idle and run animations
-        const w = Math.min(1, speed * 1.6);
-        c.run?.setEffectiveWeight(w); c.idle?.setEffectiveWeight(1 - w);
+        if (c.walk) { // idle -> walk -> run, blended by speed (the old half-and-half idle/run mix looked like gliding)
+          const a = smooth01(0.04, 0.16, speed), b = smooth01(0.26, 0.46, speed);
+          c.idle?.setEffectiveWeight(1 - a); c.walk.setEffectiveWeight(a * (1 - b)); c.run?.setEffectiveWeight(a * b);
+        } else {
+          const w = Math.min(1, speed * 1.6);
+          c.run?.setEffectiveWeight(w); c.idle?.setEffectiveWeight(1 - w);
+        }
         // Turning: the legs always line up with the direction of travel. When moving toward the aim they run forward;
         // when moving away from it they backpedal (the run animation plays in reverse) facing the aim. The upper body
         // twists to face the aim. The local player uses the keys pressed (instant); other players use their velocity.
@@ -699,11 +707,17 @@ class Game {
         const step = TURN_RATE * dt;
         c.legYaw += Math.max(-step, Math.min(step, wrapAngle(target - c.legYaw) * Math.min(1, dt * 14)));
         const twist = Math.max(-MAX_TWIST - 0.2, Math.min(MAX_TWIST + 0.2, wrapAngle(aim - c.legYaw)));
-        if (c.run) c.run.timeScale = (c.backward ? -1 : 1) * ((c.runBase ?? 0.6) + speed * (c.runGain ?? 0.8));
+        const dir = c.backward ? -1 : 1;
+        if (c.walk && c.run) {                                  // play each clip at the speed where the planted foot stays put on the ground
+          c.walk.timeScale = dir * Math.max(0.35, Math.min(2.2, d.moved / (c.strideWalk ?? 55)));
+          c.run.timeScale = dir * Math.max(0.5, Math.min(2.6, d.moved / (c.strideRun ?? 110)));
+          const b = smooth01(0.26, 0.46, speed);
+          if (b > 0.02 && b < 0.98) c.run.time = (c.walk.time / c.walk.getClip().duration) * c.run.getClip().duration; // keep the two strides in step while they blend
+        } else if (c.run) c.run.timeScale = dir * ((c.runBase ?? 0.6) + speed * (c.runGain ?? 0.8));
         if (c.holder) c.holder.rotation.y = MODEL_YAW + twist; // lower body faces c.legYaw, root faces the aim
         c.mixer.update(dt);
         for (const tb of c.twistBones ?? []) tb.bone.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * tb.k); // after the animation pose is applied
-        applyKneel(c, c.crouchK ?? 0);
+        applyKneel(c, (c.crouchK ?? 0) * (1 - 0.4 * Math.min(1, speed * 2.5)));   // less folded while creeping along
       } else {
         c.phase += dt * 11 * speed;
         const swing = Math.sin(c.phase) * 0.8 * speed;
