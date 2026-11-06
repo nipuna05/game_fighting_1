@@ -16,6 +16,7 @@ export interface MapDef {
   spawns: Record<TeamId, Rect>;
   heal: { x: number; y: number }[]; // health pickups (respawn)
   loot: { x: number; y: number }[]; // cash stacks (refill every round)
+  supply?: { x: number; y: number }[]; // spots where supply items (medkits, grenades) lie
 }
 
 const W = 1600, H = 1200;                 // the layouts below are drawn on this base grid ...
@@ -165,6 +166,9 @@ function enlarge(m: MapDef): MapDef {
     sites: m.sites.map((st) => ({ ...st, ...spot(st), r: 100 })),
     spawns: { T: sp(m.spawns.T), CT: { ...sp(m.spawns.CT), x: WORLD_W - m.spawns.CT.w - 70 } },
     heal: m.heal.map(spot),
+    supply: extra.map((e) => { const g = grow(e); return { x: Math.round(g.x + g.w / 2), y: Math.round(g.y - 28) }; })
+      .filter((sp) => !([...keep, ...extra].map(grow).some((w) => sp.x > w.x - 22 && sp.x < w.x + w.w + 22 && sp.y > w.y - 22 && sp.y < w.y + w.h + 22)) && sp.x > 60 && sp.x < WORLD_W - 60 && sp.y > 60 && sp.y < WORLD_H - 60)
+      .slice(0, 14),
     loot: [...m.loot.map(spot), ...extra.filter((e) => e.kind === 'crate').slice(0, 6).map((e) => { const g = grow(e); return { x: g.x + g.w / 2, y: g.y + g.h + 26 }; })],
   };
 }

@@ -186,6 +186,23 @@ export const sfx = {
   dry() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.6, 0, 0, 0); nz(out, t, 'bandpass', 2600, 4, 0.5, 0.03); },
   /** Bringing another weapon up. */
   swap() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.6, 0, 0, 0); nz(out, t, 'bandpass', 1100, 2, 0.4, 0.06); nz(out, t + 0.12, 'bandpass', 1900, 3, 0.4, 0.04); },
+  /** Grenade sounds: vol 0..1 by distance, pan -1..1. */
+  throwGrenade() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.6, 0, 0, 0); nz(out, t, 'bandpass', 700, 1.2, 0.25, 0.18); osc(out, t, 'sine', 420, 180, 0.12, 0.15); },
+  frag(vol: number, pan: number) {
+    if (!ctx || muted || !noiseBuf || !master || vol <= 0.03) return;
+    const t = ctx.currentTime + 0.002, out = bus(vol, pan, 1 - vol, 0.8);
+    nz(out, t, 'lowpass', 1400, 0.7, 1.0, 0.7); nz(out, t, 'bandpass', 2400, 0.7, 0.8, 0.12); osc(out, t, 'sine', 95, 30, 1.0, 0.9); osc(out, t, 'sine', 55, 25, 0.9, 1.3);
+  },
+  bang(vol: number, pan: number) {
+    if (!ctx || muted || !noiseBuf || !master || vol <= 0.03) return;
+    const t = ctx.currentTime + 0.002, out = bus(vol, pan, 1 - vol, 0.5);
+    nz(out, t, 'highpass', 3500, 0.7, 0.9, 0.25); osc(out, t, 'sine', 2600, 2000, 0.25, 0.9);                                              // a crack and a ringing whine
+  },
+  hiss(vol: number, pan: number) { if (!ctx || muted || !noiseBuf || !master || vol <= 0.03) return; const t = ctx.currentTime, out = bus(vol * 0.7, pan, 1 - vol, 0.2); nz(out, t, 'bandpass', 4200, 0.6, 0.25, 1.4); },
+  whoomph(vol: number, pan: number) { if (!ctx || muted || !noiseBuf || !master || vol <= 0.03) return; const t = ctx.currentTime, out = bus(vol, pan, 1 - vol, 0.3); nz(out, t, 'lowpass', 900, 0.7, 0.7, 0.5); osc(out, t, 'sine', 120, 40, 0.6, 0.5); },
+  pickup() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.5, 0, 0, 0); osc(out, t, 'triangle', 660, 660, 0.18, 0.08); osc(out, t + 0.07, 'triangle', 990, 990, 0.18, 0.12); },
+  healStart() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.5, 0, 0, 0); nz(out, t, 'bandpass', 1500, 2, 0.3, 0.08); nz(out, t + 0.18, 'bandpass', 1100, 2, 0.25, 0.08); },
+  healDone() { if (!ctx || muted || !noiseBuf || !master) return; const t = ctx.currentTime, out = bus(0.55, 0, 0, 0); osc(out, t, 'sine', 523, 523, 0.2, 0.25); osc(out, t + 0.12, 'sine', 784, 784, 0.2, 0.35); },
   beep() { tone(1400, 0.07, 'square', 0.12); },
   plant() { tone(520, 0.12, 'square', 0.2); tone(780, 0.18, 'square', 0.2, 780, 0.13); },
   defuse() { tone(600, 0.1, 'sine', 0.25); tone(900, 0.1, 'sine', 0.25, 900, 0.1); tone(1200, 0.25, 'sine', 0.25, 1200, 0.2); },

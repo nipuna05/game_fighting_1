@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -105,6 +105,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'prone': if (v) keys.prone = !keys.prone; break;                                         // lie down / get up
     case 'sneak': keys.sneak = v; break;
     case 'reload': keys.reload = v; if (v) game?.queueReload(); break;
+    case 'item0': case 'item1': case 'item2': case 'item3': case 'item4': case 'item5': case 'item6': if (v) game?.useItem(Number(act.slice(4))); break;
     case 'view': if (v) game?.toggleView(); break;
     case 'jump': if (v && keys.prone) { keys.prone = false; break; } keys.jump = v; if (v) game?.queueJump(); break;   // from the ground the first press only gets you up
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
@@ -212,6 +213,9 @@ class Game {
   queueJump() { this.jumpPending = true; }
   private reloadPending = false;
   queueReload() { this.reloadPending = true; }
+  private pendingItem: number | null = null;
+  /** Use a healing item / throw a grenade (latched until it has been sent). */
+  useItem(k: number) { this.pendingItem = k; }
   private endDismissed = false;
   private predAir = 0; private predCd = 0;      // local copy of the jump timers (for prediction)
   // bullet effects and the sniper scope
@@ -225,7 +229,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, rescued: -1, mine: -1, theirs: -1 };
+  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -438,6 +442,17 @@ class Game {
     rebuy.addEventListener('click', () => this.rebuy());
     gear.append(armor, rebuy);
     grid.appendChild(gear);
+    const eq = document.createElement('div');
+    eq.className = 'grp';
+    eq.innerHTML = '<h4>Equipment</h4>';
+    ITEMS.forEach((d, k) => {
+      const b = document.createElement('button');
+      b.dataset.item = String(ITEM_BASE + k);
+      b.innerHTML = `${esc(d.name)}<small>$${d.cost}</small>`;
+      b.addEventListener('click', () => this.buy(ITEM_BASE + k));
+      eq.appendChild(b);
+    });
+    grid.appendChild(eq);
   }
 
   /** Menu "auto-buy": at the start of each buy phase, buy the favourite primary (and armor). */
@@ -638,7 +653,7 @@ class Game {
     }
     const myP = this.me();
     const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
-    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending, prone: keys.prone, sneak: keys.sneak, reload: keys.reload || this.reloadPending };
+    return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending, prone: keys.prone, sneak: keys.sneak, reload: keys.reload || this.reloadPending, item: this.pendingItem ?? undefined };
   }
 
   private fpDt = 0.016;
@@ -655,7 +670,7 @@ class Game {
     this.monitor(delta);
     if (this.sim) {
       this.sim.setInput(this.myId, input);
-      this.pendingWeapon = null; this.jumpPending = false; this.reloadPending = false;
+      this.pendingWeapon = null; this.jumpPending = false; this.reloadPending = false; this.pendingItem = null;
       this.acc += (delta / 1000) * (QS.has('timescale') ? Number(QS.get('timescale')) : 1); // dev: ?timescale=40 fast-forwards single player
       const dt = 1 / TICK_RATE;
       while (this.acc >= dt) { if (!this.paused) this.sim.step(dt); this.acc -= dt; }
@@ -667,7 +682,7 @@ class Game {
       if (this.sendAcc >= 1000 / TICK_RATE) {
         this.sendAcc = 0;
         this.ws.send(JSON.stringify({ type: 'input', input }));
-        this.pendingWeapon = null; this.jumpPending = false; this.reloadPending = false;
+        this.pendingWeapon = null; this.jumpPending = false; this.reloadPending = false; this.pendingItem = null;
       }
     }
     this.draw(delta / 1000, now / 1000);
@@ -897,6 +912,7 @@ class Game {
     }
 
     this.syncObjectives(s, time);
+    this.syncItems(s, time, dt);
     // bomb: on the carrier's back, dropped on the floor, or armed at the site
     const bomb = s.round?.bomb;
     this.bombMesh.visible = !!bomb && bomb.status !== 'none';
@@ -926,6 +942,10 @@ class Game {
       this.camera.position.set(this.camTarget.x, 560 * zoom, this.camTarget.z + 430 * zoom);
       this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
     }
+    if (this.shake > 0.02) {                                           // explosion shake
+      this.camera.position.x += (Math.random() - 0.5) * 9 * this.shake; this.camera.position.y += (Math.random() - 0.5) * 6 * this.shake; this.camera.position.z += (Math.random() - 0.5) * 9 * this.shake;
+      this.shake *= Math.exp(-dt * 5);
+    } else this.shake = 0;
   }
 
   // ---------- mission objectives: hostages, intel cases and the markers that point at them ----------
@@ -993,6 +1013,121 @@ class Game {
     }
     for (const [k, el] of this.markers) if (!seen.has(k)) { el.remove(); this.markers.delete(k); }
   }
+
+  // ---------- items: supply boxes, grenades in flight, smoke and fire clouds, explosions, and the item bar ----------
+  private supplyMeshes = new Map<number, THREE.Object3D>();
+  private grenadeMeshes = new Map<number, THREE.Object3D>();
+  private zoneSprites = new Map<number, THREE.Sprite[]>();
+  private lastBlast = -1;
+  private lastGrenades = new Set<number>();
+  private smokeTex: THREE.CanvasTexture | null = null;
+  private itemColor = [0xf2f2f2, 0xf2f2f2, 0xffd34d, 0x3f7f3f, 0x9aa3ad, 0xf5e04a, 0xe8772e];
+  private makeSupply(k: number): THREE.Object3D {
+    const g = new THREE.Group(), d = ITEMS[k], c = this.itemColor[k];
+    const body = d.kind === 'heal'
+      ? new THREE.Mesh(new THREE.BoxGeometry(11, 8, 8), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 }))
+      : new THREE.Mesh(k === 6 ? new THREE.CylinderGeometry(3.2, 3.2, 11, 10) : new THREE.SphereGeometry(5.2, 12, 10), new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.2 }));
+    body.castShadow = true; g.add(body);
+    if (d.kind === 'heal') { const cross = new THREE.MeshBasicMaterial({ color: k === 2 ? 0xffb400 : 0xd62d2d }); const a = new THREE.Mesh(new THREE.BoxGeometry(6, 8.2, 2), cross), b = new THREE.Mesh(new THREE.BoxGeometry(2, 8.2, 6), cross); g.add(a, b); }
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 90, 8, 1, true), this.beamMat(d.kind === 'heal' ? 0x66ff99 : 0xffb15e)); beam.position.y = 45; g.add(beam);
+    g.userData.body = body;
+    return g;
+  }
+  private smokePuff(): THREE.CanvasTexture {
+    if (!this.smokeTex) this.smokeTex = glowTexture('rgba(190,196,204,0.95)', 'rgba(150,156,164,0)');
+    return this.smokeTex;
+  }
+  private syncItems(s: Snapshot, time: number, dt: number) {
+    const live = new Set<number>();
+    for (const sp of s.supplies) {                                       // supply boxes on the floor
+      live.add(sp.id);
+      let o = this.supplyMeshes.get(sp.id);
+      if (!o || o.userData.item !== sp.item) { if (o) this.scene.remove(o); o = this.makeSupply(sp.item); o.userData.item = sp.item; this.supplyMeshes.set(sp.id, o); this.scene.add(o); }
+      o.position.set(sp.x, 9 + Math.sin(time * 2.4 + sp.id) * 2, sp.y); (o.userData.body as THREE.Object3D).rotation.y = time * 1.2 + sp.id;
+    }
+    for (const [id, o] of this.supplyMeshes) if (!live.has(id)) { this.scene.remove(o); this.supplyMeshes.delete(id); }
+
+    const gl = new Set<number>();                                        // grenades in flight
+    for (const g of s.grenades) {
+      gl.add(g.id);
+      let o = this.grenadeMeshes.get(g.id);
+      if (!o) {
+        o = new THREE.Mesh(g.k === 6 ? new THREE.CylinderGeometry(2.6, 2.6, 8, 8) : new THREE.SphereGeometry(3.4, 10, 8), new THREE.MeshStandardMaterial({ color: this.itemColor[g.k], roughness: 0.5 }));
+        (o as THREE.Mesh).castShadow = true; this.grenadeMeshes.set(g.id, o); this.scene.add(o);
+        if (!this.lastGrenades.has(g.id)) sfx.throwGrenade();
+      }
+      o.position.set(g.x, 10 + Math.abs(Math.sin(time * 9 + g.id)) * 3, g.y); o.rotation.x = time * 10;
+    }
+    for (const [id, o] of this.grenadeMeshes) if (!gl.has(id)) { this.scene.remove(o); this.grenadeMeshes.delete(id); }
+    this.lastGrenades = gl;
+
+    const zl = new Set<number>();                                        // smoke and fire clouds
+    for (const z of s.zones) {
+      zl.add(z.id);
+      let sprites = this.zoneSprites.get(z.id);
+      if (!sprites) {
+        sprites = [];
+        const n = z.k === 'smoke' ? 16 : 12;
+        for (let i = 0; i < n; i++) {
+          const sp = new THREE.Sprite(new THREE.SpriteMaterial(z.k === 'smoke'
+            ? { map: this.smokePuff(), transparent: true, depthWrite: false, opacity: 0.85 }
+            : { map: glowTexture('rgba(255,210,90,1)', 'rgba(220,60,10,0)'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+          sp.userData.a = (i / n) * Math.PI * 2; sp.userData.rr = Math.random(); sp.userData.ph = Math.random() * 6;
+          this.scene.add(sp); sprites.push(sp);
+        }
+        this.zoneSprites.set(z.id, sprites);
+      }
+      const fade = Math.min(1, z.left / 1.5);
+      for (const sp of sprites) {
+        const a = sp.userData.a + time * (z.k === 'smoke' ? 0.12 : 0.6), rr = z.r * (0.25 + 0.65 * sp.userData.rr);
+        if (z.k === 'smoke') { sp.position.set(z.x + Math.cos(a) * rr, 28 + Math.sin(time * 0.8 + sp.userData.ph) * 8 + sp.userData.rr * 26, z.y + Math.sin(a) * rr); sp.scale.setScalar(z.r * 0.95); (sp.material as THREE.SpriteMaterial).opacity = 0.82 * fade; }
+        else { sp.position.set(z.x + Math.cos(a) * rr, 8 + ((time * 40 + sp.userData.ph * 20) % 34), z.y + Math.sin(a) * rr); sp.scale.setScalar(26 + Math.sin(time * 14 + sp.userData.ph) * 6); (sp.material as THREE.SpriteMaterial).opacity = 0.9 * fade; }
+      }
+    }
+    for (const [id, sprites] of this.zoneSprites) if (!zl.has(id)) { for (const sp of sprites) { this.scene.remove(sp); sp.material.dispose(); } this.zoneSprites.delete(id); }
+
+    const me = s.players.find((p) => p.id === this.myId);              // explosions: flash, sound and a screen shake near the blast
+    let maxB = this.lastBlast;
+    if (this.lastBlast < 0) this.lastBlast = Math.max(0, ...s.blasts.map((b) => b.id));
+    for (const b of s.blasts) {
+      maxB = Math.max(maxB, b.id);
+      if (b.id <= this.lastBlast) continue;
+      const d = me ? Math.hypot(b.x - me.x, b.y - me.y) : 999, vol = Math.max(0, 1 - d / 1100), pan = me ? (b.x - me.x) / 500 : 0;
+      const id = ITEMS[b.k].id;
+      if (id === 'frag') {
+        sfx.frag(vol, pan);
+        this.spawnFx('flash', b.x, b.y, 26, 0, 0, 0, 0.16, 150);
+        for (let i = 0; i < 14; i++) { const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 190; this.spawnFx('spark', b.x, b.y, 22, Math.cos(a) * sp, 60 + Math.random() * 140, Math.sin(a) * sp, 0.45, 6, -380); }
+        for (let i = 0; i < 6; i++) { const a = Math.random() * Math.PI * 2; this.spawnFx('dust', b.x + Math.cos(a) * 14, b.y + Math.sin(a) * 14, 20, Math.cos(a) * 30, 24, Math.sin(a) * 30, 0.9, 38); }
+        if (d < 380) this.shake = Math.max(this.shake, 1 - d / 380);
+      } else if (id === 'flash') { sfx.bang(vol, pan); this.spawnFx('flash', b.x, b.y, 30, 0, 0, 0, 0.3, 230); }
+      else if (id === 'smoke') sfx.hiss(vol, pan);
+      else sfx.whoomph(vol, pan);
+    }
+    this.lastBlast = maxB;
+    if (me && me.bl > 0 && me.alive) { const f = $('flashfx'); f.style.opacity = String(Math.min(1, me.bl * 0.7)); } else $('flashfx').style.opacity = '0';   // blinded: the screen whites out and fades
+
+    // item bar (owned items, with the key to press) and the "using" progress
+    const bar = $('items');
+    if (me && me.alive) {
+      const key = me.iv.join(',') + `|${me.us}|${me.bo}`;
+      if (key !== this.itemBarKey) {
+        this.itemBarKey = key;
+        bar.innerHTML = ITEMS.map((d, k) => me.iv[k] > 0 ? `<button data-k="${k}" class="${me.us === k ? 'use' : ''}${k === 2 && me.bo ? ' boost' : ''}"><b>${keyLabel(currentBinds()['item' + k]?.[0] ?? '')}</b>${esc(d.name.split(' ')[0])} x${me.iv[k]}</button>` : '').join('');
+        bar.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => this.useItem(Number((b as HTMLElement).dataset.k))));
+      }
+      bar.style.display = 'flex';
+    } else bar.style.display = 'none';
+    const ub = $('usebar');
+    if (me && me.alive && me.us >= 0) {
+      ub.style.display = 'block';
+      $('usetxt').textContent = `USING ${ITEMS[me.us].name.toUpperCase()}`;
+      ($('usebar').querySelector('i') as HTMLElement).style.width = `${Math.max(0, Math.min(1, 1 - me.ul / ITEMS[me.us].use)) * 100}%`;
+    } else ub.style.display = 'none';
+    void dt; void SMOKE_R;
+  }
+  private itemBarKey = '';
+  private shake = 0;
 
   private updateLabels(s: Snapshot) {
     const w = window.innerWidth, h = window.innerHeight;
@@ -1196,7 +1331,7 @@ class Game {
       const tag = multiName || (k.first ? FIRST_BLOOD : '');   // a multi-kill name wins over first blood in the feed
       const row = document.createElement('div');
       row.className = `k${mine ? ' me' : ''}${victimIsMe ? ' you' : ''}`;
-      row.innerHTML = `<span class="${k.killerTeam === 'CT' ? 'ct' : 't'}">${esc(k.killerName)}</span><span class="w">${esc(WEAPONS[k.weapon]?.name ?? '')}</span><span class="${k.victimTeam === 'CT' ? 'ct' : 't'}">${esc(k.victimName)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}`;
+      row.innerHTML = `<span class="${k.killerTeam === 'CT' ? 'ct' : 't'}">${esc(k.killerName)}</span><span class="w">${esc(WEAPONS[k.weapon]?.name ?? ITEMS[k.weapon - WEAPONS.length]?.name ?? '')}</span><span class="${k.victimTeam === 'CT' ? 'ct' : 't'}">${esc(k.victimName)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}`;
       const feed = $('feed');
       feed.appendChild(row);
       while (feed.children.length > 6) feed.firstElementChild!.remove();
@@ -1313,6 +1448,13 @@ class Game {
         if (this.localInput?.fire && me.am === 0 && me.rl === 0 && time - this.lastDry > 0.35) { sfx.dry(); this.lastDry = time; }
       }
       ev.am = me.am; ev.rl = me.rl; ev.weapon = me.weapon;
+      if (me.us >= 0 && ev.us < 0) sfx.healStart();
+      if (me.us < 0 && ev.us >= 0 && me.hp > ev.hp) sfx.healDone();
+      ev.us = me.us;
+      const taken = me.iv.some((n, i) => n > (ev.iv[i] ?? 0));
+      if (taken && ev.iv.length && !(ev.us >= 0)) { sfx.pickup(); const k = me.iv.findIndex((n, i) => n > (ev.iv[i] ?? 0)); if (k >= 0) this.toast(`+1 ${ITEMS[k].name}`); }
+      if (ev.iv.length && me.iv.some((n, i) => n < (ev.iv[i] ?? 0)) && me.us < 0 && ev.us < 0 && !(me.hp > ev.hp)) { /* thrown: the throw sound comes with the grenade appearing */ }
+      ev.iv = [...me.iv];
       if (r.mode === 'rescue' && r.rescued > ev.rescued && ev.rescued >= 0) { this.toast(`HOSTAGE RESCUED (${r.rescued}/${r.hostageCount})`); sfx.win(); }
       if (r.mode === 'collect') {
         const mineNow = me.team === 'CT' ? r.ctItems : r.tItems, theirs = me.team === 'CT' ? r.tItems : r.ctItems;
@@ -1416,13 +1558,14 @@ class Game {
     $('buy').style.display = showBuy ? 'block' : 'none';
     if (showBuy && me) {
       $('buytime').textContent = `${Math.ceil(r.timeLeft)}s   $${me.money}`;
-      const key = `${me.money}|${me.owned}|${me.armor}`;
+      const key = `${me.money}|${me.owned}|${me.armor}|${me.iv.join(',')}`;
       if (key !== this.lastBuyState) {
         this.lastBuyState = key;
         $('buy').querySelectorAll('button[data-item]').forEach((btn) => {
           const item = Number((btn as HTMLElement).dataset.item);
-          const cost = item === ARMOR_ITEM ? ARMOR_COST : WEAPONS[item].cost;
-          const have = item === ARMOR_ITEM ? me.armor >= 100 : ((me.owned >> item) & 1) === 1;
+          const isEq = item >= ITEM_BASE;
+          const cost = isEq ? ITEMS[item - ITEM_BASE].cost : item === ARMOR_ITEM ? ARMOR_COST : WEAPONS[item].cost;
+          const have = isEq ? me.iv[item - ITEM_BASE] >= ITEMS[item - ITEM_BASE].max : item === ARMOR_ITEM ? me.armor >= 100 : ((me.owned >> item) & 1) === 1;
           (btn as HTMLButtonElement).disabled = have || me.money < cost;
         });
       }

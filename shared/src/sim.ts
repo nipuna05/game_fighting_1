@@ -52,6 +52,27 @@ export function customMods(code: number) {
   const sight = code & 3, grip = (code >> 2) & 1;
   return { spread: [1, 0.94, 0.88, 0.8][sight] * (grip ? 0.92 : 1), speed: [1, 1, 0.97, 0.93][sight], reload: grip ? 1.12 : 1 };
 }
+// ---- items: healing and throwables (PUBG style). Keys 3-9 use them; supply crates lie around the map; the bomb mission sells them ----
+export interface ItemDef { id: string; name: string; kind: 'heal' | 'throw'; cost: number; max: number; use: number; heal: number }
+export const ITEMS: ItemDef[] = [
+  { id: 'bandage',    name: 'Bandage',        kind: 'heal',  cost: 100, max: 5, use: 2, heal: 25 },
+  { id: 'medkit',     name: 'Medkit',         kind: 'heal',  cost: 400, max: 2, use: 4, heal: 75 },
+  { id: 'adrenaline', name: 'Adrenaline',     kind: 'heal',  cost: 250, max: 3, use: 3, heal: 30 },
+  { id: 'frag',       name: 'Frag grenade',   kind: 'throw', cost: 300, max: 2, use: 0, heal: 0 },
+  { id: 'smoke',      name: 'Smoke grenade',  kind: 'throw', cost: 200, max: 2, use: 0, heal: 0 },
+  { id: 'flash',      name: 'Flashbang',      kind: 'throw', cost: 200, max: 2, use: 0, heal: 0 },
+  { id: 'molotov',    name: 'Molotov',        kind: 'throw', cost: 400, max: 2, use: 0, heal: 0 },
+];
+export const ITEM_BASE = 100;       // buy() item id for ITEMS[k] is ITEM_BASE + k
+export const FRAG_R = 115, FRAG_DMG = 125, FLASH_R = 300, SMOKE_R = 95, SMOKE_TIME = 10, FIRE_R = 75, FIRE_TIME = 7, FIRE_DPS = 16;
+export const THROW_SPEED = 430, THROW_CD = 0.8, BOOST_TIME = 10, BOOST_SPEED = 1.2, SUPPLY_RESPAWN = 40;
+const FUSE = [0, 0, 0, 2.3, 1.2, 1.4, 1.7];                            // seconds until a throwable goes off (index = ITEMS index)
+const SUPPLY_WEIGHTS = [30, 12, 10, 16, 12, 12, 8];
+const rollItem = () => { let r = Math.random() * SUPPLY_WEIGHTS.reduce((a, b) => a + b, 0); for (let i = 0; i < SUPPLY_WEIGHTS.length; i++) { r -= SUPPLY_WEIGHTS[i]; if (r <= 0) return i; } return 0; };
+export interface GrenadeState { id: number; x: number; y: number; k: number }
+export interface ZoneState { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; left: number }
+export interface BlastEvent { id: number; t: number; x: number; y: number; k: number; r: number }
+export interface SupplyState { id: number; x: number; y: number; item: number }
 export const MAG_RESERVE = 5;      // spare magazines
 export const EQUIP_TIME = 0.35;    // seconds before you can fire after switching weapons
 export const SIDEARM_COUNT = WEAPONS.filter((w) => w.slot === 'sidearm').length; // sidearms occupy indexes 0..SIDEARM_COUNT-1
@@ -123,7 +144,7 @@ export const DEFUSE_TIME = 5;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
 
-export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean; prone?: boolean; sneak?: boolean; reload?: boolean }
+export interface Input { mx: number; my: number; angle: number; fire: boolean; weapon?: number; use?: boolean; scoped?: boolean; crouch?: boolean; jump?: boolean; prone?: boolean; sneak?: boolean; reload?: boolean; item?: number }
 
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
@@ -137,6 +158,11 @@ export interface PlayerState {
   rv: number;    // spare rounds for it
   rl: number;    // seconds of reloading left (0 = not reloading)
   cu: number;    // customization code of the weapon I hold
+  iv: number[];  // how many of each item I carry (indexes of ITEMS)
+  us: number;    // item I am using right now (-1 = none)
+  ul: number;    // seconds left of that
+  bl: number;    // seconds I stay blinded by a flashbang
+  bo: boolean;   // adrenaline boost is active
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number } // a = direction (radians), w = weapon index
 export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body' }
@@ -174,12 +200,13 @@ export const MVP_TITLE = 'MATCH MVP';
 /** Best title first (used to pick the title shown on a profile). */
 export const TITLE_RANK = [...MULTI_NAMES.filter(Boolean).reverse(), MVP_TITLE, FIRST_BLOOD];
 export const MULTI_WINDOW = 7;
-export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[]; pickups: PickupState[]; round: RoundState | null; kills: KillEvent[]; impacts: ImpactEvent[] }
+export interface Snapshot { t: number; players: PlayerState[]; bullets: BulletState[]; pickups: PickupState[]; round: RoundState | null; kills: KillEvent[]; impacts: ImpactEvent[]; grenades: GrenadeState[]; zones: ZoneState[]; blasts: BlastEvent[]; supplies: SupplyState[] }
 
 interface Player extends PlayerState {
   sidearm: number; input: Input; cooldown: number; respawnAt: number; botThink: number; botDir: { x: number; y: number };
   protect: number; // no damage until this time (just respawned)
   ammoIn: number[]; ammoRes: number[]; reloadUntil: number; equipUntil: number; custom: Record<number, number>;
+  inv: number[]; usingItem: number; useUntil: number; boostUntil: number; blindUntil: number; throwCd: number; itemReq: number; botItemCd: number;
   air: number; jumpCd: number; // seconds left in the current jump / until the next jump is allowed
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
@@ -278,6 +305,11 @@ export class Sim {
   private items: { id: number; x: number; y: number; readyAt: number }[] = [];
   private tItems = 0;
   private ctItems = 0;
+  private grenades: { id: number; k: number; owner: string; team: Team; x: number; y: number; vx: number; vy: number; age: number }[] = [];
+  private zones: { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; until: number; owner: string; team: Team }[] = [];
+  private blastLog: BlastEvent[] = [];
+  private supplies: { id: number; x: number; y: number; item: number; readyAt: number }[] = [];
+  private nextThrow = 1;
   /** The extraction zone for hostages: the Sentinels' spawn area, a little bigger. */
   private get extract(): Rect { const z = this.map.spawns.CT; return { x: z.x - 70, y: z.y - 70, w: z.w + 140, h: z.h + 140 }; }
   get free() { return this.rounds && isFreeLoadout(this.mode, this.weaponSet); }
@@ -314,7 +346,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, protect: 0, air: 0, jumpCd: 0,
+      st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, inv: ITEMS.map(() => 0), usingItem: -1, useUntil: 0, boostUntil: 0, blindUntil: 0, throwCd: 0, itemReq: -1, botItemCd: 3 + Math.random() * 6, iv: [], us: -1, ul: 0, bl: 0, bo: false, protect: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
@@ -363,8 +395,9 @@ export class Sim {
     const len = Math.hypot(mx, my);
     const k = len > 1 ? 1 / len : 1;
     p.input = { mx: mx * k, my: my * k, angle: num(i.angle), fire: !!i.fire, use: !!i.use, scoped: !!i.scoped, crouch: !!i.crouch, jump: !!i.jump, prone: !!i.prone, sneak: !!i.sneak, reload: !!i.reload };
+    if (Number.isInteger(i.item) && i.item! >= 0 && i.item! < ITEMS.length) p.itemReq = i.item!;   // use / throw this item (latched until the next tick)
     if (!p.bot && Number.isInteger(i.weapon) && i.weapon! >= 0 && i.weapon! < WEAPONS.length && (p.owned >> i.weapon!) & 1 && i.weapon !== p.weapon) {
-      p.weapon = i.weapon!; p.reloadUntil = 0; p.equipUntil = this.time + EQUIP_TIME;   // switching stops a reload and takes a moment to bring the new gun up
+      p.weapon = i.weapon!; p.reloadUntil = 0; p.equipUntil = this.time + EQUIP_TIME; p.usingItem = -1;   // switching stops a reload and takes a moment to bring the new gun up
     }
   }
 
@@ -389,6 +422,11 @@ export class Sim {
   buy(id: string, item: number): boolean {
     if (!Number.isInteger(item)) return false;
     const p = this.players.get(id);
+    if (item >= ITEM_BASE && item < ITEM_BASE + ITEMS.length) {          // equipment: healing and throwables
+      const k = item - ITEM_BASE, d = ITEMS[k], cost = this.free ? 0 : d.cost;
+      if (!p || !this.rounds || this.phase !== 'buy' || !p.alive || p.inv[k] >= d.max || p.money < cost) return false;
+      p.money -= cost; p.inv[k]++; return true;
+    }
     if (p && this.free) {                                               // free loadouts: nothing costs money; weapon clicks are picks
       if (item === ARMOR_ITEM) { if (!p.alive || this.phase !== 'buy' || p.armor >= 100) return false; p.armor = 100; return true; }
       return this.pickWeapon(id, item);
@@ -432,6 +470,7 @@ export class Sim {
     p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0;
     p.ammoIn = WEAPONS.map((w) => w.mag); p.ammoRes = WEAPONS.map((w) => w.mag * MAG_RESERVE); p.reloadUntil = 0; p.equipUntil = 0;   // full magazines for a new life
     if (this.free) this.giveLoadout(p);
+    this.resetItems(p);
     if (this.rounds && this.phase === 'live') { p.armor = 0; p.protect = this.time + SPAWN_PROTECT; }   // back from the dead: armor is gone, a short grace period
   }
 
@@ -459,6 +498,8 @@ export class Sim {
     this.rescued = 0;
     this.items = this.mode === 'collect' ? this.map.loot.slice(0, 12).map((l, i) => ({ id: i + 1, x: l.x, y: l.y, readyAt: 0 })) : [];
     this.tItems = 0; this.ctItems = 0;
+    this.grenades = []; this.zones = []; this.blastLog = [];
+    this.supplies = (this.map.supply ?? []).map((sp, i) => ({ id: i + 1, x: sp.x, y: sp.y, item: rollItem(), readyAt: 0 }));
     const ts = [...this.players.values()].filter((p) => p.team === 'T');
     const carrier = this.mode === 'bomb' && ts.length ? ts[Math.floor(Math.random() * ts.length)] : null;
     this.bomb = carrier
@@ -611,7 +652,7 @@ export class Sim {
         if (this.time >= p.respawnAt && (!this.rounds || this.phase === 'live')) this.spawn(p);   // unlimited lives: back after RESPAWN_TIME
         continue;
       }
-      if (p.bot) this.thinkBot(p, dt);
+      if (p.bot) { this.thinkBot(p, dt); if (this.time < p.blindUntil) p.input.fire = false; }
       if (!frozen) {
         const px = p.x, py = p.y;
         const scoped = !!p.input.scoped && WEAPONS[p.weapon].cat === 'Sniper';
@@ -619,7 +660,7 @@ export class Sim {
         if (p.input.jump && p.air <= 0 && p.jumpCd <= 0 && !p.input.prone) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
         p.st = p.air > 0 ? 2 : p.input.prone ? 3 : p.input.crouch ? 1 : 0;
         const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : p.st === 3 ? PRONE_SPEED : p.input.sneak ? SNEAK_SPEED : 1);
-        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult * customMods(this.customOf(p)).speed, p.st === 2);
+        movePlayer(p, p.input.mx, p.input.my, dt, this.map.walls, PLAYER_SPEED * mult * customMods(this.customOf(p)).speed * (p.usingItem >= 0 ? 0.55 : 1) * (p.boostUntil > this.time ? BOOST_SPEED : 1), p.st === 2);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
           if (Math.hypot(p.x - px, p.y - py) < PLAYER_SPEED * dt * 0.3) p.stuckT += dt; else p.stuckT = 0;
           if (p.stuckT > 0.35) {
@@ -631,6 +672,7 @@ export class Sim {
       }
       p.angle = p.input.angle;
       p.cooldown -= dt;
+      this.stepItems(p, canFire);
       {
         const wd = WEAPONS[p.weapon], mods = customMods(this.customOf(p));
         if (p.reloadUntil > 0 && this.time >= p.reloadUntil) {                    // reload finished: top the magazine up from the spare rounds
@@ -641,7 +683,7 @@ export class Sim {
           p.reloadUntil = this.time + wd.reload * mods.reload;                    // R pressed, or the magazine ran dry
         }
       }
-      if (canFire && p.input.fire && p.cooldown <= 0 && p.reloadUntil === 0 && this.time >= p.equipUntil && p.ammoIn[p.weapon] > 0) {
+      if (canFire && p.input.fire && p.cooldown <= 0 && p.reloadUntil === 0 && this.time >= p.equipUntil && p.ammoIn[p.weapon] > 0 && p.usingItem < 0) {
         const w = WEAPONS[p.weapon];
         p.cooldown = w.cooldown;
         p.ammoIn[p.weapon]--;
@@ -695,31 +737,122 @@ export class Sim {
         if (Math.hypot(p.x - b.x, p.y - b.y) <= (p.st === 3 ? PRONE_R : PLAYER_R)) {
           this.addImpact(b.x, b.y, 'body');
           if (this.invincible.has(p.id)) { hit = true; break; }
-          let dmg = b.dmg;
-          if (p.armor > 0) { const soaked = Math.min(p.armor, dmg * 0.5); p.armor -= soaked; dmg -= soaked; }
-          p.hp -= dmg; hit = true;
-          if (p.hp <= 0) {
-            p.alive = false; p.deaths++; p.respawnAt = this.time + RESPAWN_TIME;
-            if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT });
-            const killer = this.players.get(b.owner);
-            if (killer) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
-            if (this.rounds) { if (b.team === 'T') this.tKills++; else this.ctKills++; }
-            const st = this.streaks.get(b.owner);
-            const multi = st && this.time - st.t <= MULTI_WINDOW ? st.n + 1 : 1; // kills in quick succession build a multi-kill
-            this.streaks.set(b.owner, { n: multi, t: this.time });
-            this.killLog.push({
-              id: this.nextKill++, t: this.time, killer: b.owner, killerName: killer?.name ?? '?', killerTeam: b.team,
-              victim: p.id, victimName: p.name, victimTeam: p.team, weapon: b.wid, multi, first: this.rounds && !this.firstBloodDone,
-            });
-            this.firstBloodDone = true;
-            if (this.killLog.length > 24) this.killLog.shift();
-          }
+          this.damage(p, b.dmg, b.owner, b.team, b.wid); hit = true;
           break;
         }
       }
       if (!hit) alive.push(b);
     }
     this.bullets = alive;
+    this.stepThrowables(dt);
+  }
+
+  // ---------- damage and kills (bullets, grenades and fire all end up here) ----------
+  private damage(p: Player, amount: number, ownerId: string, ownerTeam: Team, weapon: number) {
+    if (!p.alive || this.invincible.has(p.id) || this.time < p.protect) return;
+    let dmg = amount;
+    if (p.armor > 0) { const soaked = Math.min(p.armor, dmg * 0.5); p.armor -= soaked; dmg -= soaked; }
+    p.hp -= dmg;
+    p.usingItem = -1;                                                  // being hurt interrupts using an item
+    if (p.hp > 0) return;
+    p.alive = false; p.deaths++; p.respawnAt = this.time + RESPAWN_TIME; p.usingItem = -1;
+    if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT });
+    const killer = this.players.get(ownerId);
+    if (killer && killer !== p) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
+    if (this.rounds) { if (ownerTeam === 'T') this.tKills++; else this.ctKills++; }
+    const st = this.streaks.get(ownerId);
+    const multi = st && this.time - st.t <= MULTI_WINDOW ? st.n + 1 : 1; // kills in quick succession build a multi-kill
+    this.streaks.set(ownerId, { n: multi, t: this.time });
+    this.killLog.push({
+      id: this.nextKill++, t: this.time, killer: ownerId, killerName: killer?.name ?? '?', killerTeam: ownerTeam,
+      victim: p.id, victimName: p.name, victimTeam: p.team, weapon, multi, first: this.rounds && !this.firstBloodDone,
+    });
+    this.firstBloodDone = true;
+    if (this.killLog.length > 24) this.killLog.shift();
+  }
+
+  // ---------- items ----------
+  private resetItems(p: Player) {
+    p.inv = ITEMS.map(() => 0);
+    if (p.bot || this.free) { p.inv[0] = 1; p.inv[3] = 1; p.inv[5] = 1; }          // a bandage, a frag and a flashbang to start with
+    p.usingItem = -1; p.useUntil = 0; p.boostUntil = 0; p.blindUntil = 0; p.throwCd = 0; p.itemReq = -1;
+  }
+  /** Healing in progress, new use / throw requests, and picking up supplies. */
+  private stepItems(p: Player, canFire: boolean) {
+    if (p.usingItem >= 0 && this.time >= p.useUntil) {                  // finished healing
+      const d = ITEMS[p.usingItem];
+      if (p.inv[p.usingItem] > 0) { p.inv[p.usingItem]--; p.hp = Math.min(MAX_HP, p.hp + d.heal); if (d.id === 'adrenaline') p.boostUntil = this.time + BOOST_TIME; }
+      p.usingItem = -1;
+    }
+    const req = p.itemReq; p.itemReq = -1;
+    if (req >= 0 && p.inv[req] > 0) {
+      const d = ITEMS[req];
+      if (d.kind === 'heal') {
+        if (p.usingItem === req) p.usingItem = -1;                      // press again to cancel
+        else if (p.usingItem < 0 && (p.hp < MAX_HP || d.id === 'adrenaline')) { p.usingItem = req; p.useUntil = this.time + d.use; p.reloadUntil = 0; }
+      } else if (canFire && this.time >= p.throwCd && p.usingItem < 0) {
+        const c = Math.cos(p.angle), sn = Math.sin(p.angle);
+        this.grenades.push({ id: this.nextThrow++, k: req, owner: p.id, team: p.team, x: p.x + c * (PLAYER_R + 6), y: p.y + sn * (PLAYER_R + 6), vx: c * THROW_SPEED, vy: sn * THROW_SPEED, age: 0 });
+        p.inv[req]--; p.throwCd = this.time + THROW_CD;
+      }
+    }
+    for (const sp of this.supplies) {                                   // supply crates: walk over to take the item
+      if (this.time < sp.readyAt || Math.hypot(p.x - sp.x, p.y - sp.y) > PLAYER_R + 16 || p.inv[sp.item] >= ITEMS[sp.item].max) continue;
+      p.inv[sp.item]++; sp.readyAt = this.time + SUPPLY_RESPAWN; sp.item = rollItem();
+    }
+  }
+  private smokeBlocks(x1: number, y1: number, x2: number, y2: number) {
+    for (const z of this.zones) {
+      if (z.k !== 'smoke' || this.time >= z.until) continue;
+      const dx = x2 - x1, dy = y2 - y1, len2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((z.x - x1) * dx + (z.y - y1) * dy) / len2));
+      if (Math.hypot(x1 + dx * t - z.x, y1 + dy * t - z.y) < z.r) return true;
+    }
+    return false;
+  }
+  private stepThrowables(dt: number) {
+    const walls = this.map.walls, inWall = (x: number, y: number) => walls.some((w) => x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h);
+    const keep: typeof this.grenades = [];
+    for (const g of this.grenades) {
+      g.age += dt;
+      const nx = g.x + g.vx * dt, ny = g.y + g.vy * dt;
+      const hx = inWall(nx, g.y), hy = inWall(g.x, ny);
+      if (hx) g.vx *= -0.45; else g.x = nx;
+      if (hy) g.vy *= -0.45; else g.y = ny;
+      const f = Math.max(0, 1 - 1.4 * dt); g.vx *= f; g.vy *= f;       // friction: it rolls to a stop
+      if (g.age >= FUSE[g.k] || ((hx || hy) && ITEMS[g.k].id === 'molotov')) this.explode(g); else keep.push(g);
+    }
+    this.grenades = keep;
+    this.zones = this.zones.filter((z) => this.time < z.until);
+    for (const z of this.zones) {
+      if (z.k !== 'fire') continue;
+      for (const p of this.players.values()) {                         // standing in flames hurts everybody except the thrower's team
+        if (p.alive && (p.id === z.owner || !this.rounds || p.team !== z.team) && Math.hypot(p.x - z.x, p.y - z.y) < z.r) this.damage(p, FIRE_DPS * dt, z.owner, z.team, WEAPONS.length + 6);
+      }
+    }
+  }
+  private explode(g: { id: number; k: number; owner: string; team: Team; x: number; y: number }) {
+    const id = ITEMS[g.k].id, r = id === 'frag' ? FRAG_R : id === 'flash' ? FLASH_R : id === 'smoke' ? SMOKE_R : FIRE_R;
+    this.blastLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(g.x), y: Math.round(g.y), k: g.k, r });
+    if (this.blastLog.length > 30) this.blastLog.shift();
+    for (const p of this.players.values()) {
+      if (!p.alive) continue;
+      const d = Math.hypot(p.x - g.x, p.y - g.y);
+      if (d > r || (id !== 'smoke' && id !== 'molotov' && segmentHitsWalls(g.x, g.y, p.x, p.y, this.map.walls))) continue;
+      if (id === 'frag' && (p.id === g.owner || !this.rounds || p.team !== g.team)) this.damage(p, FRAG_DMG * Math.pow(1 - d / r, 0.8), g.owner, g.team, WEAPONS.length + g.k);
+      if (id === 'flash') p.blindUntil = Math.max(p.blindUntil, this.time + 1.2 + 3 * (1 - d / r));
+    }
+    if (id === 'smoke') this.zones.push({ id: this.nextThrow++, x: g.x, y: g.y, r: SMOKE_R, k: 'smoke', until: this.time + SMOKE_TIME, owner: g.owner, team: g.team });
+    if (id === 'molotov') this.zones.push({ id: this.nextThrow++, x: g.x, y: g.y, r: FIRE_R, k: 'fire', until: this.time + FIRE_TIME, owner: g.owner, team: g.team });
+  }
+  private botItems(p: Player, target: Player | null, dist: number, visible: boolean) {
+    p.botItemCd -= 1 / TICK_RATE;
+    if (p.usingItem >= 0 || p.botItemCd > 0) return;
+    if (p.hp < 45 && !visible && (p.inv[1] > 0 || p.inv[0] > 0)) { p.itemReq = p.hp < 30 && p.inv[1] > 0 ? 1 : p.inv[0] > 0 ? 0 : 1; p.botItemCd = 4; return; }
+    if (visible && target && this.phase === 'live') {
+      if (dist > 160 && dist < 400 && p.inv[3] > 0 && Math.random() < 0.5) { p.itemReq = 3; p.botItemCd = 7 + Math.random() * 6; }
+      else if (dist < 320 && p.inv[5] > 0 && Math.random() < 0.4) { p.itemReq = 5; p.botItemCd = 8 + Math.random() * 6; }
+    }
   }
 
   // ---------- bots ----------
@@ -732,7 +865,8 @@ export class Sim {
       const d = Math.hypot(o.x - p.x, o.y - p.y);
       if (d < best) { best = d; target = o; }
     }
-    const visible = !!target && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y, this.map.walls);
+    const visible = !!target && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y, this.map.walls) && !this.smokeBlocks(p.x, p.y, target.x, target.y);
+    this.botItems(p, target, best, visible);
 
     if (target && (visible || !this.rounds)) {
       const ang = Math.atan2(target.y - p.y, target.x - p.x);
@@ -822,6 +956,7 @@ export class Sim {
     return {
       t: this.time,
       players: [...this.players.values()].map((p) => ({
+        iv: [...p.inv], us: p.usingItem, ul: p.usingItem >= 0 ? Math.round(Math.max(0, p.useUntil - this.time) * 10) / 10 : 0, bl: Math.round(Math.max(0, p.blindUntil - this.time) * 10) / 10, bo: p.boostUntil > this.time,
         id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
         hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
         team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, ch: p.ch, am: p.ammoIn[p.weapon] ?? 0, rv: p.ammoRes[p.weapon] ?? 0, rl: p.reloadUntil > 0 ? Math.round(Math.max(0, p.reloadUntil - this.time) * 10) / 10 : 0, cu: this.customOf(p), rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
@@ -834,6 +969,10 @@ export class Sim {
       ],
       kills: this.killLog.filter((k) => this.time - k.t < 10),
       impacts: this.impactLog.filter((e) => this.time - e.t < 0.5),
+      grenades: this.grenades.map((g) => ({ id: g.id, x: r(g.x), y: r(g.y), k: g.k })),
+      zones: this.zones.map((z) => ({ id: z.id, x: r(z.x), y: r(z.y), r: z.r, k: z.k, left: Math.round(Math.max(0, z.until - this.time) * 10) / 10 })),
+      blasts: this.blastLog.filter((e) => this.time - e.t < 1.2),
+      supplies: this.supplies.filter((sp) => this.time >= sp.readyAt).map((sp) => ({ id: sp.id, x: sp.x, y: sp.y, item: sp.item })),
       round: this.rounds ? {
         phase: this.phase, timeLeft: Math.max(0, this.phaseEndsAt - this.time),
         tWins: this.tWins, ctWins: this.ctWins, roundNo: this.roundNo,

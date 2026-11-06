@@ -122,6 +122,13 @@
     body.touch #ammo { bottom: auto; top: calc(96px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); } body.touch #ammo b { font-size: 26px; }
     .mk { position: absolute; left: 0; top: 0; z-index: 3; white-space: nowrap; font: 800 12px system-ui; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; color: #fff; background: #000a; border: 1px solid #ffffff55; text-shadow: 0 1px 3px #000; }
     .mk.host { border-color: #66ffaa; color: #b9ffd6; } .mk.ext { border-color: #3ddc84; color: #3ddc84; background: #04200fcc; } .mk.item { border-color: #ffb15e; color: #ffd9a6; }
+    #items { position: fixed; left: 50%; bottom: calc(66px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 4; display: flex; gap: 5px; }
+    #items button { font: 600 12px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 4px 9px; cursor: pointer; text-align: center; min-width: 58px; }
+    #items button b { display: block; font: 700 10px ui-monospace, monospace; color: #8795a8; } #items button.use { border-color: #3ddc84; background: #1b3a2c; } #items button.boost { border-color: #ffd34d; }
+    #usebar { position: fixed; left: 50%; top: 56%; transform: translateX(-50%); z-index: 5; display: none; text-align: center; font: 800 13px system-ui; letter-spacing: .08em; color: #fff; text-shadow: 0 2px 8px #000; }
+    #usebar .ub { width: 170px; height: 7px; background: #0009; border-radius: 4px; overflow: hidden; margin-top: 5px; } #usebar .ub i { display: block; height: 100%; background: #3ddc84; }
+    #flashfx { position: fixed; inset: 0; z-index: 7; background: #fff; opacity: 0; pointer-events: none; }
+    body.touch #items { bottom: auto; top: calc(130px + env(safe-area-inset-top)); left: auto; right: calc(8px + env(safe-area-inset-right)); transform: none; flex-direction: column; }
     #mic { position: fixed; right: 12px; bottom: 12px; z-index: 6; display: none; font: 600 13px system-ui, sans-serif; color: #cfd8e3; background: #000a; padding: 6px 12px; border-radius: 8px; pointer-events: none; }
     #mic.talk { color: #fff; background: #b3261e; } #mic.bad { color: #ffd34d; }
     .lbl.speaking span::before { content: '\1F50A '; } .lbl.speaking span { text-shadow: 0 0 8px #3ddc84, 0 1px 2px #000; color: #b9ffd0 !important; }
@@ -198,6 +205,9 @@
   <div id="feed"></div>
   <div id="multi"><b id="multit"></b><span id="multis"></span></div>
   <div id="perf"></div>
+  <div id="items"></div>
+  <div id="usebar"><span id="usetxt"></span><div class="ub"><i></i></div></div>
+  <div id="flashfx"></div>
   <div id="wbar"></div>
   <div id="goal"></div>
   <div id="topbar"><span class="ct" id="ctw"></span><span class="tm" id="tm"></span><span class="t" id="tw"></span></div>
@@ -284,7 +294,7 @@
         </div>
         <div id="menumsg"></div>
       </section>
-      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; hold C kneel &middot; R reload &middot; X lie down (prone) &middot; hold Shift sneak &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
+      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; 3-9 heal / throw items &middot; hold C kneel &middot; R reload &middot; X lie down (prone) &middot; hold Shift sneak &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

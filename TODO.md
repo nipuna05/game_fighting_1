@@ -63,10 +63,15 @@ Collect the intel (first team to 8 cases; cases respawn after 25 s). Both have w
 beams), screen markers with distances, hints, an untie progress bar, toasts and sounds, and bot behaviour. Add a new mission by adding a
 `GameMode`, its `step...` function in sim.ts, its goal text, and objects in `syncObjectives`.
 
+## Done: items (phase 3)
+Healing (bandage 2 s +25, medkit 4 s +75, adrenaline 3 s +30 and a 10 s speed boost; slowed while using, interrupted by damage) and throwables
+(frag, smoke, flashbang, molotov) on keys 3-9. Start kit in free modes, equipment shop in the bomb mission, supply boxes around each map
+(40 s respawn), bots heal and throw. Item bar, using bar, flash whiteout, smoke / fire clouds, explosion shake, sounds, kill-feed names.
+Possible later: armor/helmet levels, ammo boxes, a throw-distance charge, touch buttons for items.
+
 ## Roadmap the user asked for (in this order)
 2. (done: rescue + collect) more missions could be: escort a VIP, defend a point, capture-the-flag.
-3. **Items (PUBG style)**: medkit / bandage / painkillers / energy drink (heal over time), armor and helmet levels, grenade types (frag,
-   smoke, flash), and different bombs. Pickups on the map + an inventory bar.
+3. (done: healing items, grenades, supplies)
 4. **Multi-floor buildings**: floors, stairs, jump up onto ledges, bomb sites upstairs. Needs a z-level on players/walls/bullets in the sim,
    floor + stairs geometry in world.ts, bot navigation per floor. The biggest change: everything is flat today.
 5. **Themed bigger maps** inspired by PUBG / IGI / Task Force / Delta Force / Call of Duty (use original layouts and names), each with its
