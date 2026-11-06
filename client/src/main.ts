@@ -225,7 +225,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1 };
+  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, rescued: -1, mine: -1, theirs: -1 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -263,7 +263,6 @@ class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.appendChild(this.renderer.domElement);
     if (QS.has('debug')) (window as unknown as { __game: Game }).__game = this; // dev: inspect the game from the console
-    if (QS.has('debug')) (window as unknown as { __music: typeof music }).__music = music;
     if (QS.has('debug')) (window as unknown as { __sfx: typeof sfx }).__sfx = sfx;   // dev: play sounds from the console
     if (QS.has('lowq')) { this.quality = Number(QS.get('lowq')); }
     this.camera = new THREE.PerspectiveCamera(45, 1, 10, 4000);
@@ -316,7 +315,7 @@ class Game {
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
       if (m.type === 'welcome') {
         this.myId = m.id; this.status = `Room: ${m.room}`;
-        if (!this.mapDef) this.buildWorld(getMap(m.map));
+        if (!this.mapDef) { this.worldMode = m.mode ?? this.cfg.style; this.buildWorld(getMap(m.map)); }
         this.voice?.disable(); this.voice = null; this.startVoice(m.id);   // a reconnect is a new player id
       }
       else if (m.type === 'snap') this.snap = m.snap;
@@ -454,9 +453,10 @@ class Game {
     else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'buy', item }));
   }
 
+  private worldMode: string = '';
   private buildWorld(map: MapDef) {
     this.mapDef = map;
-    buildWorld(this.scene, map);
+    buildWorld(this.scene, map, this.worldMode || this.cfg.style);
     if (this.quality > 0) this.applyQuality();
   }
 
@@ -721,7 +721,7 @@ class Game {
     const s = this.replay ? this.replay.snap : this.snap;
     if (s) this.updateScene(s, this.replay ? dt * this.replay.speed : dt, time);
     this.renderer.render(this.scene, this.camera);
-    if (s) this.updateLabels(s);
+    if (s) { this.updateLabels(s); this.updateMarkers(s); }
   }
 
   private updateScene(s: Snapshot, dt: number, time: number) {
@@ -896,6 +896,7 @@ class Game {
       else this.camTarget.lerp(this.tmp.set(me.x, 0, me.y), Math.min(1, dt * 8));
     }
 
+    this.syncObjectives(s, time);
     // bomb: on the carrier's back, dropped on the floor, or armed at the site
     const bomb = s.round?.bomb;
     this.bombMesh.visible = !!bomb && bomb.status !== 'none';
@@ -925,6 +926,72 @@ class Game {
       this.camera.position.set(this.camTarget.x, 560 * zoom, this.camTarget.z + 430 * zoom);
       this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z + 10);
     }
+  }
+
+  // ---------- mission objectives: hostages, intel cases and the markers that point at them ----------
+  private objects = new Map<string, THREE.Object3D>();
+  private markers = new Map<string, HTMLElement>();
+  private beamMat(color: number) { return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }); }
+  private makeHostage(): THREE.Object3D {
+    const c = makeCharacter(0xe9e2cf), g = new THREE.Group();
+    c.root.scale.set(1, 0.85, 1); g.add(c.root);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 170, 10, 1, true), this.beamMat(0x66ffaa)); beam.position.y = 85; g.add(beam);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(16, 22, 28), new THREE.MeshBasicMaterial({ color: 0x66ffaa, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; ring.position.y = 1; g.add(ring);
+    g.userData.beam = beam;
+    return g;
+  }
+  private makeCase(): THREE.Object3D {
+    const g = new THREE.Group();
+    const box = new THREE.Mesh(new THREE.BoxGeometry(13, 8, 5), new THREE.MeshStandardMaterial({ color: 0xff9a2e, emissive: 0xff6a00, emissiveIntensity: 0.7, metalness: 0.5, roughness: 0.4 }));
+    box.castShadow = true; g.add(box);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(5, 1.4, 1.6), new THREE.MeshStandardMaterial({ color: 0x222222 })); handle.position.y = 5; g.add(handle);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 150, 8, 1, true), this.beamMat(0xffb15e)); beam.position.y = 70; g.add(beam);
+    g.userData.box = box;
+    return g;
+  }
+  private syncObjectives(s: Snapshot, time: number) {
+    const r = s.round, want = new Set<string>();
+    if (r && !this.replay) {
+      for (const h of r.hostages) {
+        const k = `h${h.id}`; want.add(k);
+        let o = this.objects.get(k); if (!o) { o = this.makeHostage(); this.objects.set(k, o); this.scene.add(o); }
+        o.position.set(h.x, 0, h.y); (o.userData.beam as THREE.Object3D).visible = !h.carried;
+      }
+      for (const it of r.items) {
+        const k = `i${it.id}`; want.add(k);
+        let o = this.objects.get(k); if (!o) { o = this.makeCase(); this.objects.set(k, o); this.scene.add(o); }
+        o.position.set(it.x, 8 + Math.sin(time * 3 + it.id) * 2, it.y); (o.userData.box as THREE.Object3D).rotation.y = time * 1.6 + it.id;
+      }
+    }
+    for (const [k, o] of this.objects) if (!want.has(k)) { this.scene.remove(o); this.objects.delete(k); }
+  }
+  /** Screen markers with distances (clamped to the screen edge when the target is off screen or behind you). */
+  private updateMarkers(s: Snapshot) {
+    const r = s.round, me = s.players.find((p) => p.id === this.myId);
+    const list: { key: string; x: number; y: number; text: string; cls: string }[] = [];
+    if (r && me && me.alive && (r.phase === 'live' || r.phase === 'buy') && !this.replay) {
+      if (r.mode === 'rescue') {
+        for (const h of r.hostages) if (!h.carried) list.push({ key: `h${h.id}`, x: h.x, y: h.y, text: 'HOSTAGE', cls: 'host' });
+        if (r.hostages.some((h) => h.by === this.myId)) list.push({ key: 'ex', x: r.extract.x + r.extract.w / 2, y: r.extract.y + r.extract.h / 2, text: 'EXTRACTION', cls: 'ext' });
+      } else if (r.mode === 'collect') {
+        [...r.items].sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y)).slice(0, 4)
+          .forEach((it) => list.push({ key: `i${it.id}`, x: it.x, y: it.y, text: 'INTEL', cls: 'item' }));
+      }
+    }
+    const w = window.innerWidth, h = window.innerHeight, seen = new Set<string>();
+    for (const m of list) {
+      seen.add(m.key);
+      let el = this.markers.get(m.key);
+      if (!el) { el = document.createElement('div'); el.className = `mk ${m.cls}`; this.labelLayer.appendChild(el); this.markers.set(m.key, el); }
+      el.textContent = `${m.text}  ${Math.round(Math.hypot(m.x - me!.x, m.y - me!.y) / 30)} m`;
+      this.tmp.set(m.x, 70, m.y).project(this.camera);
+      let nx = this.tmp.x, ny = this.tmp.y;
+      if (this.tmp.z > 1) { nx = -nx; ny = -ny; }                                   // behind the camera: flip so it points the right way round
+      nx = Math.max(-0.85, Math.min(0.76, nx)); ny = Math.max(-0.6, Math.min(0.72, ny));   // keep clear of the ammo counter (bottom right) and the top bar
+      el.style.transform = `translate(${(nx * 0.5 + 0.5) * w}px, ${(-ny * 0.5 + 0.5) * h}px) translate(-50%, -50%)`;
+      el.style.display = 'block';
+    }
+    for (const [k, el] of this.markers) if (!seen.has(k)) { el.remove(); this.markers.delete(k); }
   }
 
   private updateLabels(s: Snapshot) {
@@ -1246,6 +1313,14 @@ class Game {
         if (this.localInput?.fire && me.am === 0 && me.rl === 0 && time - this.lastDry > 0.35) { sfx.dry(); this.lastDry = time; }
       }
       ev.am = me.am; ev.rl = me.rl; ev.weapon = me.weapon;
+      if (r.mode === 'rescue' && r.rescued > ev.rescued && ev.rescued >= 0) { this.toast(`HOSTAGE RESCUED (${r.rescued}/${r.hostageCount})`); sfx.win(); }
+      if (r.mode === 'collect') {
+        const mineNow = me.team === 'CT' ? r.ctItems : r.tItems, theirs = me.team === 'CT' ? r.tItems : r.ctItems;
+        if (ev.mine >= 0 && mineNow > ev.mine) { this.toast(`+1 INTEL CASE (${mineNow}/${r.itemTarget})`); sfx.cash(); }
+        else if (ev.theirs >= 0 && theirs > ev.theirs) sfx.beep();
+        ev.mine = mineNow; ev.theirs = theirs;
+      } else { ev.mine = -1; ev.theirs = -1; }
+      ev.rescued = r.mode === 'rescue' ? r.rescued : -1;
       if (ev.alive && !me.alive) sfx.death();
       ev.hp = me.hp; ev.alive = me.alive;
     }
@@ -1272,12 +1347,15 @@ class Game {
     const me = s.players.find((p) => p.id === this.myId);
     const myTeam: Team = me?.team ?? 'CT';
     const tdm = r.mode === 'tdm';
-    const tense = r.bomb.status === 'planted' || (tdm && Math.max(r.tKills, r.ctKills) >= r.killTarget - 4) || (r.phase === 'live' && r.timeLeft < 20);
+    const tense = r.bomb.status === 'planted' || (r.mode === 'rescue' && r.hostages.some((h) => h.carried)) || (r.mode === 'collect' && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2) || (tdm && Math.max(r.tKills, r.ctKills) >= r.killTarget - 4) || (r.phase === 'live' && r.timeLeft < 20);
     music.setMode(r.phase === 'live' ? (tense ? 'intense' : 'game') : 'calm');                // the soundtrack follows the action
-    $('ctw').textContent = `${TEAM_INFO.CT.short} ${tdm ? r.ctKills : r.ctWins}`;
-    $('tw').textContent = `${tdm ? r.tKills : r.tWins} ${TEAM_INFO.T.short}`;
+    const rescue = r.mode === 'rescue', collect = r.mode === 'collect';
+    const ctScore = tdm ? r.ctKills : collect ? r.ctItems : rescue ? r.rescued : r.ctWins, tScore = tdm ? r.tKills : collect ? r.tItems : r.tWins;
+    $('ctw').textContent = `${TEAM_INFO.CT.short} ${ctScore}${rescue ? `/${r.hostageCount}` : ''}`;
+    $('tw').textContent = rescue ? TEAM_INFO.T.short : `${tScore} ${TEAM_INFO.T.short}`;
     const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? (r.free ? 'GET READY' : 'BUY') : r.phase === 'live' ? fmt(r.timeLeft) : '';
-    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : `R${r.roundNo}  ${clock}`;
+    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
+    const tenseMission = (rescue && r.hostages.some((h) => h.carried)) || (collect && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2);
     const goalEl = $('goal');                                       // the instruction text: what do we have to do in this game?
     goalEl.style.display = r.phase === 'live' || r.phase === 'buy' ? 'block' : 'none';
     goalEl.textContent = r.goal[myTeam];
@@ -1313,6 +1391,15 @@ class Game {
       sub = myTeam === 'CT' ? 'Bomb planted! Hold ' + (isTouch ? 'DEFUSE' : 'E') + ' next to it to defuse' : 'Bomb planted - protect it';
     } else if (r.bomb.status === 'dropped') {
       sub = 'The bomb was dropped';
+    }
+    if (rescue && me?.alive && r.phase === 'live') {                       // hostage rescue: what to do right now
+      const mine = r.hostages.find((h) => h.by === this.myId), untying = r.hostages.find((h) => h.actor === this.myId);
+      if (untying) { big = 'UNTYING...'; prog = untying.progress; }
+      else if (mine) sub = 'Hostage freed! Escort it to the green EXTRACTION zone at your spawn';
+      else if (myTeam === 'CT') {
+        const near = r.hostages.find((h) => !h.carried && Math.hypot(h.x - me.x, h.y - me.y) < 70);
+        sub = near ? 'Hold ' + (isTouch ? 'USE' : 'E') + ' next to the hostage to untie it' : '';
+      }
     }
     $('bigtxt').textContent = big;
     $('subtxt').textContent = sub;
@@ -1385,7 +1472,7 @@ async function start(mode: 'single' | 'multi') {
   if (!template) await loadTemplate();
   await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
-  const style = (QS.get('style') === 'tdm' ? 'tdm' : QS.get('style') === 'bomb' ? 'bomb' : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
+  const style = (['bomb', 'tdm', 'rescue', 'collect'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
   const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
   game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });

@@ -45,7 +45,7 @@ wss.on('connection', (ws) => {
   function handle(msg: ClientMsg) {
     if (msg.type === 'ping') { send(ws, { type: 'pong', t: Number(msg.t) || 0 }); return; }
     if (msg.type === 'join' && !room) {
-      const style: GameMode = msg.style === 'tdm' ? 'tdm' : 'bomb';
+      const style: GameMode = msg.style === 'tdm' || msg.style === 'rescue' || msg.style === 'collect' ? msg.style : 'bomb';
       const wset: WeaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(msg.wset as WeaponSet) ? msg.wset as WeaponSet : 'all';
       const pick: PickMode = msg.pick === 'auto' ? 'auto' : 'manual';
       // the public room is per game style, so people who want different rules never end up in the same game
@@ -56,7 +56,7 @@ wss.on('connection', (ws) => {
       r.clients.set(id, ws);
       r.sim.join(id, String(msg.name || 'Player').slice(0, 14), Number(msg.skin) || 0, Number(msg.sidearm) || 0, msg.team === 'CT' || msg.team === 'T' ? msg.team : 'auto', msg.cu && typeof msg.cu === 'object' ? msg.cu : {});
       r.sim.fillBots(TEAM_SIZE);
-      send(ws, { type: 'welcome', id, room: code, map: r.sim.map.id });
+      send(ws, { type: 'welcome', id, room: code, map: r.sim.map.id, mode: r.sim.mode });
     } else if (msg.type === 'input' && room) {
       lastInput = Date.now();
       room.sim.setInput(id, msg.input);

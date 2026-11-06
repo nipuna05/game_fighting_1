@@ -78,13 +78,21 @@ export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
 export const OVER_TIME = 15;
 // ---- game styles and weapon rules ----
-export type GameMode = 'bomb' | 'tdm';
+export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect';
 export type WeaponSet = 'all' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'sniper' | 'random';
 export type PickMode = 'manual' | 'auto';
 export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
   { id: 'bomb', name: 'Bomb mission', blurb: 'Raiders plant the bomb at a site, Sentinels stop them. One round decides the game.' },
   { id: 'tdm', name: 'Team deathmatch', blurb: 'Kills only: the first team to reach the kill target wins. You respawn after 5 seconds.' },
+  { id: 'rescue', name: 'Hostage rescue', blurb: 'Sentinels find the hostages, untie them and escort them to the extraction zone. Raiders must stop them before time runs out.' },
+  { id: 'collect', name: 'Collect the intel', blurb: 'Both teams race to grab the intel cases scattered over the map. The first team to collect them all wins.' },
 ];
+export const UNTIE_TIME = 2;          // seconds holding the use key next to a hostage
+export const RESCUE_TIME = 240;
+export const COLLECT_TIME = 240;
+export const COLLECT_TARGET = 8;      // intel cases a team needs
+export const ITEM_RESPAWN = 25;       // a taken case comes back after this many seconds
+const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : LIVE_TIME);
 export const WEAPON_SETS: { id: WeaponSet; name: string }[] = [
   { id: 'all', name: 'All guns (bomb mission: buy with cash)' }, { id: 'pistol', name: 'Pistols only' }, { id: 'smg', name: 'SMGs only' },
   { id: 'shotgun', name: 'Shotguns only' }, { id: 'rifle', name: 'Rifles only' }, { id: 'sniper', name: 'Snipers only' }, { id: 'random', name: 'Random weapon every life' },
@@ -93,7 +101,7 @@ export const KILL_TARGET = 25;   // team deathmatch: first team to this many kil
 export const TDM_TIME = 300;     // team deathmatch: time limit in seconds
 const SET_CAT: Record<string, string> = { smg: 'SMG', shotgun: 'Shotgun', rifle: 'Rifle', sniper: 'Sniper' };
 /** Free loadouts: no cash. Team deathmatch always uses them; the bomb mission uses them whenever a weapon set other than "all" is chosen. */
-export const isFreeLoadout = (mode: GameMode, set: WeaponSet) => mode === 'tdm' || set !== 'all';
+export const isFreeLoadout = (mode: GameMode, set: WeaponSet) => mode !== 'bomb' || set !== 'all';
 /** Weapon indexes a player may pick in a free-loadout game. */
 export function allowedWeapons(set: WeaponSet): number[] {
   const out: number[] = [];
@@ -140,11 +148,15 @@ export interface BombState {
   progress: number;  // 0..1 plant or defuse progress
   actor: string | null; // who is planting / defusing
 }
+export interface HostageState { id: number; x: number; y: number; carried: boolean; by: string | null; progress: number; actor: string | null }
+export interface ItemState { id: number; x: number; y: number }
 export interface RoundState {
   phase: Phase; timeLeft: number; tWins: number; ctWins: number; roundNo: number;
   winner: Team | null; reason: string; bomb: BombState;
   mode: GameMode; weaponSet: WeaponSet; pick: PickMode; free: boolean;       // how this game is played
   tKills: number; ctKills: number; killTarget: number;                      // team deathmatch score
+  hostages: HostageState[]; rescued: number; hostageCount: number; extract: Rect;   // hostage rescue
+  items: ItemState[]; tItems: number; ctItems: number; itemTarget: number;          // collect the intel
   goal: Record<Team, string>;                                                // the instruction text for each team
 }
 export interface KillEvent {
@@ -261,11 +273,18 @@ export class Sim {
   readonly pick: PickMode;
   private tKills = 0;
   private ctKills = 0;
+  private hostages: { id: number; x: number; y: number; carrier: string | null; progress: number; actor: string | null; rescued: boolean }[] = [];
+  private rescued = 0;
+  private items: { id: number; x: number; y: number; readyAt: number }[] = [];
+  private tItems = 0;
+  private ctItems = 0;
+  /** The extraction zone for hostages: the Sentinels' spawn area, a little bigger. */
+  private get extract(): Rect { const z = this.map.spawns.CT; return { x: z.x - 70, y: z.y - 70, w: z.w + 140, h: z.h + 140 }; }
   get free() { return this.rounds && isFreeLoadout(this.mode, this.weaponSet); }
 
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
-    this.mode = opts.mode === 'tdm' ? 'tdm' : 'bomb';
+    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' ? opts.mode : 'bomb';
     this.weaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(opts.weaponSet as WeaponSet) ? opts.weaponSet as WeaponSet : 'all';
     this.pick = opts.pick === 'auto' ? 'auto' : 'manual';
     this.map = getMap(opts.map);
@@ -436,6 +455,10 @@ export class Sim {
       p.stuckT = 0; p.unstickUntil = 0;
     }
     this.freshMatch = false;
+    this.hostages = this.mode === 'rescue' ? this.map.sites.slice(0, 2).map((s, i) => ({ id: i + 1, x: s.x, y: s.y, carrier: null, progress: 0, actor: null, rescued: false })) : [];
+    this.rescued = 0;
+    this.items = this.mode === 'collect' ? this.map.loot.slice(0, 12).map((l, i) => ({ id: i + 1, x: l.x, y: l.y, readyAt: 0 })) : [];
+    this.tItems = 0; this.ctItems = 0;
     const ts = [...this.players.values()].filter((p) => p.team === 'T');
     const carrier = this.mode === 'bomb' && ts.length ? ts[Math.floor(Math.random() * ts.length)] : null;
     this.bomb = carrier
@@ -471,9 +494,56 @@ export class Sim {
     this.startRound();
   }
 
+  // ---------- hostage rescue ----------
+  private stepRescue(dt: number) {
+    const ex = this.extract;
+    const inside = (x: number, y: number) => x >= ex.x && x <= ex.x + ex.w && y >= ex.y && y <= ex.y + ex.h;
+    for (const h of this.hostages) {
+      if (h.rescued) continue;
+      if (h.carrier) {                                                   // being escorted: follows the soldier, rescued at the extraction zone
+        const c = this.players.get(h.carrier);
+        if (!c || !c.alive) { h.carrier = null; h.progress = 0; h.actor = null; continue; }   // the escort fell: the hostage stays tied where it is
+        h.x = c.x - Math.cos(c.angle) * 16; h.y = c.y - Math.sin(c.angle) * 16;
+        if (inside(c.x, c.y)) { h.rescued = true; this.rescued++; }
+        continue;
+      }
+      let who: Player | null = null;                                     // a Sentinel standing next to it and holding the use key
+      for (const p of this.players.values()) {
+        if (p.team !== 'CT' || !p.alive || !p.input.use || Math.hypot(p.input.mx, p.input.my) > 0.1 || Math.hypot(p.x - h.x, p.y - h.y) > 46) continue;
+        if (this.hostages.some((o) => o.carrier === p.id)) continue;     // one hostage at a time
+        who = p; break;
+      }
+      if (who) { h.progress += dt / UNTIE_TIME; h.actor = who.id; if (h.progress >= 1) { h.carrier = who.id; h.progress = 0; h.actor = null; } }
+      else { h.progress = 0; h.actor = null; }
+    }
+    if (this.rescued >= this.hostages.length) this.endRound('CT', 'All hostages rescued');
+    else if (this.time >= this.phaseEndsAt) this.endRound('T', this.rescued ? `Time ran out: ${this.rescued} of ${this.hostages.length} rescued` : 'Time ran out: the hostages are still captive');
+  }
+
+  // ---------- collect the intel ----------
+  private stepCollect(dt: number) {
+    void dt;
+    for (const it of this.items) {
+      if (this.time < it.readyAt) continue;
+      for (const p of this.players.values()) {
+        if (!p.alive || Math.hypot(p.x - it.x, p.y - it.y) > PLAYER_R + 16) continue;
+        it.readyAt = this.time + ITEM_RESPAWN;
+        if (p.team === 'T') this.tItems++; else this.ctItems++;
+        p.score++;
+        break;
+      }
+    }
+    if (this.tItems >= COLLECT_TARGET) this.endRound('T', `${TEAM_INFO.T.name} collected ${COLLECT_TARGET} intel cases`);
+    else if (this.ctItems >= COLLECT_TARGET) this.endRound('CT', `${TEAM_INFO.CT.name} collected ${COLLECT_TARGET} intel cases`);
+    else if (this.time >= this.phaseEndsAt) {
+      const t = this.tItems > this.ctItems;
+      this.endRound(t ? 'T' : 'CT', this.tItems === this.ctItems ? `Time up, tied ${this.tItems}-${this.ctItems}: the defenders hold` : `Time up: ${Math.max(this.tItems, this.ctItems)}-${Math.min(this.tItems, this.ctItems)}`);
+    }
+  }
+
   private stepRound(dt: number) {
     if (this.phase === 'buy') {
-      if (this.time >= this.phaseEndsAt) { this.phase = 'live'; this.phaseEndsAt = this.time + (this.mode === 'tdm' ? TDM_TIME : LIVE_TIME); }
+      if (this.time >= this.phaseEndsAt) { this.phase = 'live'; this.phaseEndsAt = this.time + missionTime(this.mode); }
       return;
     }
     if (this.phase === 'post') { if (this.time >= this.phaseEndsAt) this.startRound(); return; }
@@ -489,6 +559,8 @@ export class Sim {
       }
       return;
     }
+    if (this.mode === 'rescue') { this.stepRescue(dt); return; }
+    if (this.mode === 'collect') { this.stepCollect(dt); return; }
     const b = this.bomb;
     const standing = (p: Player) => Math.hypot(p.input.mx, p.input.my) < 0.1;
     if (b.status === 'carried') {
@@ -682,7 +754,37 @@ export class Sim {
     if (this.time < p.unstickUntil) { p.input.mx = p.unstickDir.x; p.input.my = p.unstickDir.y; }
   }
 
+  /** Walk toward a point (stop within stopR), optionally holding the use key. */
+  private botGo(p: Player, gx: number, gy: number, stopR: number, use = false) {
+    const d = Math.hypot(gx - p.x, gy - p.y), ang = Math.atan2(gy - p.y, gx - p.x), move = d > stopR && !use;
+    p.input = { mx: move ? Math.cos(ang) * 0.75 : 0, my: move ? Math.sin(ang) * 0.75 : 0, angle: move ? ang : p.angle, fire: false, use };
+  }
+  private botMission(p: Player): boolean {
+    if (this.mode === 'rescue') {
+      const ex = this.extract, ec = { x: ex.x + ex.w / 2, y: ex.y + ex.h / 2 };
+      if (p.team === 'CT') {
+        const carrying = this.hostages.some((h) => h.carrier === p.id);
+        if (carrying) { this.botGo(p, ec.x, ec.y, 30); return true; }
+        let best: { x: number; y: number } | null = null, bd = Infinity;
+        for (const h of this.hostages) if (!h.rescued && !h.carrier) { const d = Math.hypot(h.x - p.x, h.y - p.y); if (d < bd) { bd = d; best = h; } }
+        if (best) { this.botGo(p, best.x, best.y, 14, bd <= 36); return true; }
+        this.botGo(p, ec.x, ec.y, 120); return true;
+      }
+      const live = this.hostages.filter((h) => !h.rescued), g = live.length ? live[p.botGoal % live.length] : null;   // Raiders guard the hostages
+      if (g) this.botGo(p, g.x, g.y, 110); else this.botGo(p, ec.x, ec.y, 140);
+      return true;
+    }
+    if (this.mode === 'collect') {
+      let best: { x: number; y: number } | null = null, bd = Infinity;
+      for (const it of this.items) { if (this.time < it.readyAt) continue; const d = Math.hypot(it.x - p.x, it.y - p.y); if (d < bd) { bd = d; best = it; } }
+      if (best) this.botGo(p, best.x, best.y, 6); else { const s = this.map.sites[p.botGoal % this.map.sites.length]; this.botGo(p, s.x, s.y, 90); }
+      return true;
+    }
+    return false;
+  }
+
   private botObjective(p: Player) {
+    if (this.botMission(p)) return;
     if (this.phase === 'live' && !(p.team === 'CT' && this.bomb.status === 'planted')) { // grab loot that is close by
       let best: { x: number; y: number } | null = null, bd = 190;
       this.map.loot.forEach((sp, i) => { const d = Math.hypot(sp.x - p.x, sp.y - p.y); if (!this.lootTaken[i] && d < bd) { bd = d; best = sp; } });
@@ -738,8 +840,16 @@ export class Sim {
         winner: this.winner, reason: this.reason, bomb: { ...this.bomb, x: r(this.bomb.x), y: r(this.bomb.y) },
         mode: this.mode, weaponSet: this.weaponSet, pick: this.pick, free: this.free,
         tKills: this.tKills, ctKills: this.ctKills, killTarget: KILL_TARGET,
+        hostages: this.hostages.filter((h) => !h.rescued).map((h) => ({ id: h.id, x: r(h.x), y: r(h.y), carried: !!h.carrier, by: h.carrier, progress: Math.round(h.progress * 100) / 100, actor: h.actor })),
+        rescued: this.rescued, hostageCount: this.hostages.length, extract: this.extract,
+        items: this.items.filter((it) => this.time >= it.readyAt).map((it) => ({ id: it.id, x: it.x, y: it.y })),
+        tItems: this.tItems, ctItems: this.ctItems, itemTarget: COLLECT_TARGET,
         goal: this.mode === 'tdm'
           ? { T: `Eliminate the Sentinels: the first team to ${KILL_TARGET} kills wins`, CT: `Eliminate the Raiders: the first team to ${KILL_TARGET} kills wins` }
+          : this.mode === 'rescue'
+          ? { T: 'Stop the Sentinels from rescuing the hostages. Guard them until time runs out', CT: 'Find the hostages (marked on screen), hold E next to one to untie it, then escort it to the extraction zone at your spawn' }
+          : this.mode === 'collect'
+          ? { T: `Collect ${COLLECT_TARGET} intel cases before the Sentinels do. Walk over a case to take it`, CT: `Collect ${COLLECT_TARGET} intel cases before the Raiders do. Walk over a case to take it` }
           : { T: 'Plant the bomb at site A or B, then protect it until it explodes', CT: 'Defend sites A and B. If the bomb is planted, defuse it before it explodes' },
       } : null,
     };
@@ -755,7 +865,7 @@ export type ClientMsg =
   | { type: 'voice'; ready: boolean }              // I have a microphone ready for team voice chat
   | { type: 'rtc'; to: string; data: unknown };    // WebRTC set-up message for a teammate (relayed by the server)
 export type ServerMsg =
-  | { type: 'welcome'; id: string; room: string; map: string }
+  | { type: 'welcome'; id: string; room: string; map: string; mode?: GameMode }
   | { type: 'snap'; snap: Snapshot }
   | { type: 'pong'; t: number }
   | { type: 'voice'; from: string; ready: boolean }

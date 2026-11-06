@@ -120,6 +120,8 @@
     #ammo b { font: 800 40px ui-monospace, monospace; letter-spacing: .02em; } #ammo b small { font-size: 18px; opacity: .7; font-weight: 600; } #ammo span { display: block; font: 700 12px system-ui; letter-spacing: .1em; color: #cfd8e3; }
     #ammo.low b { color: #ffb15e; } #ammo.empty b { color: #ff6b6b; } #ammo .rbar { width: 150px; height: 5px; background: #0008; border-radius: 3px; overflow: hidden; margin: 4px 0 0 auto; display: none; } #ammo .rbar i { display: block; height: 100%; background: #ffd34d; }
     body.touch #ammo { bottom: auto; top: calc(96px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); } body.touch #ammo b { font-size: 26px; }
+    .mk { position: absolute; left: 0; top: 0; z-index: 3; white-space: nowrap; font: 800 12px system-ui; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; color: #fff; background: #000a; border: 1px solid #ffffff55; text-shadow: 0 1px 3px #000; }
+    .mk.host { border-color: #66ffaa; color: #b9ffd6; } .mk.ext { border-color: #3ddc84; color: #3ddc84; background: #04200fcc; } .mk.item { border-color: #ffb15e; color: #ffd9a6; }
     #mic { position: fixed; right: 12px; bottom: 12px; z-index: 6; display: none; font: 600 13px system-ui, sans-serif; color: #cfd8e3; background: #000a; padding: 6px 12px; border-radius: 8px; pointer-events: none; }
     #mic.talk { color: #fff; background: #b3261e; } #mic.bad { color: #ffd34d; }
     .lbl.speaking span::before { content: '\1F50A '; } .lbl.speaking span { text-shadow: 0 0 8px #3ddc84, 0 1px 2px #000; color: #b9ffd0 !important; }

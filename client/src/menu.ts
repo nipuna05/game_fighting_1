@@ -60,14 +60,14 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     if (!st.options.length) {
       st.innerHTML = GAME_MODES.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
       ws.innerHTML = WEAPON_SETS.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
-      st.addEventListener('change', () => { profile.style = st.value as GameMode; if (profile.style === 'tdm' && profile.weaponSet === 'all') profile.weaponSet = 'random'; save(); renderRules(); });
+      st.addEventListener('change', () => { profile.style = st.value as GameMode; if (profile.style !== 'bomb' && profile.weaponSet === 'all') profile.weaponSet = 'random'; save(); renderRules(); });
       ws.addEventListener('change', () => { profile.weaponSet = ws.value as WeaponSet; save(); renderRules(); });
       pk.addEventListener('change', () => { profile.pick = pk.value as 'manual' | 'auto'; save(); renderRules(); });
     }
     st.value = profile.style; ws.value = profile.weaponSet; pk.value = profile.pick;
     const free = isFreeLoadout(profile.style, profile.weaponSet);
     // "All guns" means buying with cash, which only exists in the bomb mission
-    Array.from(ws.options).forEach((o) => { o.disabled = profile.style === 'tdm' && o.value === 'all'; });
+    Array.from(ws.options).forEach((o) => { o.disabled = profile.style !== 'bomb' && o.value === 'all'; });
     $('wpickrow').style.display = free ? 'flex' : 'none';
     $('stylenote').textContent = GAME_MODES.find((m) => m.id === profile.style)?.blurb ?? '';
     $('wsetnote').textContent = !free ? 'You start with $1600 and buy guns in the buy phase.'

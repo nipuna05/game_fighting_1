@@ -447,7 +447,7 @@ function makeScooter(): THREE.Group {
 }
 
 // ---------- painted floor markings (one big transparent decal) ----------
-function decalCanvas(map: MapDef): HTMLCanvasElement {
+function decalCanvas(map: MapDef, mode?: string): HTMLCanvasElement {
   return canvas(WORLD_W, WORLD_H, (g) => {
     for (let i = 0; i < 30; i++) { // worn patches
       g.fillStyle = `rgba(40,20,10,${rnd(0.02, 0.05)})`;
@@ -486,7 +486,11 @@ function decalCanvas(map: MapDef): HTMLCanvasElement {
       g.strokeStyle = `rgba(${col},0.9)`; g.lineWidth = 5; g.strokeRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4);
       g.save(); g.translate(z.x + z.w / 2, z.y + z.h / 2); g.rotate(-Math.PI / 2);
       g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = 'bold 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(`${TEAM_INFO[t].name.toUpperCase()} SPAWN`, 0, 0); g.restore();
+      g.fillText(mode === 'rescue' && t === 'CT' ? 'SENTINELS SPAWN - EXTRACTION' : `${TEAM_INFO[t].name.toUpperCase()} SPAWN`, 0, 0); g.restore();
+      if (mode === 'rescue' && t === 'CT') {                                   // the extraction zone: a green pad around the spawn
+        g.fillStyle = 'rgba(61,220,132,0.22)'; g.fillRect(z.x - 70, z.y - 70, z.w + 140, z.h + 140);
+        g.strokeStyle = 'rgba(61,220,132,0.95)'; g.lineWidth = 7; g.setLineDash([22, 14]); g.strokeRect(z.x - 68, z.y - 68, z.w + 136, z.h + 136); g.setLineDash([]);
+      }
       const dir = t === 'T' ? 1 : -1;
       g.strokeStyle = `rgba(${col},0.85)`; g.lineWidth = 7; g.lineCap = 'round';
       for (let i = 0; i < 3; i++) {
@@ -531,7 +535,7 @@ const THEMES = {
   village: { sky: 0xb9cfdc, fogNear: 1100, fogFar: 3200, hemi: [0xdbe8f2, 0x5d6b3c, 1.8], sun: [0xffe9c4, 2.5], ground: 0x55703a, bunting: false },
 } as const;
 
-export function buildWorld(scene: THREE.Scene, map: MapDef) {
+export function buildWorld(scene: THREE.Scene, map: MapDef, mode?: string) {
   const T = THEMES[map.theme];
   scene.background = new THREE.Color(T.sky);
   scene.fog = new THREE.Fog(T.sky, T.fogNear, T.fogFar);
@@ -559,7 +563,7 @@ export function buildWorld(scene: THREE.Scene, map: MapDef) {
   floor.rotation.x = -Math.PI / 2; floor.position.set(cx, 0, cz); floor.receiveShadow = true;
   scene.add(floor);
 
-  const decal = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshBasicMaterial({ map: tex(decalCanvas(map)), transparent: true, depthWrite: false }));
+  const decal = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, WORLD_H), new THREE.MeshBasicMaterial({ map: tex(decalCanvas(map, mode)), transparent: true, depthWrite: false }));
   decal.rotation.x = -Math.PI / 2; decal.position.set(cx, 0.5, cz);
   scene.add(decal);
 

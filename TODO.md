@@ -57,9 +57,14 @@ first-person look up/down, weapon customization (sight / foregrip / finish, save
 Left-hand navigation (Play, Practice, Equipment, Shop, Rewards, Settings, Community), currency bar, a 28-day "daily login rewards" calendar
 (coins, weapon finishes), crate slots, a featured-item card and a season / battle-pass strip. Build it with coins only (no real-money items).
 
+## Done: missions (phase 2)
+Hostage rescue (Sentinels untie 2 hostages with E, escort them to the extraction zone at their spawn; Raiders stop them; 4 minutes) and
+Collect the intel (first team to 8 cases; cases respawn after 25 s). Both have world objects (hostage figures, glowing cases with light
+beams), screen markers with distances, hints, an untie progress bar, toasts and sounds, and bot behaviour. Add a new mission by adding a
+`GameMode`, its `step...` function in sim.ts, its goal text, and objects in `syncObjectives`.
+
 ## Roadmap the user asked for (in this order)
-2. **Missions with instruction text**: rescue the hostage, collect items / intel, escort, defend. The `goal` text and mode framework are ready;
-   add `GameMode`s (e.g. 'rescue', 'collect') with their own objective entities in the sim.
+2. (done: rescue + collect) more missions could be: escort a VIP, defend a point, capture-the-flag.
 3. **Items (PUBG style)**: medkit / bandage / painkillers / energy drink (heal over time), armor and helmet levels, grenade types (frag,
    smoke, flash), and different bombs. Pickups on the map + an inventory bar.
 4. **Multi-floor buildings**: floors, stairs, jump up onto ledges, bomb sites upstairs. Needs a z-level on players/walls/bullets in the sim,
