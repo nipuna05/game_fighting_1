@@ -1,6 +1,7 @@
 // Map and weapon graphics, all generated in code (no image or model files).
 // Theme: a sunny Mediterranean old town (terracotta pavers, plaster shopfronts, tiled roofs, a fountain).
 import * as THREE from 'three';
+import { asset } from './assets';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WEAPONS, TEAM_INFO, WORLD_W, WORLD_H, FLOOR_H, defaultCustom, type MapDef, type Rect, type Team } from '@fight/shared';
 
@@ -335,7 +336,7 @@ function buildWallDesert(scene: THREE.Scene, r: Rect, index: number) {
 }
 
 // ---------- medieval village (CC0 Quaternius "Medieval Village MegaKit" pieces in /models/village + painted textures) ----------
-const KIT = '/models/village/';
+const KIT = asset('/models/village/');
 function kitTex(name: string, rx: number, ry: number): THREE.Texture {
   const t = new THREE.TextureLoader().load(KIT + name);
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
@@ -748,11 +749,11 @@ export function loadGunModels(): Promise<void> {
   gunLoad ??= (async () => {
     const loader = new GLTFLoader();
     await Promise.all(Object.values(ACC_FILES).concat('FG01_Foregrip').map(async (n) => {
-      try { accScenes.set(n, (await loader.loadAsync(`/models/accessories/${n}.glb`)).scene); } catch { /* kit not installed */ }
+      try { accScenes.set(n, (await loader.loadAsync(asset(`/models/accessories/${n}.glb`))).scene); } catch { /* kit not installed */ }
     }));
     await Promise.all(WEAPONS.map(async (w) => {
       try {
-        const gltf = await loader.loadAsync(`/models/guns/${w.id}.glb`);
+        const gltf = await loader.loadAsync(asset(`/models/guns/${w.id}.glb`));
         gunBase.set(w.id, prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30, GUN_FLIP.has(w.id)));
       } catch { /* no file for this weapon: the built-in model is used */ }
     }));

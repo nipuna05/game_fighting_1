@@ -4,6 +4,7 @@ import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './
 import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
 
 import { music } from './music';
+import { asset, staticHost } from './assets';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -171,7 +172,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   let portraits = false; // true once the soldier portraits (client/public/models/thumbs) are known to exist
   const probe = new Image();
   probe.onload = () => { portraits = true; renderSkins(); };
-  probe.src = '/models/thumbs/skin0.png';
+  probe.src = asset('/models/thumbs/skin0.png');
   const renderSkins = () => {
     const box = $('skins');
     box.innerHTML = '';
@@ -179,7 +180,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       const owned = profile.unlocks.skins.includes(i);
       const d = document.createElement('div');
       d.className = `skin${profile.skin === i ? ' sel' : ''}${owned ? '' : ' locked'}`;
-      d.style.backgroundImage = `url(${portraits ? `/models/thumbs/skin${i}.png` : `/models/kenney/thumb${i}.png`})`;
+      d.style.backgroundImage = `url(${portraits ? asset(`/models/thumbs/skin${i}.png`) : asset(`/models/kenney/thumb${i}.png`)})`;
       if (portraits) d.classList.add('p');
       if (!owned) d.innerHTML = `<em>${SKIN_PRICES[i]} coins</em>`;
       d.addEventListener('click', () => {
@@ -284,7 +285,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     if (creditsDone) return;
     const box = $('creditslist');
     try {
-      const data = await (await fetch('/credits.json')).json() as { entries: { what: string; by: string; licence: string; link?: string }[] };
+      const data = await (await fetch(asset('/credits.json'))).json() as { entries: { what: string; by: string; licence: string; link?: string }[] };
       box.innerHTML = data.entries.map((e) => `<div class="cr"><b>${esc(e.what)}</b><span>by ${esc(e.by)} &middot; ${esc(e.licence)}${e.link && /^https:\/\//.test(e.link) ? ` &middot; <a href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">${esc(e.link.replace('https://', ''))}</a>` : ''}</span></div>`).join('');
       creditsDone = true;
     } catch { box.textContent = 'Credits could not be loaded.'; }
@@ -388,6 +389,11 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   });
   // the home screen only picks single player or multiplayer; the details are on the next screen
   let setupMode: 'single' | 'multi' = 'single';
+  if (staticHost) {                                                       // a static website has no game server: say so instead of failing
+    const mb = $('homeMulti') as HTMLButtonElement;
+    mb.disabled = true; mb.style.opacity = '0.55'; mb.style.cursor = 'not-allowed';
+    mb.querySelector('span')!.textContent = 'Multiplayer needs the game server, which is not part of this website. Run the game on your PC (see the README) to play with friends.';
+  }
   const showSetup = (mode: 'single' | 'multi') => {
     setupMode = mode;
     $('setuptitle').textContent = mode === 'single' ? 'Single player: match setup' : 'Multiplayer: match setup';

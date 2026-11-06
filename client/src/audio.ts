@@ -1,3 +1,4 @@
+import { asset } from './assets';
 // Tiny synthesized sound effects (WebAudio). No audio files needed.
 let ctx: AudioContext | null = null;
 let muted = false;
@@ -30,7 +31,7 @@ export function initAudio() {
       wet = ctx.createConvolver(); wet.buffer = ir;
       const wg = ctx.createGain(); wg.gain.value = 0.7; wet.connect(wg).connect(master);
       for (const id of Object.keys(VOICES)) { // real recordings are optional: use them when the files exist
-        fetch(`/sounds/guns/${id}.ogg`).then((r) => (r.ok && /audio|ogg|octet/.test(r.headers.get('content-type') ?? '') ? r.arrayBuffer() : null))
+        fetch(asset(`/sounds/guns/${id}.ogg`)).then((r) => (r.ok && /audio|ogg|octet/.test(r.headers.get('content-type') ?? '') ? r.arrayBuffer() : null))
           .then((ab) => (ab ? ctx!.decodeAudioData(ab) : null)).then((b) => { if (b) samples.set(id, b); }).catch(() => undefined);
       }
     }

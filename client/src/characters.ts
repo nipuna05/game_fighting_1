@@ -1,5 +1,6 @@
 // Character models: the animated Kenney soldier (with a blocky fallback) plus the loaders for it.
 import * as THREE from 'three';
+import { asset } from './assets';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -24,8 +25,8 @@ export interface Character {
 }
 
 // ---- real character model (Kenney "Animated Characters 2", CC0). Falls back to the blocky soldier if missing. ----
-const MODEL_GLB = '/models/character.glb';                       // optional: a rigged, animated glb overrides everything below
-const KENNEY = '/models/kenney';
+const MODEL_GLB = asset('/models/character.glb');                       // optional: a rigged, animated glb overrides everything below
+const KENNEY = asset('/models/kenney');
 // costume index -> texture (same order as the menu thumbnails)
 const SKIN_URLS = ['survivorMaleB', 'survivorFemaleA', 'zombieA', 'zombieC'].map((n) => `${KENNEY}/${n}.png`);
 export const QS = new URLSearchParams(location.search); // dev overrides: ?yaw=<radians>&zoom=<0.2..1>
@@ -66,8 +67,8 @@ export async function loadTemplate(): Promise<void> {
   if (!QS.has('kenney')) {
     try { // 2) "Soldier Cole": realistic soldier (compact glb made by client/src/coleprep.ts) + animation clips
       const [gltf, anims] = await Promise.all([
-        new GLTFLoader().loadAsync('/models/cole/cole.glb'),
-        fetch('/models/cole/anims.json').then((r) => { if (!r.ok) throw new Error('no anims'); return r.json() as Promise<Record<string, object>>; }),
+        new GLTFLoader().loadAsync(asset('/models/cole/cole.glb')),
+        fetch(asset('/models/cole/anims.json')).then((r) => { if (!r.ok) throw new Error('no anims'); return r.json() as Promise<Record<string, object>>; }),
       ]);
       const order = ['idle', 'run', 'walk', 'death', 'jump'];
       const clips = order.filter((n) => anims[n]).map((n) => THREE.AnimationClip.parse(anims[n] as Parameters<typeof THREE.AnimationClip.parse>[0]));
@@ -79,7 +80,7 @@ export async function loadTemplate(): Promise<void> {
       // the other three costumes: Mixamo soldiers (optional files), animated by re-targeting Cole's clips onto their skeleton
       await Promise.all(MIXAMO_SKINS.map(async ([skin, file]) => {
         try {
-          const mg = await new GLTFLoader().loadAsync(`/models/mixamo/${file}.glb`);
+          const mg = await new GLTFLoader().loadAsync(asset(`/models/mixamo/${file}.glb`));
           const baked = clips.filter((c) => ['idle', 'run', 'walk', 'death', 'jump'].includes(c.name)).map((c) => bakeRetarget(c, gltf.scene, mg.scene));
           if (!baked.some((c) => c.name === 'idle' && c.tracks.length) || !baked.some((c) => c.name === 'run' && c.tracks.length)) throw new Error('retarget produced no tracks');
           templates[skin] = finishTemplate('mixamo', mg.scene, baked);
