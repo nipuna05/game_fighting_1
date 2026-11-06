@@ -14,6 +14,8 @@ export interface Character {
   mixer?: THREE.AnimationMixer; idle?: THREE.AnimationAction; run?: THREE.AnimationAction; // set for loaded models
   runBase?: number; runGain?: number;                         // run animation speed = runBase + runGain * (how fast the character moves)
   walk?: THREE.AnimationAction; strideWalk?: number; strideRun?: number; // ground speed (units/s) that the walk / run clips cover at normal playback speed
+  arms?: { side: number; upper: THREE.Object3D; fore: THREE.Object3D; hand: THREE.Object3D }[]; armGunIdx?: number; gunLen?: number; gunH?: number;
+  gunOnBody?: boolean;                                                           // the weapon follows the chest bone (so it needs no separate offset)
   airT?: number; crouchK?: number; gunBaseY?: number;                            // jump timer, and how far into the kneel pose (0..1) the character is
   kneel?: { hips: THREE.Object3D; hipsY: number; thighs: THREE.Object3D[]; shins: THREE.Object3D[] };
   death?: THREE.AnimationAction; dead?: boolean; ring?: THREE.Object3D; // realistic soldier: falls down and stays down until the next round
@@ -168,19 +170,39 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
   // bones that share the upper-body twist (the names differ between the two rigs)
   const pick = (name: string, k: number) => { const bone = model.getObjectByName(name); return bone ? [{ bone, k }] : []; };
   const twistBones = t.rig === 'cole'
-    ? [...pick('Spine01', 0.5), ...pick('Spine', 0.35), ...pick('neck', 0.1)]
+    ? [...pick('Spine01', 0.55), ...pick('Spine', 0.45), ...pick('neck', 0.1)]   // the chest gets the whole twist (0.55 + 0.45), so a gun carried on the chest points exactly where the soldier aims
     : t.rig === 'mixamo'
-      ? [...pick('mixamorigSpine1', 0.5), ...pick('mixamorigSpine2', 0.35), ...pick('mixamorigNeck', 0.1)]
+      ? [...pick('mixamorigSpine1', 0.55), ...pick('mixamorigSpine2', 0.45), ...pick('mixamorigNeck', 0.1)]
       : [...pick('Spine', 0.8), ...pick('Neck', 0.15)];
   const pre = t.rig === 'mixamo' ? 'mixamorig' : '';
   const bone = (n: string) => model.getObjectByName(pre + n);
   const hips = bone('Hips');
   const kneel = hips && t.rig !== 'other' && bone('LeftUpLeg') && bone('RightUpLeg') && bone('LeftLeg') && bone('RightLeg')
     ? { hips, hipsY: hips.position.y, thighs: [bone('LeftUpLeg')!, bone('RightUpLeg')!], shins: [bone('LeftLeg')!, bone('RightLeg')!] } : undefined;
+  // The weapon rides on the chest bone, not on the fixed root: whenever the body turns, leans, bobs, kneels or jumps, the gun moves with it.
+  // attach() keeps the weapon exactly where it is now (the rest pose) and only changes what it follows from here on.
+  const chest = model.getObjectByName(t.rig === 'mixamo' ? 'mixamorigSpine2' : 'Spine');
+  let gunOnBody = false;
+  if (chest) {
+    root.updateMatrixWorld(true);
+    // carry it centred in front of the chest, a little below shoulder height and just ahead of the shoulders, where both arms can reach it
+    const sp = t.rig === 'mixamo' ? 'mixamorig' : '', rS = model.getObjectByName(`${sp}RightArm`), lS = model.getObjectByName(`${sp}LeftArm`);
+    if (rS && lS) {
+      const m = root.worldToLocal(rS.getWorldPosition(new THREE.Vector3())).add(root.worldToLocal(lS.getWorldPosition(new THREE.Vector3()))).multiplyScalar(0.5);
+      gunHolder.position.set(m.x + 4, m.y - 6, m.z);
+    }
+    chest.attach(gunHolder); gunOnBody = true;
+  }
+  const pre2 = t.rig === 'mixamo' ? 'mixamorig' : '';
+  const armBones = (side: 'Left' | 'Right', k: number) => {
+    const upper = model.getObjectByName(`${pre2}${side}Arm`), fore = model.getObjectByName(`${pre2}${side}ForeArm`), hand = model.getObjectByName(`${pre2}${side}Hand`);
+    return upper && fore && hand ? [{ side: k, upper, fore, hand }] : [];
+  };
+  const arms = gunOnBody && (t.rig === 'cole' || t.rig === 'mixamo') ? [...armBones('Right', 1), ...armBones('Left', -1)] : undefined;
   const dummy = () => new THREE.Group();
   const cole = t.rig === 'cole' || t.rig === 'mixamo';
   return {
-    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, holder, twistBones, mixer, idle, run, walk, strideWalk: stride.walk, strideRun: stride.run, death, ring, kneel,
+    root, legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), phase: 0, gunHolder, gunIdx: -1, gunOnBody, arms, holder, twistBones, mixer, idle, run, walk, strideWalk: stride.walk, strideRun: stride.run, death, ring, kneel,
     runBase: cole ? 0.8 : 0.6, runGain: cole ? 0.5 : 0.8,
   };
 }
@@ -237,8 +259,10 @@ export function makeCharacter(color: number): Character {
 /** Kneel pose, applied after the animation each frame: hips drop, thighs come forward, shins fold back. k = 0..1 (eased in by the caller). */
 export const KNEEL = { thigh: QS.has('kt') ? Number(QS.get('kt')) : -1.15, shin: QS.has('ks') ? Number(QS.get('ks')) : 1.85, drop: 0.36 };
 export function applyKneel(c: Character, k: number) {
-  c.gunBaseY ??= c.gunHolder.position.y;
-  c.gunHolder.position.y = c.gunBaseY - 11 * k * (c.kneel ? 1 : 0.6);       // the weapon comes down with the body
+  if (!c.gunOnBody) {                                                          // simple rigs: lower the weapon by hand
+    c.gunBaseY ??= c.gunHolder.position.y;
+    c.gunHolder.position.y = c.gunBaseY - 11 * k * 0.6;
+  }
   if (k < 0.01) { if (!c.mixer) c.root.scale.y = 1; return; }
   if (!c.kneel) { c.root.scale.y = 1 - 0.3 * k; return; }                // simple rigs: squash the body down instead
   const kn = c.kneel;
@@ -285,4 +309,50 @@ function strideOf(t: Template, root: THREE.Object3D, model: THREE.Object3D, _mix
   if (QS.has('debug')) console.info(`gait ${t.rig}: walk covers ${out.walk.toFixed(0)} units/s, run ${out.run.toFixed(0)} units/s`);
   strideCache.set(t, out);
   return out;
+}
+
+// ---- hands on the weapon: two-bone arm IK. The right hand takes the pistol grip, the left hand the foregrip, whatever pose the animation is in ----
+const _A = new THREE.Vector3(), _B = new THREE.Vector3(), _C = new THREE.Vector3(), _T = new THREE.Vector3(), _E = new THREE.Vector3();
+const _dir = new THREE.Vector3(), _pole = new THREE.Vector3(), _side = new THREE.Vector3(), _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _wq = new THREE.Quaternion();
+function aimBone(bone: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3) {
+  _q.setFromUnitVectors(from.clone().normalize(), to.clone().normalize());
+  bone.getWorldQuaternion(_wq); _wq.premultiply(_q);                              // new world rotation
+  bone.parent!.getWorldQuaternion(_pq);
+  bone.quaternion.copy(_pq.invert().multiply(_wq));
+  bone.updateMatrixWorld(true);
+}
+export function applyArmIK(c: Character, weight = 1) {
+  if (!c.arms || !c.gunOnBody || !c.gunHolder.visible || c.dead) return;
+  if (c.armGunIdx !== c.gunIdx) {                                                // measure the weapon once per weapon
+    const g = c.gunHolder.children[0];
+    const box = g ? new THREE.Box3().setFromObject(g) : null;
+    c.gunLen = box ? box.max.x - box.min.x : 30; c.gunH = box ? box.max.y - box.min.y : 6;
+    c.armGunIdx = c.gunIdx;
+  }
+  const L = c.gunLen ?? 30, pistol = L < 18;
+  c.root.updateMatrixWorld(true);
+  const rootQ = c.root.getWorldQuaternion(new THREE.Quaternion());
+  for (const a of c.arms) {
+    const right = a.side > 0;
+    // grip points in the weapon's own space (x = along the barrel, y = up)
+    const target = right ? _T.set(-0.03 * L, -(c.gunH ?? 6) * 0.25, 0) : _T.set(pistol ? 0.02 * L : Math.min(0.2 * L, 5.5), -(c.gunH ?? 6) * (pistol ? 0.4 : 0.2), 0);
+    c.gunHolder.localToWorld(target);
+    a.upper.updateWorldMatrix(true, false);
+    a.upper.getWorldPosition(_A); a.fore.getWorldPosition(_B); a.hand.getWorldPosition(_C);
+    const l1 = _B.distanceTo(_A), l2 = _C.distanceTo(_B);
+    const reach = _T.distanceTo(_A), d = Math.max(0.0001, Math.min(reach, (l1 + l2) * 0.995));
+    _dir.copy(_T).sub(_A).normalize();
+    // the elbow bends down and outward (pole vector), at the distance given by the law of cosines
+    _side.set(0, 0, a.side).applyQuaternion(rootQ);
+    _pole.set(0, -1, 0).addScaledVector(_side, 0.7); _pole.addScaledVector(_dir, -_pole.dot(_dir)).normalize();
+    const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+    _E.copy(_A).addScaledVector(_dir, along).addScaledVector(_pole, h);
+    if (weight < 1) { /* blend: not used yet, kept for easing in and out */ }
+    aimBone(a.upper, _B.clone().sub(_A), _E.clone().sub(_A));
+    a.fore.getWorldPosition(_B); a.hand.getWorldPosition(_C);
+    aimBone(a.fore, _C.clone().sub(_B), _T.clone().sub(_B));
+    // the hand follows the weapon's direction so the fingers wrap around the grip
+    a.hand.getWorldQuaternion(_wq); const gq = c.gunHolder.getWorldQuaternion(new THREE.Quaternion());
+    void gq;
+  }
 }

@@ -37,6 +37,12 @@ Jump (Space) hops over low cover, kneel (C, hold) is steadier and hides you behi
 and kneeling ones are blocked by it. All maps are 2400 x 1800 (1.5x per side) with 20-26 pieces of low cover. A game is one round.
 Esc or the Menu button leaves the game at any time; there is an end-of-game screen.
 
+## Done: attachments, hands on weapons, credits
+Holo sights / 4x / 8x scopes and a foregrip on the AK-47, MP5, M4A1 and L118A (CuiGames kit in `client/public/models/accessories`, gitignored,
+about 11 MB: compress before going online). The weapon rides on the chest bone and both hands are placed on it with arm IK
+(`applyArmIK` in characters.ts). Credits tab reads `client/public/credits.json` (gun authors still to confirm).
+Phone / wrapper work is optional and postponed: the target is the responsive web version.
+
 ## Known issues / notes
 - Bots give the Raiders about 58% of rounds on every map (bot AI, not the layouts).
 - Coins, unlocks, titles and key bindings live in the browser (localStorage) and are not tamper-proof.

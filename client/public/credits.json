@@ -6,6 +6,7 @@
     { "what": "Mixamo soldiers Ch15, Ch18, Ch35", "by": "Adobe Mixamo", "licence": "Mixamo terms (free to use in projects)", "link": "https://www.mixamo.com" },
     { "what": "Animated Characters 2 (fallback character)", "by": "Kenney", "licence": "CC0 1.0", "link": "https://kenney.nl" },
     { "what": "Medieval Village MegaKit (village map: roofs, wagon, crates, textures)", "by": "Quaternius", "licence": "CC0 1.0", "link": "https://quaternius.com" },
+    { "what": "Accessory Kit (rifle scopes and foregrip)", "by": "CuiGames (@GodTrigger0)", "licence": "free for games, raw files may not be redistributed", "link": "https://cuigames.itch.io" },
     { "what": "Weapon models (pistols, SMGs, shotguns, rifles, snipers)", "by": "low-poly weapon packs found on Poly Pizza", "licence": "individual authors and licences are still being confirmed", "link": "https://poly.pizza" },
     { "what": "Three.js (3D engine)", "by": "mrdoob and contributors", "licence": "MIT", "link": "https://threejs.org" }
   ]

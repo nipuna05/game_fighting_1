@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MAP_SCALE } from '@fight/shared';
 import { getMap, WEAPONS } from '@fight/shared';
 import { buildWorld, makeWeaponModel } from './world';
-import { template, makeModelCharacter, makeCharacter, type Character } from './characters';
+import { template, makeModelCharacter, makeCharacter, applyArmIK, type Character } from './characters';
 
 export interface Landing {
   setMap(id: string): void;
@@ -96,7 +96,7 @@ export function startLanding(host: HTMLElement, initial: Initial): Landing {
     target.set(STAGE.x + (wide ? 78 : 0) * Math.cos(phi), 30, STAGE.z - (wide ? 78 : 0) * Math.sin(phi));
     camera.lookAt(target);
 
-    for (const c of heroes) c.mixer?.update(dt);
+    for (const c of heroes) { c.mixer?.update(dt); applyArmIK(c); }
     if (dust) {
       const a = dust.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let i = 0; i < a.count; i++) {

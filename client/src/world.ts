@@ -635,13 +635,49 @@ function prepareGun(src: THREE.Object3D, targetLen: number, flip: boolean): THRE
   return out;
 }
 
+// ---------- rifle attachments (optional GLBs from the CuiGames accessory kit in /models/accessories; the kit may not be redistributed, so it is not in git) ----------
+// mount: 'top' sits on the upper rail, 'bottom' hangs from the lower rail. len = length in game units, at = how far along the gun (0 = stock end, 1 = muzzle).
+interface Fit { glb: string; len: number; at: number; mount: 'top' | 'bottom' }
+const ACCESSORIES: Record<string, Fit[]> = {
+  ak47:  [{ glb: 'H02_Holo', len: 4, at: 0.50, mount: 'top' }],
+  mp5:   [{ glb: 'H02_Holo', len: 3.6, at: 0.48, mount: 'top' }],
+  m4a1:  [{ glb: 'P42_4x', len: 6, at: 0.50, mount: 'top' }, { glb: 'FG01_Foregrip', len: 2.4, at: 0.74, mount: 'bottom' }],
+  l118a: [{ glb: 'R8_8x', len: 9.5, at: 0.46, mount: 'top' }],
+};
+async function attachAccessories(id: string, gun: THREE.Group, loader: GLTFLoader) {
+  const fits = ACCESSORIES[id];
+  if (!fits) return;
+  gun.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(gun);
+  const meshes: THREE.Object3D[] = [];
+  gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  for (const f of fits) {
+    try {
+      const acc = (await loader.loadAsync(`/models/accessories/${f.glb}.glb`)).scene;
+      const size = new THREE.Box3().setFromObject(acc).getSize(new THREE.Vector3());
+      acc.scale.setScalar(f.len / Math.max(0.0001, size.z));                 // the kit points along +z; the guns point along +x
+      const wrap = new THREE.Group(); wrap.add(acc); wrap.rotation.y = Math.PI / 2;
+      const x = box.min.x + (box.max.x - box.min.x) * f.at, top = f.mount === 'top';
+      ray.set(new THREE.Vector3(x, top ? box.max.y + 20 : box.min.y - 20, 0), new THREE.Vector3(0, top ? -1 : 1, 0));
+      const hit = ray.intersectObjects(meshes, false)[0];                       // the real surface of the gun at that spot
+      const y = hit ? hit.point.y : top ? box.max.y : box.min.y;
+      wrap.position.set(x, y + (top ? -0.25 : 0.25), 0);                       // sunk a touch so it sits on the rail
+      wrap.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; });
+      gun.add(wrap);
+    } catch { /* kit not installed: the gun is simply drawn without it */ }
+  }
+}
+
 export function loadGunModels(): Promise<void> {
   gunLoad ??= (async () => {
     const loader = new GLTFLoader();
     await Promise.all(WEAPONS.map(async (w) => {
       try {
         const gltf = await loader.loadAsync(`/models/guns/${w.id}.glb`);
-        gunTemplates.set(w.id, prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30, GUN_FLIP.has(w.id)));
+        const tpl = prepareGun(gltf.scene, GUN_LENGTH[w.id] ?? 30, GUN_FLIP.has(w.id));
+        await attachAccessories(w.id, tpl, loader);
+        gunTemplates.set(w.id, tpl);
       } catch { /* no file for this weapon: the built-in model is used */ }
     }));
     if (gunTemplates.size) console.info(`Loaded ${gunTemplates.size} gun models: ${[...gunTemplates.keys()].join(', ')}`);

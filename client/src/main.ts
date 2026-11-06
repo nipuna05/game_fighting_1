@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { initAudio, sfx, toggleMute } from './audio';
 import { buildWorld, makeWeaponModel, loadGunModels } from './world';
 import {
-  applyKneel, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
+  applyKneel, applyArmIK, QS, MODEL_YAW, MAX_TWIST, TURN_RATE, TWIST_SIGN, AXIS_Y, wrapAngle, template, loadTemplate, makeModelCharacter, makeCharacter, type Character,
 } from './characters';
 import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
@@ -718,6 +718,7 @@ class Game {
         c.mixer.update(dt);
         for (const tb of c.twistBones ?? []) tb.bone.rotateOnAxis(AXIS_Y, TWIST_SIGN * twist * tb.k); // after the animation pose is applied
         applyKneel(c, (c.crouchK ?? 0) * (1 - 0.4 * Math.min(1, speed * 2.5)));   // less folded while creeping along
+        applyArmIK(c);                                                              // hands on the weapon, whatever the body is doing
       } else {
         c.phase += dt * 11 * speed;
         const swing = Math.sin(c.phase) * 0.8 * speed;
