@@ -1,7 +1,8 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Sim, TICK_RATE, TEAM_SIZE, type ClientMsg, type ServerMsg } from '@fight/shared';
 
-const PORT = Number(process.env.PORT ?? 8080);
+const portArg = process.argv.find((a) => a.startsWith('--port='))?.slice(7);
+const PORT = Number(portArg ?? process.env.PORT ?? 8080);   // dev 8080, test environment 8081 (--port=8081)
 const MAX_PER_ROOM = 6; // matches 2 teams of TEAM_SIZE; bots are replaced as humans join
 
 interface Room { code: string; sim: Sim; clients: Map<string, WebSocket>; voice: Set<string> }

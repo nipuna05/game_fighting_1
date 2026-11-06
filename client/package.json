@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "build:test": "vite build --mode test --outDir dist-test",
+    "preview:test": "vite preview --mode test --outDir dist-test --host --port 5174 --strictPort"
   },
   "dependencies": {
     "@fight/shared": "*",

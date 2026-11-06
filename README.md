@@ -39,3 +39,14 @@ Name, costume, team, sidearm, auto-buy, coins, unlocks, last weapon pack and you
 ## Credits
 
 Character model, animations and skins: Kenney "Animated Characters 2" (CC0), https://kenney.nl
+
+## Two environments (dev and test)
+
+| | Client | Game server | Started with |
+|---|---|---|---|
+| **dev** (live reload, your day-to-day work) | http://localhost:5173 | ws :8080 | `npm run dev:server` + `npm run dev:client` |
+| **test** (a built, stable copy to share with testers) | http://localhost:5174 | ws :8081 | `npm run test-env:build`, then `npm run test-env:server` + `npm run test-env:client` |
+
+They run side by side with separate rooms, so testers are not disturbed while you change dev. The test client is a production build
+(`client/dist-test`) and is pointed at port 8081 through `client/.env.test` (`VITE_WS_PORT`). Rebuild it with `npm run test-env:build`
+whenever you want testers to get the newest version.
