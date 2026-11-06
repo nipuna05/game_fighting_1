@@ -27,7 +27,8 @@ impacts, sniper scope (right mouse, zoom animation), key rebinding (Controls tab
 3. Mixamo animations: idle/run were never downloaded, but Cole's animations are retargeted onto the Mixamo soldiers, so
    this is not needed any more.
 4. Attach the CuiGames scopes / foregrip / light to the rifles (kit is in `assets-src/accessories`, not redistributable).
-5. Mobile pass (touch buttons for plant / defuse / buy / scope, then a Flutter or Android wrapper).
+5. **Done:** mobile controls (sticks + PLANT/DEFUSE, SCOPE, SWAP, TALK buttons, fullscreen + landscape, phone HUD). Still to do: a Flutter / Android wrapper, and a test on a real phone.
+   **Done:** realistic per-weapon gunshots, hit / wall / hurt / death sounds (synthesised; real recordings can be dropped into `client/public/sounds/guns`).
 6. Put the game online (host the server, https, accounts so profiles and coins follow the player). Before that: compress the
    soldier models (about 9 MB each) with meshopt / KTX2.
 

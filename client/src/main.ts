@@ -191,7 +191,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { maxBullet: 0, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
+  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -229,6 +229,7 @@ class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.appendChild(this.renderer.domElement);
     if (QS.has('debug')) (window as unknown as { __game: Game }).__game = this; // dev: inspect the game from the console
+    if (QS.has('debug')) (window as unknown as { __sfx: typeof sfx }).__sfx = sfx;   // dev: play sounds from the console
     if (QS.has('lowq')) { this.quality = Number(QS.get('lowq')); }
     this.camera = new THREE.PerspectiveCamera(45, 1, 10, 4000);
     this.resize();
@@ -945,13 +946,26 @@ class Game {
     const ev = this.ev;
     if (me) {
       // gunshots: any bullet we have not seen before; louder when closer
-      let fresh = 0, nearest = Infinity;
+      const shots = new Map<number, { d: number; x: number }>(); // one sound per weapon per snapshot (a shotgun blast is one bang, not 7)
       for (const b of s.bullets) {
-        if (b.id > ev.maxBullet) { fresh++; nearest = Math.min(nearest, Math.hypot(b.x - me.x, b.y - me.y)); }
+        if (b.id <= ev.maxBullet) continue;
+        const d = Math.hypot(b.x - me.x, b.y - me.y), cur = shots.get(b.w);
+        if (!cur || d < cur.d) shots.set(b.w, { d, x: b.x });
       }
-      if (fresh > 0) sfx.shot(Math.max(0, 1 - nearest / 1000), fresh >= 4);
+      for (const [w, sh] of shots) {
+        const far = Math.min(1, sh.d / 1100);
+        sfx.gun(WEAPONS[w]?.id ?? 'usp', Math.pow(1 - far, 1.3), (sh.x - me.x) / 450, far, sh.d < 50);
+      }
+      // bullets hitting things: flesh or walls, panned and louder when close
+      const maxImp = s.impacts.reduce((m, e) => Math.max(m, e.id), 0);
+      if (ev.maxImpact < 0) ev.maxImpact = maxImp;
+      for (const e of s.impacts) {
+        if (e.id <= ev.maxImpact) continue;
+        sfx.impact(e.kind, 1 - Math.hypot(e.x - me.x, e.y - me.y) / 800, (e.x - me.x) / 450);
+      }
+      ev.maxImpact = Math.max(ev.maxImpact, maxImp);
       if (me.hp < ev.hp && me.alive) {
-        sfx.hurt();
+        sfx.hurt(ev.hp - me.hp);
         const el = $('hurt'); el.style.transition = 'none'; el.style.opacity = '0.9';
         void el.offsetWidth; el.style.transition = 'opacity .35s ease-out'; el.style.opacity = '0';
       }
