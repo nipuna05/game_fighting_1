@@ -30,7 +30,7 @@ const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs a
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ options: { replay: true, voice: 'ptt' }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'off' }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0] }, coins: START_COINS, name: '', skin: 0, team: 'auto', sidearm: 0, map: 'town', autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -41,7 +41,7 @@ export function loadProfile(): Profile {
     return {
       options: {
         replay: p.options?.replay !== false,
-        voice: p.options?.voice === 'open' || p.options?.voice === 'off' ? p.options.voice : 'ptt',
+        voice: p.options?.voice === 'open' || p.options?.voice === 'ptt' ? p.options.voice : 'off',
       },
       keybinds: p.keybinds && typeof p.keybinds === 'object'
         ? Object.fromEntries(Object.entries(p.keybinds).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k.slice(0, 20), (v as unknown[]).filter((c) => typeof c === 'string').slice(0, 2).map((c) => String(c).slice(0, 20))]))

@@ -248,6 +248,8 @@ export class Sim {
     if (this.bomb.carrier === id) this.bomb = { ...this.bomb, status: 'dropped', carrier: null };
   }
   has(id: string) { return this.players.has(id); }
+  /** Team of a real (non-bot) player, or undefined. Used by the server to keep voice chat inside a team. */
+  humanTeam(id: string): Team | undefined { const p = this.players.get(id); return p && !p.bot ? p.team : undefined; }
   humanCount() { let n = 0; for (const p of this.players.values()) if (!p.bot) n++; return n; }
   botCount() { let n = 0; for (const p of this.players.values()) if (p.bot) n++; return n; }
 
@@ -597,10 +599,14 @@ export type ClientMsg =
   | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number }
-  | { type: 'ping'; t: number };
+  | { type: 'ping'; t: number }
+  | { type: 'voice'; ready: boolean }              // I have a microphone ready for team voice chat
+  | { type: 'rtc'; to: string; data: unknown };    // WebRTC set-up message for a teammate (relayed by the server)
 export type ServerMsg =
   | { type: 'welcome'; id: string; room: string; map: string }
   | { type: 'snap'; snap: Snapshot }
-  | { type: 'pong'; t: number };
+  | { type: 'pong'; t: number }
+  | { type: 'voice'; from: string; ready: boolean }
+  | { type: 'rtc'; from: string; data: unknown };
 
 export { other as otherTeam };

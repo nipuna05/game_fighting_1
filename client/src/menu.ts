@@ -196,6 +196,9 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const optReplay = $('optreplay') as HTMLInputElement;
   optReplay.checked = profile.options.replay;
   optReplay.addEventListener('change', () => { profile.options.replay = optReplay.checked; saveProfile(profile); });
+  const optVoice = $('optvoice') as HTMLSelectElement;
+  optVoice.value = profile.options.voice;
+  optVoice.addEventListener('change', () => { profile.options.voice = optVoice.value as 'off' | 'ptt' | 'open'; saveProfile(profile); });
   $('resetkeys').addEventListener('click', () => { saveBinds({}); renderControls(); say('Keys reset to the defaults.'); });
 
   // ---------- tabs and buttons ----------

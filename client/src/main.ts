@@ -6,6 +6,7 @@ import {
 } from './characters';
 import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
+import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
 import {
@@ -76,6 +77,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'mute': if (v) toggleMute(); break;
     case 'perf': if (v) game?.togglePerf(); break;
     case 'specNext': if (v) game?.specNext(); break;
+    case 'talk': game?.talk(v); break;
     case 'replay': if (v) game?.watchAgain(); break;
     default: return false;
   }
@@ -157,6 +159,8 @@ class Game {
   private replay: { frames: { t: number; snap: Snapshot }[]; clock: number; end: number; killer: string; speed: number; snap: Snapshot } | null = null;
   private lastDeath: { frames: { t: number; snap: Snapshot }[]; killer: string } | null = null;
   private specId: string | null = null;
+  private voice: Voice | null = null;               // team voice chat (multiplayer, if the player turned it on)
+  private micAcc = 0;
   // bullet effects and the sniper scope
   private lastBulletFx = -1;
   private lastImpactFx = -1;
@@ -242,8 +246,9 @@ class Game {
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
-      if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; this.buildWorld(getMap(m.map)); }
-      else this.snap = m.snap;
+      if (m.type === 'welcome') { this.myId = m.id; this.status = `Room: ${m.room}`; this.buildWorld(getMap(m.map)); this.startVoice(m.id); }
+      else if (m.type === 'snap') this.snap = m.snap;
+      else this.voice?.handle(m);               // 'voice' / 'rtc': team voice chat set-up
     };
     this.ws.onclose = () => { this.status = 'Disconnected (is the server running?)'; };
   }
@@ -336,6 +341,14 @@ class Game {
     buildWorld(this.scene, map);
     if (this.quality > 0) this.applyQuality();
   }
+
+  private startVoice(id: string) {
+    if (profile.options.voice === 'off' || this.voice) return;
+    this.voice = new Voice(id, (msg) => { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }, profile.options.voice);
+    void this.voice.enable();
+  }
+  /** Hold-to-talk key (push-to-talk mode). */
+  talk(on: boolean) { this.voice?.setTalking(on); }
 
   togglePerf() { this.perfOn = !this.perfOn; $('perf').style.display = this.perfOn ? 'block' : 'none'; }
 
@@ -434,6 +447,22 @@ class Game {
 
   /** Frame-rate watchdog (drops graphics quality when slow) and the F3 overlay. */
   private monitor(deltaMs: number) {
+    if (this.voice) {
+      this.voice.update();
+      this.micAcc += deltaMs;
+      if (this.micAcc > 150) {
+        this.micAcc = 0;
+        const v = this.voice, el = $('mic'), key = keyLabel(currentBinds().talk[0]);
+        const text: Record<string, string> = { asking: 'Mic: allow access in the browser...', denied: 'Mic blocked: voice chat is off', unsupported: 'Voice chat needs https or localhost', off: '' };
+        el.style.display = 'block';
+        if (v.status !== 'ready') { el.textContent = text[v.status] ?? ''; el.className = 'bad'; }
+        else {
+          const mates = v.peers.size;
+          el.className = v.live ? 'talk' : '';
+          el.textContent = `${v.live ? '\u25CF TALKING' : profile.options.voice === 'open' ? 'Mic muted' : `Hold ${key} to talk`}  \u00b7  ${mates} teammate${mates === 1 ? '' : 's'} on voice`;
+        }
+      }
+    }
     this.frameMs += (deltaMs - this.frameMs) * 0.05;
     if (!QS.has('noadapt')) {
       if (this.frameMs > 26) this.slowFor += deltaMs / 1000; else this.slowFor = Math.max(0, this.slowFor - deltaMs / 1000);
@@ -638,6 +667,7 @@ class Game {
         this.labels.set(p.id, el);
       }
       const d = this.shown.get(p.id);
+      el.classList.toggle('speaking', p.id === this.myId ? (this.voice?.micLevel ?? 0) > 0.035 : !!this.voice?.isSpeaking(p.id));
       if (!p.alive || !d) { el.style.display = 'none'; continue; }
       this.tmp.set(d.x, 78, d.y).project(this.camera);
       el.style.display = 'block';

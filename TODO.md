@@ -18,23 +18,17 @@ multi-kill titles (DOUBLE STRIKE ... LEGENDARY) + FIRST BLOOD + MATCH MVP saved 
 impacts, sniper scope (right mouse, zoom animation), key rebinding (Controls tab), smoother controls (prediction).
 
 ## Next, in this order
-1. **Spectator view + slow-motion kill cam** (requested). The code is written but not applied:
-   `tools/pending/patch_spectate.py` (run with `python tools/pending/patch_spectate.py`, then `npm run typecheck`).
-   It adds: kill cam replay (about 1.8 s before the death at 0.4x speed, follows the killer, letterbox + "KILL CAM" text,
-   Space skips), spectating with Space / click to switch player, R to watch the death again, an on/off option in
-   Controls tab -> Options. Needs testing after applying (history recording, camera follow, no duplicate kill-feed events).
-2. **Team-only voice chat with a headset** (requested). Plan: WebRTC peer-to-peer voice between teammates, signalling through
-   the game server (the server only relays between players on the same team in the same room), push-to-talk key (default T)
-   or open mic, mic indicator by the player name, on/off + mode option in Controls tab (profile.options.voice already exists
-   in the plan). Limits to know: browsers only allow the microphone on https or localhost, so a teammate opening
-   `http://<LAN IP>:5173` cannot use the mic until the game is served over https (do that when we host it online).
-   Public STUN is fine on a LAN; across the internet a TURN server may be needed.
-3. Medieval Village map (the kit pieces are already in `client/public/models/village`, CC0).
-4. Mixamo animations: idle/run were never downloaded, but Cole's animations are retargeted onto the Mixamo soldiers, so
+1. **Done:** spectator view + slow-motion kill cam, and team-only voice chat (WebRTC, signalling relayed by the server between
+   real players on the same team only; push-to-talk key T or open mic, set in Controls tab; off by default). Tested with three
+   browser tabs and a fake microphone: teammates connect and hear each other, the enemy tab gets no connection even with a forged
+   offer. Limits: the microphone needs https or localhost (a teammate on `http://<LAN IP>:5173` cannot use it until the game is
+   served over https), and across the internet a TURN server may be needed on top of the public STUN.
+2. Medieval Village map (the kit pieces are already in `client/public/models/village`, CC0).
+3. Mixamo animations: idle/run were never downloaded, but Cole's animations are retargeted onto the Mixamo soldiers, so
    this is not needed any more.
-5. Attach the CuiGames scopes / foregrip / light to the rifles (kit is in `assets-src/accessories`, not redistributable).
-6. Mobile pass (touch buttons for plant / defuse / buy / scope, then a Flutter or Android wrapper).
-7. Put the game online (host the server, https, accounts so profiles and coins follow the player). Before that: compress the
+4. Attach the CuiGames scopes / foregrip / light to the rifles (kit is in `assets-src/accessories`, not redistributable).
+5. Mobile pass (touch buttons for plant / defuse / buy / scope, then a Flutter or Android wrapper).
+6. Put the game online (host the server, https, accounts so profiles and coins follow the player). Before that: compress the
    soldier models (about 9 MB each) with meshopt / KTX2.
 
 ## Known issues / notes
