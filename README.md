@@ -50,3 +50,34 @@ Character model, animations and skins: Kenney "Animated Characters 2" (CC0), htt
 They run side by side with separate rooms, so testers are not disturbed while you change dev. The test client is a production build
 (`client/dist-test`) and is pointed at port 8081 through `client/.env.test` (`VITE_WS_PORT`). Rebuild it with `npm run test-env:build`
 whenever you want testers to get the newest version.
+
+## Run it from a fresh GitHub clone
+
+```
+git clone https://github.com/nipuna05/game_fighting_1.git
+cd game_fighting_1
+npm install
+npm run dev:server      # game server, ws://localhost:8080   (terminal 1)
+npm run dev:client      # the game,   http://localhost:5173  (terminal 2)
+```
+
+Open http://localhost:5173. **Single player works with the client alone** (the game simulation runs in the browser); the server is only needed for multiplayer.
+Other people on the same network open `http://<your PC's IP>:5173` (the server must be running on your PC; voice chat needs https or localhost).
+
+### What is not in the repository (and what happens without it)
+Downloaded art packs are not redistributable, so they are kept out of git (see `.gitignore` and the READMEs in `assets-src/*`). The game still runs without them
+and falls back to built-in graphics:
+
+| Missing | Folder | Fallback |
+|---|---|---|
+| Soldier Cole + Mixamo soldiers | `client/public/models/cole`, `client/public/models/mixamo` | the CC0 Kenney soldier (included) |
+| Gun models | `client/public/models/guns/<weapon id>.glb` | built-in low-poly guns |
+| Rifle sights / foregrip (CuiGames kit) | `client/public/models/accessories` | guns without attachments |
+| Soldier portraits | `client/public/models/thumbs` | plain cards |
+
+Included in git: the CC0 Kenney characters, the CC0 Medieval Village kit, all code, the generated sounds and music (no audio files are used), and `client/public/credits.json`.
+Copy your own downloads into those folders (file names are in the READMEs) to get the full look.
+
+### Putting it online
+`npm run build` makes the static client in `client/dist`. A static host (for example GitHub Pages) is enough for **single player**. Multiplayer needs the Node server
+(`server/`) running somewhere with a public address, and the client built with `VITE_WS_URL` pointing at it (use `wss://` when the page is https).
