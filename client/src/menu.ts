@@ -111,6 +111,8 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   // ---------- Loadout tab ----------
   const sidearms = WEAPONS.map((w, i) => ({ w, i })).filter((o) => o.w.slot === 'sidearm');
   const primaries = WEAPONS.map((w, i) => ({ w, i })).filter((o) => o.w.slot === 'primary');
+  // a picture of each gun: the real-model render when it exists on this PC, otherwise the built-in one (the second layer shows if the first file is missing)
+  const wpic = (id: string) => `<div class="wpic" style="background-image:url(${asset(`/weapons/real/${id}.png`)}),url(${asset(`/weapons/${id}.png`)})"></div>`;
   const renderSidearms = () => {
     const box = $('sidearms');
     box.innerHTML = '';
@@ -118,7 +120,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       const owned = profile.unlocks.sidearms.includes(i);
       const d = document.createElement('div');
       d.className = `card${profile.sidearm === i ? ' sel' : ''}${owned ? '' : ' locked'}`;
-      d.innerHTML = `<b>${esc(w.name)}</b><span>${w.dmg} dmg &middot; ${(1 / w.cooldown).toFixed(1)}/s</span>${owned ? '' : `<em>${SIDEARM_PRICES[i]} coins</em>`}`;
+      d.innerHTML = `${wpic(w.id)}<b>${esc(w.name)}</b><span>${w.dmg} dmg &middot; ${(1 / w.cooldown).toFixed(1)}/s</span>${owned ? '' : `<em>${SIDEARM_PRICES[i]} coins</em>`}`;
       d.addEventListener('click', () => {
         if (owned) { profile.sidearm = i; save(); renderSidearms(); return; }
         askUnlock(`sidearm${i}`, w.name, SIDEARM_PRICES[i], () => { profile.unlocks.sidearms.push(i); profile.sidearm = i; }, renderSidearms);
@@ -131,13 +133,14 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     box.innerHTML = '';
     const none = document.createElement('div');
     none.className = `card${profile.autoBuy.primary === null ? ' sel' : ''}`;
-    none.innerHTML = '<b>None</b><span>I will buy myself</span>';
+    none.innerHTML = '<div class="wpic none">&#8855;</div><b>None</b><span>I buy myself</span>';
     none.addEventListener('click', () => { profile.autoBuy.primary = null; save(); hooks.onPrimary(null); renderPrimaries(); });
     box.appendChild(none);
     for (const { w, i } of primaries) {
       const d = document.createElement('div');
       d.className = `card${profile.autoBuy.primary === i ? ' sel' : ''}`;
-      d.innerHTML = `<b>${esc(w.name)}</b><span>${esc(w.cat)} &middot; $${w.cost}</span>`;
+      d.title = `${w.name}: ${w.cat}, $${w.cost}, ${w.dmg} dmg, ${(1 / w.cooldown).toFixed(1)}/s, ${w.mag} rounds`;
+      d.innerHTML = `${wpic(w.id)}<b>${esc(w.name)}</b><span>${esc(w.cat)}</span>`;
       d.addEventListener('click', () => { profile.autoBuy.primary = i; save(); hooks.onPrimary(i); renderPrimaries(); });
       box.appendChild(d);
     }

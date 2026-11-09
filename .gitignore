@@ -49,3 +49,6 @@ client/public/models/cole/
 client/public/models/thumbs/
 dist-test
 dist-pages
+
+# gun pictures rendered from the downloaded (non-redistributable) gun models stay out of git; the built-in set is tracked
+client/public/weapons/real/

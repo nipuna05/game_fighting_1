@@ -96,6 +96,10 @@
     .card { padding: 10px; border-radius: 10px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; font-size: 13px; position: relative; }
     .card b { display: block; font-size: 14px; } .card span { display: block; color: #8fa0b5; font-size: 11px; margin-top: 3px; }
     .card.sel, .mapcard.sel, .skin.sel, .chip.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8455; }
+    .cards.six { grid-template-columns: repeat(6, 1fr); }
+    .wpic { width: 100%; height: 34px; background-size: contain; background-repeat: no-repeat; background-position: center; margin-bottom: 4px; filter: drop-shadow(0 3px 4px rgba(0,0,0,.55)); }
+    .wpic.none { display: grid; place-items: center; font-size: 26px; color: #5d6b7e; filter: none; }
+    @media (max-height: 690px) { .wpic { height: 26px; margin-bottom: 2px; } .cards.tight .card { padding: 4px 7px; } }
     .cards.tight .card { padding: 6px 8px; font-size: 12px; } .cards.tight .card b { font-size: 12.5px; } .cards.tight .card span, .cards.tight .card em { font-size: 10.5px; margin-top: 1px; }
     .card.locked { opacity: .55; } .card em, .skin em { display: block; font-style: normal; color: #ffd34d; font-size: 11px; margin-top: 4px; }
     .mapcard { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 12px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; }
@@ -364,7 +368,7 @@
         </div>
         <div class="pane" id="tab-loadout">
           <h4>Sidearm</h4><div id="sidearms" class="cards three tight"></div>
-          <h4>Primary weapon (bought automatically each round)</h4><div id="primaries" class="cards four tight"></div>
+          <h4>Primary weapon (bought automatically each round)</h4><div id="primaries" class="cards six tight"></div>
           <label class="check" title="Auto-buy runs at the start of every buy phase if you can afford it."><input type="checkbox" id="autoarmor" /> Also buy armor automatically</label>
         </div>
         <div class="pane" id="tab-custom">
