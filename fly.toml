@@ -1,7 +1,7 @@
 # Fly.io settings for the multiplayer game server (see README, "Putting multiplayer online").
-# Change `app` to a name that is free on Fly (names are global), e.g. fight-game-<your name>.
-app = "fight-game-server"
-primary_region = "bom"          # Mumbai, the closest Fly region to Sri Lanka; "sin" (Singapore) also works
+# `app` must match the app created on Fly (names are global).
+app = "game-fighting-1"
+primary_region = "sin"          # Singapore, the closest Fly region to Sri Lanka ("bom" / Mumbai is not available for new apps)
 
 [build]
 
