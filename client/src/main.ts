@@ -243,6 +243,8 @@ class Game {
   private helpQueued = false;
   private game_alive() { return game === this && !this.paused && !!this.me()?.alive; }
   private endDismissed = false;
+  private statsKey = '';
+  private mkStat = { byWeapon: new Map<number, number>(), bestMulti: 0 };            // my kills per weapon and my best multi-kill this game
   private introUntil = 0;
   private predAir = 0; private predCd = 0;      // local copy of the jump timers (for prediction)
   // bullet effects and the sniper scope
@@ -1626,6 +1628,7 @@ class Game {
       ev.maxImpact = Math.max(ev.maxImpact, maxImp);
       const maxKill = s.kills.reduce((m, k) => Math.max(m, k.id), 0);
       if (ev.maxKill < 0) ev.maxKill = maxKill;
+      for (const k of s.kills) if (k.id > ev.maxKill && k.killer === this.myId && k.victim !== this.myId) { this.mkStat.byWeapon.set(k.weapon, (this.mkStat.byWeapon.get(k.weapon) ?? 0) + 1); this.mkStat.bestMulti = Math.max(this.mkStat.bestMulti, k.multi); }
       const myKill = s.kills.some((k) => k.id > ev.maxKill && k.killer === this.myId && k.victim !== this.myId);
       ev.maxKill = Math.max(ev.maxKill, maxKill);
       if ((hitEnemy || myKill) && me.alive) this.hitMarker(myKill);
@@ -1682,7 +1685,7 @@ class Game {
     }
     for (const b of s.bullets) if (b.id > ev.maxBullet) ev.maxBullet = b.id;
     if (r.phase !== ev.phase) {
-      if (r.phase === 'buy') sfx.roundStart();
+      if (r.phase === 'buy') { sfx.roundStart(); this.mkStat = { byWeapon: new Map(), bestMulti: 0 }; }
       if ((r.phase === 'post' || r.phase === 'over') && me) (r.winner === me.team ? sfx.win : sfx.lose)();
       ev.phase = r.phase;
     }
@@ -1695,6 +1698,25 @@ class Game {
       sfx.beep();
       ev.nextBeep = time + (r.bomb.fuse > 10 ? 1 : r.bomb.fuse > 5 ? 0.5 : 0.2);
     }
+  }
+
+  /** The end-of-game screen: my own numbers, then everybody's scoreboard. */
+  private renderEndStats(s: Snapshot, me: Snapshot['players'][number] | undefined) {
+    const key = `${s.round?.roundNo}|${s.players.map((p) => `${p.id}:${p.score}:${p.deaths}:${p.sh}:${p.ht}:${p.dd}`).join(',')}`;
+    if (key === this.statsKey) return;                                   // only rebuild when something changed (the countdown ticks every frame)
+    this.statsKey = key;
+    const acc = (p: { sh: number; ht: number }) => (p.sh ? `${Math.round((p.ht / p.sh) * 100)}%` : '-');
+    let html = '';
+    if (me) {
+      const kd = me.deaths ? (me.score / me.deaths).toFixed(2) : me.score.toFixed(0);
+      let bestW = '', bestN = 0; for (const [w, n] of this.mkStat.byWeapon) if (n > bestN) { bestN = n; bestW = WEAPONS[w]?.name ?? ''; }
+      html += `<div class="sg"><div class="sc"><b>${me.score}</b><small>Score</small></div><div class="sc"><b>${me.deaths}</b><small>Deaths</small></div><div class="sc"><b>${kd}</b><small>K / D</small></div><div class="sc"><b>${acc(me)}</b><small>Accuracy</small></div><div class="sc"><b>${me.dd}</b><small>Damage</small></div></div>`;
+      const bits = [bestW ? `Best weapon: ${esc(bestW)} (${bestN} kills)` : '', this.mkStat.bestMulti >= 2 ? `Best streak: ${this.mkStat.bestMulti} kills in a row` : '', `${me.sh} shots, ${me.ht} hits`].filter(Boolean);
+      html += `<p class="best">${bits.join('  &middot;  ')}</p>`;
+    }
+    const rows = [...s.players].sort((a, b) => b.score - a.score || a.deaths - b.deaths).slice(0, 14);
+    html += `<table><tr><th>Player</th><th>Score</th><th>Deaths</th><th>Acc</th><th>Damage</th></tr>${rows.map((p) => `<tr class="${p.id === this.myId ? 'me' : ''}"><td><span class="${p.team === 'CT' ? 'tc' : 'tt'}">${TEAM_INFO[p.team].short}</span> ${esc(p.name)}</td><td>${p.score}</td><td>${p.deaths}</td><td>${acc(p)}</td><td>${p.dd}</td></tr>`).join('')}</table>`;
+    $('endstats').innerHTML = html;
   }
 
   private updateHud(s: Snapshot) {
@@ -1737,6 +1759,7 @@ class Game {
       $('endtitle').textContent = won ? 'VICTORY' : 'DEFEAT'; $('endtitle').style.color = won ? '#7dff9c' : '#ff6b6b';
       $('endsub').textContent = `${TEAM_INFO[r.winner ?? 'CT'].name} win the game - ${r.reason}. +${this.lastCoins} coins saved to your profile.`;
       $('endnext').textContent = `A new game starts in ${Math.ceil(r.timeLeft)} s`;
+      this.renderEndStats(s, me);
     } else {
       endEl.classList.remove('on');
       if (r.phase !== 'over') this.endDismissed = false;

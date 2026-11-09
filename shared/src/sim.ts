@@ -177,6 +177,7 @@ export interface Input { mx: number; my: number; angle: number; fire: boolean; w
 export interface PlayerState {
   id: string; name: string; x: number; y: number; angle: number;
   hp: number; score: number; deaths: number; bot: boolean; alive: boolean; weapon: number;
+  sh: number; ht: number; dd: number;   // match stats: bullets fired, bullets that hit someone, damage dealt
   team: Team; money: number; armor: number; owned: number; // owned = bitmask of WEAPONS indexes
   skin: number; // costume index, 0..SKIN_COUNT-1
   lv: number;    // floor: 0 ground, 1 upper
@@ -395,7 +396,7 @@ export class Sim {
       sidearm, weapon: !this.rounds && bot ? SIDEARM_COUNT + Math.floor(Math.random() * (WEAPONS.length - SIDEARM_COUNT)) : sidearm,
       team, skin: Math.max(0, Math.min(SKIN_COUNT - 1, Math.floor(skin) || 0)), money: START_MONEY, armor: 0, owned: this.rounds ? 1 << sidearm : ALL_MASK,
       input: { mx: 0, my: 0, angle: 0, fire: false }, cooldown: 0, respawnAt: 0,
-      lv: 0, z: 0, st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, inv: ITEMS.map(() => 0), usingItem: -1, useUntil: 0, boostUntil: 0, blindUntil: 0, throwCd: 0, itemReq: -1, botItemCd: 3 + Math.random() * 6, iv: [], us: -1, ul: 0, bl: 0, bo: false, protect: 0, air: 0, jumpCd: 0,
+      lv: 0, z: 0, st: 0, rs: 0, ch: -1, am: 0, rv: 0, rl: 0, cu: 0, ammoIn: WEAPONS.map((w) => w.mag), sh: 0, ht: 0, dd: 0, ammoRes: WEAPONS.map((w) => w.mag * MAG_RESERVE), reloadUntil: 0, equipUntil: 0, custom: {}, inv: ITEMS.map(() => 0), usingItem: -1, useUntil: 0, boostUntil: 0, blindUntil: 0, throwCd: 0, itemReq: -1, botItemCd: 3 + Math.random() * 6, iv: [], us: -1, ul: 0, bl: 0, bo: false, protect: 0, air: 0, jumpCd: 0,
       botThink: 0, botDir: { x: 0, y: 0 }, botGoal: Math.floor(Math.random() * this.map.sites.length),
       stuckT: 0, unstickUntil: 0, unstickDir: { x: 0, y: 0 },
     };
@@ -597,7 +598,7 @@ export class Sim {
 
   private resetMatch() {
     this.tWins = 0; this.ctWins = 0; this.roundNo = 0; this.freshMatch = true; this.tKills = 0; this.ctKills = 0;
-    for (const p of this.players.values()) { p.money = START_MONEY; p.score = 0; p.deaths = 0; }
+    for (const p of this.players.values()) { p.money = START_MONEY; p.score = 0; p.deaths = 0; p.sh = 0; p.ht = 0; p.dd = 0; }
     this.startRound();
   }
 
@@ -833,6 +834,7 @@ export class Sim {
           const base = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
           const spread = base * customMods(this.customOf(p)).spread * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1) * (w.cat !== 'Sniper' && p.input.scoped ? ADS_SPREAD : 1);   // lying is steadiest, kneeling steady, mid-air wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
+          p.sh++;
           this.bullets.push({
             id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg * (p.bot ? this.diff.dmg : 1), wid: p.weapon, lv: p.lv, z: p.z, crouch: p.st === 1 || p.st === 3, over: 0,
             x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
@@ -877,6 +879,7 @@ export class Sim {
         if (this.time < p.protect) continue;                // just respawned: untouchable for a moment
         if (b.over > 0 && (p.st === 1 || p.st === 3)) continue;   // kneeling or lying behind the cover this shot just flew over
         if (Math.hypot(p.x - b.x, p.y - b.y) <= (p.st === 3 ? PRONE_R : PLAYER_R)) {
+          const shooter = this.players.get(b.owner); if (shooter) shooter.ht++;
           this.addImpact(b.x, b.y, 'body', b.z, { o: b.owner, v: p.id, a: Math.atan2(b.vy, b.vx) });
           if (this.invincible.has(p.id)) { hit = true; break; }
           this.damage(p, b.dmg, b.owner, b.team, b.wid); hit = true;
@@ -894,6 +897,7 @@ export class Sim {
     if (!p.alive || this.invincible.has(p.id) || this.time < p.protect) return;
     let dmg = amount * (this.mode === 'vip' && p.id === this.vipId ? 0.6 : 1);       // the VIP is tougher
     if (p.armor > 0) { const soaked = Math.min(p.armor, dmg * 0.5); p.armor -= soaked; dmg -= soaked; }
+    const dealer = this.players.get(ownerId); if (dealer && dealer !== p) dealer.dd += Math.min(dmg, Math.max(0, p.hp));   // damage dealt (not more than the victim had left)
     p.hp -= dmg;
     p.usingItem = -1;                                                  // being hurt interrupts using an item
     if (p.hp > 0) return;
@@ -1213,7 +1217,7 @@ export class Sim {
       players: [...this.players.values()].map((p) => ({
         iv: [...p.inv], us: p.usingItem, ul: p.usingItem >= 0 ? Math.round(Math.max(0, p.useUntil - this.time) * 10) / 10 : 0, bl: Math.round(Math.max(0, p.blindUntil - this.time) * 10) / 10, bo: p.boostUntil > this.time,
         lv: p.lv, z: Math.round(p.z * 10) / 10, id: p.id, name: p.name, x: r(p.x), y: r(p.y), angle: r(p.angle * 100) / 100,
-        hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon,
+        hp: Math.round(p.hp), score: p.score, deaths: p.deaths, bot: p.bot, alive: p.alive, weapon: p.weapon, sh: p.sh, ht: p.ht, dd: Math.round(p.dd),
         team: p.team, money: p.money, armor: Math.round(p.armor), owned: p.owned, skin: p.skin, st: p.st, ch: p.ch, am: p.ammoIn[p.weapon] ?? 0, rv: p.ammoRes[p.weapon] ?? 0, rl: p.reloadUntil > 0 ? Math.round(Math.max(0, p.reloadUntil - this.time) * 10) / 10 : 0, cu: this.customOf(p), rs: p.alive ? 0 : Math.max(0, Math.round((p.respawnAt - this.time) * 10) / 10),
       })),
       bullets: this.bullets.map((b) => ({ id: b.id, x: r(b.x), y: r(b.y), a: Math.round(Math.atan2(b.vy, b.vx) * 100) / 100, w: b.wid, z: b.z })),
