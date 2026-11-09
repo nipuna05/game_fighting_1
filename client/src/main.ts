@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  levelWalls, FLOOR_H, GAME_MODES, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -939,7 +939,6 @@ class Game {
     const mePl = s.players.find((q) => q.id === this.myId);
     const fpNow = this.fpActive && camId === this.myId && !!me;
     this.updateViewGun(mePl?.weapon, mePl?.cu ?? 0, fpNow && ease < 0.6, dt, mePl?.rl ?? 0);
-    $('xhair').style.display = fpNow && ease < 0.3 ? 'block' : 'none';
     $('fphint').style.display = fpNow && !isTouch && !document.pointerLockElement && !this.paused ? 'block' : 'none';
     if (fpNow && me) {
       const ch = this.chars.get(this.myId);
@@ -958,6 +957,45 @@ class Game {
       this.camera.position.x += (Math.random() - 0.5) * 9 * this.shake; this.camera.position.y += (Math.random() - 0.5) * 6 * this.shake; this.camera.position.z += (Math.random() - 0.5) * 9 * this.shake;
       this.shake *= Math.exp(-dt * 5);
     } else this.shake = 0;
+    this.updateAim(mePl, fpNow, ease, camId === this.myId && !this.replay, dt);
+  }
+
+  // ---------- weapon aim marker: a cross whose gap is the real bullet spread (same rules as the server's shot code) ----------
+  private aimGap = 8;
+  private updateAim(me: PlayerState | undefined, fpNow: boolean, ease: number, mine: boolean, dt: number) {
+    const xh = $('xhair'), line = $('aimline');
+    const live = !!me?.alive && mine && !this.paused && ease < 0.3 && !(isTouch && !fpNow);
+    if (!live || !me) { xh.style.display = 'none'; line.style.display = 'none'; return; }
+    const w = WEAPONS[me.weapon], input = this.localInput;
+    const base = w.cat === 'Sniper' ? (input?.scoped ? 0 : 0.09) : w.spread;
+    const spread = base * customMods(me.cu ?? 0).spread * (me.st === 3 ? 0.35 : me.st === 1 ? 0.55 : me.st === 2 ? 1.8 : input?.sneak ? 0.8 : 1);
+    const moving = !!input && (input.mx !== 0 || input.my !== 0) && me.st !== 2;
+    const eff = spread * (moving ? 1.25 : 1);                          // running blurs the aim a little more on screen
+    const H = window.innerHeight;
+    let px: number, cx = window.innerWidth / 2, cy = H / 2;
+    if (fpNow) {
+      px = Math.tan(eff) * (H / 2) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+    } else {                                                           // top-down: sit on the ground point under the mouse, sized for that distance
+      const p = this.tmp.set(this.aimPoint.x, 0, this.aimPoint.y).project(this.camera);
+      cx = (p.x + 1) / 2 * window.innerWidth; cy = (1 - p.y) / 2 * H;
+      const d = this.camera.position.distanceTo(this.tmp.set(this.aimPoint.x, 0, this.aimPoint.y));
+      const mine2 = this.shown.get(this.myId);
+      const dist = mine2 ? Math.hypot(this.aimPoint.x - mine2.x, this.aimPoint.y - mine2.y) : 200;
+      px = Math.tan(eff) * Math.max(dist, 60) * (H / 2) / (d * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+      if (mine2) {                                                     // faint aim line from the soldier to the marker
+        const q = this.tmp.set(mine2.x, 18 + mine2.z, mine2.y).project(this.camera);
+        const sx = (q.x + 1) / 2 * window.innerWidth, sy = (1 - q.y) / 2 * H;
+        line.style.display = 'block'; line.style.width = `${Math.hypot(cx - sx, cy - sy)}px`;
+        line.style.transform = `translate(${sx}px, ${sy}px) rotate(${Math.atan2(cy - sy, cx - sx)}rad)`;
+      }
+    }
+    this.aimGap += (Math.min(70, Math.max(3, px)) - this.aimGap) * Math.min(1, dt * 14);   // eased, so it breathes with your movement
+    xh.style.display = 'block';
+    xh.style.left = `${cx}px`; xh.style.top = `${cy}px`;
+    xh.style.setProperty('--g', `${this.aimGap.toFixed(1)}px`);
+    xh.classList.toggle('empty', me.am === 0 && me.rl === 0);        // red: the magazine is empty
+    xh.classList.toggle('rl', (me.rl ?? 0) > 0);                       // amber: reloading
+    if (!fpNow) this.renderer.domElement.style.cursor = 'none';
   }
 
   // ---------- mission objectives: hostages, intel cases and the markers that point at them ----------

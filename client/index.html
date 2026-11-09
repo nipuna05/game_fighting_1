@@ -182,8 +182,14 @@
     .knob { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; border-radius: 50%; background: #ffffff55; }
     .tbtn { position: absolute; width: clamp(54px, 15vmin, 72px); height: clamp(54px, 15vmin, 72px); border-radius: 50%; border: 2px solid #ffffff55; background: #0b0f14aa; color: #fff; font: 800 12px system-ui; letter-spacing: .04em; display: flex; align-items: center; justify-content: center; text-align: center; pointer-events: auto; touch-action: none; }
     #xhair { position: fixed; left: 50%; top: 50%; width: 0; height: 0; z-index: 3; pointer-events: none; display: none; }
-    #xhair i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; } #xhair i:nth-child(1) { left: -12px; top: -1px; width: 8px; height: 2px; } #xhair i:nth-child(2) { left: 4px; top: -1px; width: 8px; height: 2px; }
-    #xhair i:nth-child(3) { left: -1px; top: -12px; width: 2px; height: 8px; } #xhair i:nth-child(4) { left: -1px; top: 4px; width: 2px; height: 8px; }
+    /* the aim marker: the gap (--g) is the real bullet spread, so a wide cross means "inaccurate right now" (moving, jumping, a hip-fired sniper) and a tight one means steady */
+    #xhair { --g: 6px; --c: #fff; }
+    #xhair i { position: absolute; background: var(--c); box-shadow: 0 0 2px #000, 0 0 5px #0008; }
+    #xhair i:nth-child(1) { left: calc(-1 * var(--g) - 9px); top: -1px; width: 9px; height: 2px; } #xhair i:nth-child(2) { left: var(--g); top: -1px; width: 9px; height: 2px; }
+    #xhair i:nth-child(3) { left: -1px; top: calc(-1 * var(--g) - 9px); width: 2px; height: 9px; } #xhair i:nth-child(4) { left: -1px; top: var(--g); width: 2px; height: 9px; }
+    #xhair i:nth-child(5) { left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; }
+    #xhair.empty { --c: #ff4d4d; } #xhair.rl { --c: #ffd24a; }
+    #aimline { position: fixed; left: 0; top: 0; height: 2px; transform-origin: 0 50%; z-index: 2; pointer-events: none; display: none; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.35)); }
     #fphint { position: fixed; left: 50%; bottom: 17%; transform: translateX(-50%); z-index: 4; display: none; pointer-events: none; font: 600 14px system-ui; color: #fff; background: #000a; padding: 7px 14px; border-radius: 10px; }
     #tFire { right: calc(5% + clamp(96px, 26vmin, 140px) / 2 - clamp(54px, 15vmin, 72px) / 2 + env(safe-area-inset-right)); bottom: calc(6% + clamp(96px, 26vmin, 140px) + 14px + clamp(64px, 18vmin, 84px) + 10px + clamp(54px, 15vmin, 72px) + 10px + env(safe-area-inset-bottom)); background: #c0392bcc; }
     body:not(.fp) #tFire { display: none; }
@@ -226,7 +232,8 @@
   <div id="labels"></div>
   <div id="hurt"></div>
   <div id="toast"></div>
-  <div id="xhair"><i></i><i></i><i></i><i></i></div>
+  <div id="aimline"></div>
+  <div id="xhair"><i></i><i></i><i></i><i></i><i></i></div>
   <div id="fphint">Click to look around &middot; Esc for the menu &middot; P: top-down view</div>
   <div id="scope"><i class="ring"></i><i class="h"></i><i class="v"></i><i class="dot"></i></div>
   <div id="replay"><i class="bar bt"></i><i class="bar bb"></i><div class="txt"><b>KILL CAM</b><span id="replaywho"></span></div><div class="skip" id="replayskip"></div></div>
