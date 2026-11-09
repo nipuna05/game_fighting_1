@@ -4,7 +4,7 @@ import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './
 import { saveProfile, clearHistory, makeChallenges, ensureChallenges, claimChallenge, challengesReady, SKIN_PRICES, KIT_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
 
 import { music } from './music';
-import { asset, staticHost } from './assets';
+import { asset, isStaticHost, getServerUrl, setServerUrl, validServerUrl } from './assets';
 import { mapThumb } from './mapthumb';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -467,15 +467,27 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   });
   // the home screen only picks single player or multiplayer; the details are on the next screen
   let setupMode: 'single' | 'multi' = 'single';
-  if (staticHost) {                                                       // a static website has no game server: say so instead of failing
-    const mb = $('homeMulti') as HTMLButtonElement;
-    mb.disabled = true; mb.style.opacity = '0.55'; mb.style.cursor = 'not-allowed';
-    mb.querySelector('span')!.textContent = 'Multiplayer needs the game server, which is not part of this website. Run the game on your PC (see the README) to play with friends.';
-  }
+  // the GitHub page has no game server of its own: multiplayer needs a server address (typed here, or in the link as ?server=wss://...)
+  const serverBox = $('serveraddr') as HTMLInputElement;
+  const showServerState = () => {
+    const cur = getServerUrl();
+    serverBox.value = cur ?? '';
+    $('servernote').textContent = cur ? 'Players on this site connect to this server. Clear the box to go back to the default.'
+      : isStaticHost() ? 'This website has no game server yet. Paste the server address you were given (it starts with wss://) to play multiplayer.' : 'Optional. Leave empty to use the server on this PC / network.';
+    const mb = $('homeMulti').querySelector('span');
+    if (mb) mb.textContent = isStaticHost() ? 'Play with friends online: you need the address of a game server (you can paste it on the next screen).' : 'Play with friends in a room, or join the public game for your chosen style.';
+  };
+  serverBox.addEventListener('change', () => {
+    const v = serverBox.value.trim();
+    if (v && !validServerUrl(v)) { $('servernote').textContent = 'That does not look right: it must start with wss:// (for example wss://name.trycloudflare.com).'; return; }
+    setServerUrl(v); showServerState();
+  });
+  showServerState();
   const showSetup = (mode: 'single' | 'multi') => {
     setupMode = mode;
     $('setuptitle').textContent = mode === 'single' ? 'Single player: match setup' : 'Multiplayer: match setup';
     $('roomrow').style.display = mode === 'multi' ? 'block' : 'none';
+    $('serverrow').style.display = mode === 'multi' ? 'block' : 'none';
     $('startgo').textContent = mode === 'single' ? 'Start the game' : 'Join the game';
     showTab('setup');
   };
@@ -483,6 +495,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   $('homeMulti').addEventListener('click', () => showSetup('multi'));
   $('setupback').addEventListener('click', () => showTab('play'));
   $('startgo').addEventListener('click', () => {
+    if (setupMode === 'multi' && isStaticHost()) { say('Multiplayer needs a game server address: paste it into the Game server box first.'); return; }
     if (setupMode === 'multi' && profile.style === 'range') { say('The practice range is single player only: choose another game style for multiplayer.'); return; }
     hooks.onPlay(setupMode);
   });

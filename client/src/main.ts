@@ -7,6 +7,7 @@ import {
 } from './characters';
 import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
+import { getServerUrl } from './assets';
 import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
@@ -341,7 +342,7 @@ class Game {
   private retries = 0;
   private connect() {
     this.status = this.retries ? 'Reconnecting...' : 'Connecting...';
-    const url = import.meta.env.VITE_WS_URL ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
+    const url = getServerUrl() ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
     this.ws = new WebSocket(url);
     this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick, cu: profile.custom })); };
     this.ws.onmessage = (ev) => {
