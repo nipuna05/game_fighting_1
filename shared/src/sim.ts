@@ -313,6 +313,7 @@ export class Sim {
   private tWins = 0;
   private ctWins = 0;
   private roundNo = 0;
+  private pushUntil: Record<Team, number> = { T: 0, CT: 0 };       // bots: the team attacks together until this time
   private winner: Team | null = null;
   private reason = '';
   private freshMatch = true;
@@ -798,7 +799,8 @@ export class Sim {
   // ---------- items ----------
   private resetItems(p: Player) {
     p.inv = ITEMS.map(() => 0);
-    if (p.bot || this.free) { p.inv[0] = 1; p.inv[3] = 1; p.inv[5] = 1; }          // a bandage, a frag and a flashbang to start with
+    if (p.bot || this.free) { p.inv[0] = 1; p.inv[3] = 1; p.inv[5] = 1; p.inv[7] = 1; }
+    if (p.bot) { p.inv[9] = 1; p.inv[8] = Math.random() < 0.5 ? 1 : 0; }          // a bandage, a frag and a flashbang to start with
     p.usingItem = -1; p.useUntil = 0; p.boostUntil = 0; p.blindUntil = 0; p.throwCd = 0; p.itemReq = -1;
   }
   /** Healing in progress, new use / throw requests, and picking up supplies. */
@@ -874,9 +876,13 @@ export class Sim {
   private botItems(p: Player, target: Player | null, dist: number, visible: boolean) {
     p.botItemCd -= 1 / TICK_RATE;
     if (p.usingItem >= 0 || p.botItemCd > 0) return;
-    if (p.hp < 45 && !visible && (p.inv[1] > 0 || p.inv[0] > 0)) { p.itemReq = p.hp < 30 && p.inv[1] > 0 ? 1 : p.inv[0] > 0 ? 0 : 1; p.botItemCd = 4; return; }
+    if (p.hp < 70 && !visible) {                                       // out of sight and hurt: pick the right heal for how bad it is
+      const pick = p.hp < 35 && p.inv[8] > 0 ? 8 : p.hp < 30 && p.inv[1] > 0 ? 1 : p.hp < 55 && p.inv[0] > 0 ? 0 : p.inv[7] > 0 ? 7 : p.hp < 45 && p.inv[1] > 0 ? 1 : -1;
+      if (pick >= 0) { p.itemReq = pick; p.botItemCd = 4; return; }
+    }
     if (visible && target && this.phase === 'live') {
       if (dist > 160 && dist < 400 && p.inv[3] > 0 && Math.random() < 0.5) { p.itemReq = 3; p.botItemCd = 7 + Math.random() * 6; }
+      else if (dist > 130 && dist < 360 && p.inv[9] > 0 && Math.random() < 0.35) { p.itemReq = 9; p.botItemCd = 8 + Math.random() * 6; }
       else if (dist < 320 && p.inv[5] > 0 && Math.random() < 0.4) { p.itemReq = 5; p.botItemCd = 8 + Math.random() * 6; }
     }
   }
@@ -905,7 +911,8 @@ export class Sim {
       }
       // aim is deliberately imperfect so bots are beatable
       const aim = ang + Math.sin(this.time * 3 + p.x) * 0.12;
-      p.input = { mx: p.botDir.x, my: p.botDir.y, angle: aim, fire: visible };
+      const cat = WEAPONS[p.weapon].cat;
+      p.input = { mx: p.botDir.x, my: p.botDir.y, angle: aim, fire: visible, scoped: visible && best > 240 && (cat === 'Rifle' || cat === 'SMG' || cat === 'LMG') };
     } else if (this.rounds) {
       this.botObjective(p);
     } else {
@@ -975,7 +982,15 @@ export class Sim {
         if (carrying) { this.botGo(p, ec.x, ec.y, 30); return true; }
         let best: { x: number; y: number } | null = null, bd = Infinity;
         for (const h of this.hostages) if (!h.rescued && !h.carrier) { const d = Math.hypot(h.x - p.x, h.y - p.y); if (d < bd) { bd = d; best = h; } }
-        if (best) { this.botGo(p, best.x, best.y, 14, bd <= 36); return true; }
+        if (best) {
+          // lone bots walk into the guards one by one and die: gather half way first, then push together
+          const stage = { x: ec.x + (best.x - ec.x) * 0.5, y: ec.y + (best.y - ec.y) * 0.5 };
+          const mates = [...this.players.values()].filter((o) => o.alive && o.team === 'CT');
+          const grouped = mates.filter((o) => Math.hypot(o.x - stage.x, o.y - stage.y) < 300).length;
+          if (grouped >= Math.min(3, mates.length)) this.pushUntil.CT = Math.max(this.pushUntil.CT, this.time + 16);
+          if (this.time < this.pushUntil.CT || bd < 380) { this.botGo(p, best.x, best.y, 14, bd <= 36); return true; }
+          this.botGo(p, stage.x, stage.y, 90); return true;
+        }
         this.botGo(p, ec.x, ec.y, 120); return true;
       }
       const live = this.hostages.filter((h) => !h.rescued), g = live.length ? live[p.botGoal % live.length] : null;   // Raiders guard the hostages

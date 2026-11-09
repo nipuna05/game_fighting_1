@@ -117,6 +117,7 @@ Possible next: a roof / third floor, jumping up onto ledges and crates, balcony 
 ## Balance pass (2026-11-09), measured with bot-only games (64 team deathmatches with a random gun every life, plus 36 games per mission)
 - Weapon K/D now ranges from about 0.5 (SPAS-12) to 1.1 (SCAR-H); before it was 0.54 to 1.26. Tuned: RPK, Striker, SPAS-12, L118A (one-shot kill now), SVD, MP5, Vector, M870, AUG, Barrett cost. Shotguns are still the weakest against bots (short range), a bot-AI limit as much as a weapon one.
 - Bomb: plant 3 -> 3.5 s, defuse 5 -> 4 s; Raiders won 67% of games before, now about 47%.
-- Rescue: untie 2 -> 1.2 s, time 240 -> 270 s; Sentinels won 25% before, now 33%. It still leans to the Raiders: the bots free one hostage and stall on the second (a bot-behaviour issue: Raiders camp the hostages).
+- Rescue: untie 2 -> 1.2 s, time 240 -> 270 s, and the Sentinel bots now gather half way to the hostage and push together (they used to arrive one by one and die at the Raiders' camp). Sentinels won 25% before, now 50% (18 of 36).
 - Collect the intel: Sentinels won 61% (not changed, within noise).
 - Test scripts: balance.ts / modewins.ts were temporary (scratchpad); worth keeping as `tools/balance.ts` if we balance again.
+- Bots now use painkillers, first-aid kits and impact grenades, and aim down the sights with rifles / SMGs / LMGs at medium range (tighter spread, slower walk).
