@@ -453,7 +453,10 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   $('homeSingle').addEventListener('click', () => showSetup('single'));
   $('homeMulti').addEventListener('click', () => showSetup('multi'));
   $('setupback').addEventListener('click', () => showTab('play'));
-  $('startgo').addEventListener('click', () => hooks.onPlay(setupMode));
+  $('startgo').addEventListener('click', () => {
+    if (setupMode === 'multi' && profile.style === 'range') { say('The practice range is single player only: choose another game style for multiplayer.'); return; }
+    hooks.onPlay(setupMode);
+  });
   const armor = $('autoarmor') as HTMLInputElement;
   armor.checked = profile.autoBuy.armor;
   armor.addEventListener('change', () => { profile.autoBuy.armor = armor.checked; save(); });

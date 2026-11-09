@@ -328,9 +328,10 @@ class Game {
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
-      this.sim = new Sim({ rounds: true, map: cfg.map, mode: cfg.style, weaponSet: cfg.weaponSet, pick: cfg.pick, difficulty: cfg.difficulty, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
-      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team, profile.custom);
-      this.sim.fillBots(TEAM_SIZE);
+      const range = cfg.style === 'range';                                  // the practice range: every gun, picked by hand, and no enemy bots
+      this.sim = new Sim({ rounds: true, map: cfg.map, mode: cfg.style, weaponSet: range ? 'all' : cfg.weaponSet, pick: range ? 'manual' : cfg.pick, difficulty: cfg.difficulty, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
+      this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, range ? 'CT' : cfg.team, profile.custom);
+      if (range) this.sim.addDummies(); else this.sim.fillBots(TEAM_SIZE);
     } else {
       this.connect();
     }
@@ -393,7 +394,9 @@ class Game {
   lastWeapon() { this.selectWeapon(this.prevWeapon); }
 
   /** B: buy whatever was in the last saved weapon pack (best weapon first, then armor). */
+  private rangePick = true;                                                // practice range: is the weapon list open?
   rebuy() {
+    if (this.snap?.round?.mode === 'range') { this.rangePick = !this.rangePick; return; }
     const me = this.me();
     const pack = profile.pack;
     if (!pack || !me || !me.alive || this.snap?.round?.phase !== 'buy') return;
@@ -410,16 +413,17 @@ class Game {
     box.style.display = show ? 'block' : 'none';
     if (!show || !me) return;
     const key = `${r.weaponSet}|${r.pick}|${me.ch}|${me.owned}|${me.alive}|${me.armor}`;
-    $('buytime').textContent = me.alive ? `${Math.ceil(r.timeLeft)}s` : `respawn in ${Math.ceil(me.rs)}s`;
+    const rangeMode = r.mode === 'range';
+    $('buytime').textContent = rangeMode ? '' : me.alive ? `${Math.ceil(r.timeLeft)}s` : `respawn in ${Math.ceil(me.rs)}s`;
     if (this.menuKind === 'loadout' && key === this.loadoutKey) return;
     this.menuKind = 'loadout'; this.loadoutKey = key;
-    const h3 = box.querySelector('h3'); if (h3) h3.innerHTML = `${me.alive ? 'CHOOSE YOUR WEAPON' : 'NEXT SPAWN'} &mdash; <span id="buytime"></span>`;
-    $('buytime').textContent = me.alive ? `${Math.ceil(r.timeLeft)}s` : `respawn in ${Math.ceil(me.rs)}s`;
+    const h3 = box.querySelector('h3'); if (h3) h3.innerHTML = rangeMode ? `PRACTICE RANGE &mdash; click a gun (${esc(keyLabel(currentBinds().rebuy[0]))} hides this list)<span id="buytime"></span>` : `${me.alive ? 'CHOOSE YOUR WEAPON' : 'NEXT SPAWN'} &mdash; <span id="buytime"></span>`;
+    $('buytime').textContent = rangeMode ? '' : me.alive ? `${Math.ceil(r.timeLeft)}s` : `respawn in ${Math.ceil(me.rs)}s`;
     const grid = $('buygrid'); grid.innerHTML = '';
     if (r.pick === 'auto') {
       grid.innerHTML = '<div class="pickhint">Automatic: you get a random weapon from the set every time you spawn.</div>';
     } else {
-      const note = document.createElement('div'); note.className = 'pickhint';
+      const note = document.createElement('div'); note.className = 'pickhint'; if (rangeMode) note.style.display = 'none';
       note.textContent = me.alive ? 'Pick your weapon (you keep it until you are down, then your pick applies again):' : 'Pick the weapon you want when you respawn:';
       grid.appendChild(note);
       const row = document.createElement('div'); row.className = 'row'; row.style.justifyContent = 'center';
@@ -433,7 +437,7 @@ class Game {
       }
       grid.appendChild(row);
     }
-    if (me.alive && r.phase === 'buy') {
+    if (me.alive && r.phase === 'buy' && !rangeMode) {
       const armor = document.createElement('button'); armor.dataset.item = String(ARMOR_ITEM); armor.disabled = me.armor >= 100;
       armor.innerHTML = `[${keyLabel(currentBinds().buyArmor[0])}] Armor<small>free</small>`; armor.style.marginTop = '8px';
       armor.addEventListener('click', () => this.buy(ARMOR_ITEM));
@@ -1732,7 +1736,7 @@ class Game {
     $('ctw').textContent = `${TEAM_INFO.CT.short} ${ctScore}${rescue ? `/${r.hostageCount}` : ''}`;
     $('tw').textContent = rescue ? TEAM_INFO.T.short : `${tScore} ${TEAM_INFO.T.short}`;
     const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? (r.free ? 'GET READY' : 'BUY') : r.phase === 'live' ? fmt(r.timeLeft) : '';
-    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : point ? `ZONE ${r.cpTarget}  ${clock}` : vipMode ? `VIP  ${clock}` : flag ? `FLAG ${r.capTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
+    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : point ? `ZONE ${r.cpTarget}  ${clock}` : r.mode === 'range' ? 'PRACTICE RANGE' : vipMode ? `VIP  ${clock}` : flag ? `FLAG ${r.capTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
     const tenseMission = (rescue && r.hostages.some((h) => h.carried)) || (collect && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2);
     const goalEl = $('goal');                                       // the instruction text: what do we have to do in this game?
     goalEl.style.display = r.phase === 'live' || r.phase === 'buy' ? 'block' : 'none';
@@ -1740,6 +1744,7 @@ class Game {
     const progress = tdm ? `Kills  ${TEAM_INFO[myTeam].short} ${myTeam === 'CT' ? r.ctKills : r.tKills}  -  ${myTeam === 'CT' ? r.tKills : r.ctKills} ${TEAM_INFO[myTeam === 'CT' ? 'T' : 'CT'].short}  (target ${r.killTarget})`
       : collect ? `Intel cases  you ${myTeam === 'CT' ? r.ctItems : r.tItems} / ${r.itemTarget}  -  enemy ${myTeam === 'CT' ? r.tItems : r.ctItems}`
       : point ? `Zone points  you ${myTeam === 'CT' ? r.cpCT : r.cpT} / ${r.cpTarget}  -  enemy ${myTeam === 'CT' ? r.cpT : r.cpCT}   |   ${!r.cp || r.cp.owner === 'none' ? 'zone empty' : r.cp.owner === 'contested' ? 'CONTESTED' : r.cp.owner === myTeam ? 'YOU HOLD IT' : 'ENEMY HOLDS IT'}`
+      : r.mode === 'range' ? `Targets down  ${me?.score ?? 0}   |   accuracy ${me && me.sh ? Math.round((me.ht / me.sh) * 100) : 0}%   |   damage ${me?.dd ?? 0}`
       : vipMode ? (() => { const v = s.players.find((q) => q.id === r.vip); const d = v ? Math.round(Math.hypot(r.extract.x + r.extract.w / 2 - v.x, r.extract.y + r.extract.h / 2 - v.y) / 30) : 0; return v ? `VIP ${v.name}  ${Math.max(0, Math.round(v.hp))} hp  -  ${d} m from the extraction` : ''; })()
       : flag ? `Captures  you ${myTeam === 'CT' ? r.capCT : r.capT} / ${r.capTarget}  -  enemy ${myTeam === 'CT' ? r.capT : r.capCT}`
       : rescue ? `Hostages rescued  ${r.rescued} / ${r.hostageCount}`
@@ -1811,7 +1816,7 @@ class Game {
     (bar.firstElementChild as HTMLElement).style.width = `${Math.min(1, prog) * 100}%`;
 
     // buy panel: only in the buy phase while alive
-    const showBuy = !!me && (r.free ? (r.phase === 'buy' || (!me.alive && r.phase === 'live')) : me.alive && r.phase === 'buy');
+    const showBuy = !!me && (r.free ? (r.phase === 'buy' || (!me.alive && r.phase === 'live') || (r.mode === 'range' && this.rangePick && me.alive)) : me.alive && r.phase === 'buy');
     if (r.free) { this.updateLoadout(r, me, showBuy); }
     else {
     if (this.menuKind !== 'buy') { this.buildBuyMenu(); this.menuKind = 'buy'; const h3 = $('buy').querySelector('h3'); if (h3) h3.innerHTML = 'BUY &mdash; <span id="buytime"></span>'; }
@@ -1876,7 +1881,7 @@ async function start(mode: 'single' | 'multi') {
   if (!template) await loadTemplate();
   await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
-  const style = (['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag', 'vip'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
+  const style = (['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag', 'vip', 'range'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
   const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
   game = new Game({ mode, name, room, skin: profile.skin + SKIN_BASE * profile.kit, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick, difficulty: (['easy', 'normal', 'hard'].includes(QS.get('diff') ?? '') ? QS.get('diff') : profile.difficulty) as Difficulty });

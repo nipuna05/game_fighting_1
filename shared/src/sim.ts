@@ -114,7 +114,7 @@ export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
 export const OVER_TIME = 15;
 // ---- game styles and weapon rules ----
-export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect' | 'point' | 'flag' | 'vip';
+export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect' | 'point' | 'flag' | 'vip' | 'range';
 export type WeaponSet = 'all' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'sniper' | 'random';
 export type PickMode = 'manual' | 'auto';
 /** Bot skill: how far their aim wanders, how hard their bullets hit, and how fast they react. */
@@ -131,6 +131,7 @@ export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
   { id: 'collect', name: 'Collect the intel', blurb: 'Both teams race to grab the intel cases scattered over the map. The first team to collect them all wins.' },
   { id: 'point', name: 'Control point', blurb: 'Hold the glowing zone in the middle of the map. Your team earns a point every second that it is inside with no enemy there. First to 100 points wins.' },
   { id: 'vip', name: 'VIP escort', blurb: 'One Sentinel is the VIP. The Sentinels must escort them to the extraction zone in the middle of the Raiders\' side; if the VIP dies, the Raiders win.' },
+  { id: 'range', name: 'Practice range', blurb: 'Single player only. No enemy shoots back: knock down target dummies (some stand, some strafe), swap guns any time and try every attachment. It never ends.' },
   { id: 'flag', name: 'Capture the flag', blurb: 'Steal the enemy flag and carry it back to your own flag. Your flag must be at home to score. First team to 3 captures wins.' },
 ];
 export const UNTIE_TIME = 1.2;          // seconds holding the use key next to a hostage
@@ -140,8 +141,9 @@ export const COLLECT_TARGET = 8;      // intel cases a team needs
 export const POINT_TIME = 300, POINT_TARGET = 100, POINT_R = 140;   // control point: round time, points to win, zone radius
 export const FLAG_TIME = 360, FLAG_TARGET = 3, FLAG_RETURN = 20, FLAG_TOUCH = 24;   // capture the flag: round time, captures to win, seconds before a dropped flag returns, pick-up reach
 export const VIP_TIME = 300;          // VIP escort: round time
+export const RANGE_TARGET_RESPAWN = 1.2;   // practice range: a knocked-down target stands up again after this many seconds
 export const ITEM_RESPAWN = 25;       // a taken case comes back after this many seconds
-const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : m === 'point' ? POINT_TIME : m === 'flag' ? FLAG_TIME : m === 'vip' ? VIP_TIME : LIVE_TIME);
+const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : m === 'point' ? POINT_TIME : m === 'flag' ? FLAG_TIME : m === 'vip' ? VIP_TIME : m === 'range' ? 1e7 : LIVE_TIME);
 export const WEAPON_SETS: { id: WeaponSet; name: string }[] = [
   { id: 'all', name: 'All guns (bomb mission: buy with cash)' }, { id: 'pistol', name: 'Pistols only' }, { id: 'smg', name: 'SMGs only' },
   { id: 'shotgun', name: 'Shotguns only' }, { id: 'rifle', name: 'Rifles only' }, { id: 'sniper', name: 'Snipers only' }, { id: 'random', name: 'Random weapon every life' },
@@ -245,6 +247,7 @@ interface Player extends PlayerState {
   ammoIn: number[]; ammoRes: number[]; reloadUntil: number; equipUntil: number; custom: Record<number, number>;
   inv: number[]; usingItem: number; useUntil: number; boostUntil: number; blindUntil: number; throwCd: number; itemReq: number; botItemCd: number;
   air: number; jumpCd: number; // seconds left in the current jump / until the next jump is allowed
+  dummy?: { x: number; y: number; move: boolean; ph: number };           // practice range: a target dummy that stays at (x, y), or strafes around it
   botGoal: number; stuckT: number; unstickUntil: number; unstickDir: { x: number; y: number };
 }
 interface Bullet extends Omit<BulletState, 'a' | 'w'> { lv: number; crouch: boolean; over: number; owner: string; team: Team; vx: number; vy: number; life: number; dmg: number; wid: number }
@@ -364,7 +367,7 @@ export class Sim {
 
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
-    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' || opts.mode === 'point' || opts.mode === 'flag' || opts.mode === 'vip' ? opts.mode : 'bomb';
+    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' || opts.mode === 'point' || opts.mode === 'flag' || opts.mode === 'vip' || opts.mode === 'range' ? opts.mode : 'bomb';
     this.weaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(opts.weaponSet as WeaponSet) ? opts.weaponSet as WeaponSet : 'all';
     this.pick = opts.pick === 'auto' ? 'auto' : 'manual';
     this.diff = DIFFICULTIES.find((d) => d.id === opts.difficulty) ?? DIFFICULTIES[1];
@@ -407,6 +410,23 @@ export class Sim {
     if (this.rounds && this.mode === 'bomb' && this.phase === 'buy' && team === 'T' && this.bomb.status === 'none') {
       this.bomb = { status: 'carried', x: p.x, y: p.y, carrier: id, fuse: 0, progress: 0, actor: null };
     }
+  }
+
+  /** Practice range: put target dummies in a lane in front of the Sentinels' spawn (some stand still, some strafe). */
+  addDummies() {
+    const z = this.map.spawns.CT, cx = z.x + z.w / 2, cy = z.y + z.h / 2;
+    const plan: { d: number; dy: number; move: boolean }[] = [
+      { d: 170, dy: 0, move: false }, { d: 330, dy: -70, move: false }, { d: 490, dy: 70, move: false }, { d: 650, dy: -40, move: false }, { d: 820, dy: 50, move: false },
+      { d: 250, dy: 90, move: true }, { d: 410, dy: -100, move: true }, { d: 570, dy: 110, move: true }, { d: 730, dy: -90, move: true },
+    ];
+    plan.forEach((t, i) => {
+      const spot = this.freeSpot(cx - t.d, cy + t.dy, PLAYER_R + 40, false);
+      const id = `dummy${i + 1}`;
+      this.addPlayer(id, `Target ${i + 1}`, true, 'T');
+      const p = this.players.get(id)!;
+      p.dummy = { x: spot.x, y: spot.y, move: t.move, ph: i * 1.3 };
+      p.x = spot.x; p.y = spot.y;
+    });
   }
 
   /** Rounds mode: pad every team with bots up to `size` players (humans count toward the size). */
@@ -456,7 +476,10 @@ export class Sim {
     const p = this.players.get(id);
     if (!p || !this.free || this.pick === 'auto' || !Number.isInteger(item) || !allowedWeapons(this.weaponSet).includes(item)) return false;
     p.ch = item;
-    if (p.alive && this.phase === 'buy') this.giveLoadout(p);
+    if (p.alive && (this.phase === 'buy' || this.mode === 'range')) {
+      this.giveLoadout(p);
+      if (this.mode === 'range') { p.ammoIn = WEAPONS.map((w) => w.mag); p.ammoRes = WEAPONS.map((w) => w.mag * MAG_RESERVE); p.reloadUntil = 0; p.equipUntil = this.time + 0.35; }   // a fresh gun, ready after the swap
+    }
     return true;
   }
   /** Gives a spawning player the weapon for this game: their own choice (manual) or a random one from the allowed set (automatic, bots). */
@@ -517,17 +540,18 @@ export class Sim {
         if (Math.hypot(q.x - p.x, q.y - p.y) < 0.5) break;
       }
     }
+    if (p.dummy) { p.x = p.dummy.x; p.y = p.dummy.y; p.angle = 0; }
     p.hp = MAX_HP; p.alive = true; p.cooldown = 0; p.st = 0; p.air = 0; p.rs = 0; p.lv = 0; p.z = 0;
     p.ammoIn = WEAPONS.map((w) => w.mag); p.ammoRes = WEAPONS.map((w) => w.mag * MAG_RESERVE); p.reloadUntil = 0; p.equipUntil = 0;   // full magazines for a new life
     if (this.free) this.giveLoadout(p);
     this.resetItems(p);
-    if (this.rounds && this.phase === 'live') { p.armor = 0; p.protect = this.time + SPAWN_PROTECT; }   // back from the dead: armor is gone, a short grace period
+    if (this.rounds && this.phase === 'live' && !p.dummy) { p.armor = 0; p.protect = this.time + SPAWN_PROTECT; }   // back from the dead: armor is gone, a short grace period
   }
 
   // ---------- rounds ----------
   private startRound() {
     this.phase = 'buy';
-    this.phaseEndsAt = this.time + BUY_TIME;
+    this.phaseEndsAt = this.time + (this.mode === 'range' ? 2 : BUY_TIME);
     this.winner = null; this.reason = '';
     this.roundNo++;
     this.bullets = [];
@@ -730,6 +754,7 @@ export class Sim {
     if (this.phase === 'over') { if (this.time >= this.phaseEndsAt) this.resetMatch(); return; }
 
     // live
+    if (this.mode === 'range') return;                          // the practice range never ends
     if (this.mode === 'tdm') {                                  // team deathmatch: kills only
       if (this.tKills >= KILL_TARGET) this.endRound('T', `${TEAM_INFO.T.name} reached ${KILL_TARGET} kills`);
       else if (this.ctKills >= KILL_TARGET) this.endRound('CT', `${TEAM_INFO.CT.name} reached ${KILL_TARGET} kills`);
@@ -901,7 +926,7 @@ export class Sim {
     p.hp -= dmg;
     p.usingItem = -1;                                                  // being hurt interrupts using an item
     if (p.hp > 0) return;
-    p.alive = false; p.deaths++; p.respawnAt = this.time + RESPAWN_TIME; p.usingItem = -1;
+    p.alive = false; p.deaths++; p.respawnAt = this.time + (p.dummy ? RANGE_TARGET_RESPAWN : RESPAWN_TIME); p.usingItem = -1;
     if (this.rounds) this.drops.push({ id: this.nextDrop++, x: p.x, y: p.y, amount: DROP_AMOUNT, lv: p.lv });
     const killer = this.players.get(ownerId);
     if (killer && killer !== p) { killer.score++; if (this.rounds) killer.money = Math.min(MAX_MONEY, killer.money + KILL_MONEY); }
@@ -1010,6 +1035,7 @@ export class Sim {
 
   // ---------- bots ----------
   private thinkBot(p: Player, dt: number) {
+    if (p.dummy) { p.input = { mx: p.dummy.move ? Math.cos(this.time * 0.8 + p.dummy.ph) * 0.7 : 0, my: 0, angle: Math.PI, fire: false }; return; }   // a target dummy: stands or strafes, never shoots
     p.botThink -= dt;
     let target: Player | null = null, best = Infinity;
     for (const o of this.players.values()) {
@@ -1253,6 +1279,8 @@ export class Sim {
           ? { T: `Collect ${COLLECT_TARGET} intel cases before the Sentinels do. Walk over a case to take it`, CT: `Collect ${COLLECT_TARGET} intel cases before the Raiders do. Walk over a case to take it` }
           : this.mode === 'point'
           ? { T: `Stand in the glowing zone in the middle of the map with no enemy inside to earn points. First to ${POINT_TARGET} points wins`, CT: `Stand in the glowing zone in the middle of the map with no enemy inside to earn points. First to ${POINT_TARGET} points wins` }
+          : this.mode === 'range'
+          ? { T: 'Practice range', CT: 'Practice range: knock down the targets (some strafe). Click a gun in the list to swap, hold right mouse to aim down the sights. B hides or shows the list' }
           : this.mode === 'vip'
           ? { T: 'Kill the VIP (the Sentinel with the gold marker) before they reach the extraction zone. If they get there, the Sentinels win', CT: 'Escort the VIP (gold marker) to the green extraction zone on the Raiders\' side. If the VIP dies, you lose' }
           : this.mode === 'flag'
