@@ -1,4 +1,4 @@
-# Builds the game and publishes it on GitHub Pages (single player works there; multiplayer needs the game server, see README).
+# Builds the game and publishes it on GitHub Pages. Single player runs in the browser; multiplayer connects to the game server on Fly.io (VITE_WS_URL below).
 # One-time setup in the repository: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
 name: Deploy to GitHub Pages
 on:
@@ -24,6 +24,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build -w client -- --base=/${{ github.event.repository.name }}/
+        env:
+          VITE_WS_URL: wss://game-fighting-1.fly.dev   # the multiplayer server on Fly.io (see fly.toml)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: client/dist
