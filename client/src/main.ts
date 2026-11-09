@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, adsSpeed, ADS_SPREAD, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, FRAG_R, getMap, MAP_IDS, type MapDef,
+  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, type Difficulty, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, FRAG_R, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -173,7 +173,7 @@ function glowTexture(inner: string, outer: string): THREE.CanvasTexture {
 interface Particle { s: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; size: number; grav: number }
 
 // ---------- game ----------
-interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode }
+interface Config { mode: 'single' | 'multi'; name: string; room: string; skin: number; sidearm: number; team: TeamPref; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; difficulty: Difficulty }
 interface Shown { x: number; y: number; z: number; angle: number; moved: number; vx: number; vy: number }
 
 class Game {
@@ -326,7 +326,7 @@ class Game {
     $('wbar').addEventListener('click', (e) => { const w = (e.target as HTMLElement).closest('button')?.dataset.w; if (w !== undefined) this.selectWeapon(Number(w)); });
 
     if (cfg.mode === 'single') {
-      this.sim = new Sim({ rounds: true, map: cfg.map, mode: cfg.style, weaponSet: cfg.weaponSet, pick: cfg.pick, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
+      this.sim = new Sim({ rounds: true, map: cfg.map, mode: cfg.style, weaponSet: cfg.weaponSet, pick: cfg.pick, difficulty: cfg.difficulty, invincible: QS.has('god') ? [this.myId] : [] }); // dev: ?god=1
       this.sim.join(this.myId, cfg.name, cfg.skin, cfg.sidearm, cfg.team, profile.custom);
       this.sim.fillBots(TEAM_SIZE);
     } else {
@@ -1856,7 +1856,7 @@ async function start(mode: 'single' | 'multi') {
   const style = (['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag', 'vip'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
   const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
-  game = new Game({ mode, name, room, skin: profile.skin + SKIN_BASE * profile.kit, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });
+  game = new Game({ mode, name, room, skin: profile.skin + SKIN_BASE * profile.kit, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick, difficulty: (['easy', 'normal', 'hard'].includes(QS.get('diff') ?? '') ? QS.get('diff') : profile.difficulty) as Difficulty });
 }
 if (QS.has('debug')) (window as unknown as { __music: typeof music }).__music = music;   // dev: test the soundtrack from the console
 const wakeMusic = () => {

@@ -117,6 +117,13 @@ export const OVER_TIME = 15;
 export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect' | 'point' | 'flag' | 'vip';
 export type WeaponSet = 'all' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'sniper' | 'random';
 export type PickMode = 'manual' | 'auto';
+/** Bot skill: how far their aim wanders, how hard their bullets hit, and how fast they react. */
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export const DIFFICULTIES: { id: Difficulty; name: string; blurb: string; aim: number; dmg: number; think: number }[] = [
+  { id: 'easy', name: 'Easy', blurb: 'Bots miss a lot, hit softer and react slowly. Good for learning.', aim: 0.26, dmg: 0.7, think: 1.4 },
+  { id: 'normal', name: 'Normal', blurb: 'The standard bots.', aim: 0.12, dmg: 1, think: 1 },
+  { id: 'hard', name: 'Hard', blurb: 'Accurate, harder-hitting bots that react fast.', aim: 0.04, dmg: 1.12, think: 0.7 },
+];
 export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
   { id: 'bomb', name: 'Bomb mission', blurb: 'Raiders plant the bomb at a site, Sentinels stop them. One round decides the game.' },
   { id: 'tdm', name: 'Team deathmatch', blurb: 'Kills only: the first team to reach the kill target wins. You respawn after 5 seconds.' },
@@ -292,7 +299,7 @@ export function siteAt(x: number, y: number, sites: Site[], lv = 0): Site | null
   return null;
 }
 
-export interface SimOptions { rounds?: boolean; map?: string; invincible?: string[]; mode?: GameMode; weaponSet?: WeaponSet; pick?: PickMode } // invincible: dev/testing only
+export interface SimOptions { rounds?: boolean; map?: string; invincible?: string[]; mode?: GameMode; weaponSet?: WeaponSet; pick?: PickMode; difficulty?: Difficulty } // invincible: dev/testing only
 
 export class Sim {
   time = 0;
@@ -337,6 +344,7 @@ export class Sim {
   readonly mode: GameMode;
   readonly weaponSet: WeaponSet;
   readonly pick: PickMode;
+  readonly diff: (typeof DIFFICULTIES)[number];
   private tKills = 0;
   private ctKills = 0;
   private hostages: { id: number; x: number; y: number; carrier: string | null; progress: number; actor: string | null; rescued: boolean }[] = [];
@@ -358,6 +366,7 @@ export class Sim {
     this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' || opts.mode === 'point' || opts.mode === 'flag' || opts.mode === 'vip' ? opts.mode : 'bomb';
     this.weaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(opts.weaponSet as WeaponSet) ? opts.weaponSet as WeaponSet : 'all';
     this.pick = opts.pick === 'auto' ? 'auto' : 'manual';
+    this.diff = DIFFICULTIES.find((d) => d.id === opts.difficulty) ?? DIFFICULTIES[1];
     this.map = getMap(opts.map);
     this.invincible = new Set(opts.invincible ?? []);
     this.pickupReadyAt = this.map.heal.map(() => 0);
@@ -825,7 +834,7 @@ export class Sim {
           const spread = base * customMods(this.customOf(p)).spread * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1) * (w.cat !== 'Sniper' && p.input.scoped ? ADS_SPREAD : 1);   // lying is steadiest, kneeling steady, mid-air wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
-            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, lv: p.lv, z: p.z, crouch: p.st === 1 || p.st === 3, over: 0,
+            id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg * (p.bot ? this.diff.dmg : 1), wid: p.weapon, lv: p.lv, z: p.z, crouch: p.st === 1 || p.st === 3, over: 0,
             x: p.x + Math.cos(a) * (PLAYER_R + 4), y: p.y + Math.sin(a) * (PLAYER_R + 4),
             vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life,
           });
@@ -1018,14 +1027,14 @@ export class Sim {
     if (target && (visible || !this.rounds)) {
       const ang = Math.atan2(target.y - p.y, target.x - p.x);
       if (p.botThink <= 0) {
-        p.botThink = 0.4 + Math.random() * 0.6;
+        p.botThink = (0.4 + Math.random() * 0.6) * this.diff.think;
         const strafe = (Math.random() < 0.5 ? 1 : -1) * Math.PI / 2;
         const toward = best > 260 ? 0 : best < 160 ? Math.PI : strafe;
         const a = ang + toward + (visible ? 0 : (Math.random() - 0.5) * 1.2);
         p.botDir = { x: Math.cos(a) * 0.8, y: Math.sin(a) * 0.8 };
       }
       // aim is deliberately imperfect so bots are beatable
-      const aim = ang + Math.sin(this.time * 3 + p.x) * 0.12;
+      const aim = ang + Math.sin(this.time * 3 + p.x) * this.diff.aim;
       const cat = WEAPONS[p.weapon].cat;
       p.input = { mx: p.botDir.x, my: p.botDir.y, angle: aim, fire: visible, scoped: visible && best > 240 && (cat === 'Rifle' || cat === 'SMG' || cat === 'LMG') };
     } else if (this.rounds) {

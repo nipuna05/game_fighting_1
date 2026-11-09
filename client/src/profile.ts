@@ -1,4 +1,4 @@
-import { WEAPONS, cleanCustom, type GameMode, type WeaponSet, type PickMode } from '@fight/shared';
+import { WEAPONS, cleanCustom, type GameMode, type WeaponSet, type PickMode, type Difficulty } from '@fight/shared';
 // Player profile, saved in this browser's localStorage (name, costume, last weapon pack, recent fights).
 // It is per browser. Accounts that follow you across devices need a server database (a later step).
 import type { Team } from '@fight/shared';
@@ -28,13 +28,13 @@ export interface Unlocks { skins: number[]; sidearms: number[]; tints: number[];
 export interface Daily { claimed: number; last: string }     // days claimed in this 28-day cycle, and the date of the last claim (YYYY-MM-DD)
 export const TINT_PRICES = [0, 0, 0, 0, 400, 900];          // weapon finishes: Factory, Black, Desert, Olive are free; Arctic and Gold cost coins or come from daily rewards
 export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean; music: number; helpSeen?: boolean } // replay = slow-motion kill cam; voice = team voice chat mode
-export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; kit: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; custom: Record<string, number>; daily: Daily; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; kit: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; difficulty: Difficulty; custom: Record<string, number>; daily: Daily; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55, helpSeen: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0], tints: [0, 1, 2, 3], kits: [0, 1] }, coins: START_COINS, name: '', skin: 0, kit: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', custom: {}, daily: { claimed: 0, last: '' }, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55, helpSeen: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0], tints: [0, 1, 2, 3], kits: [0, 1] }, coins: START_COINS, name: '', skin: 0, kit: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', difficulty: 'normal', custom: {}, daily: { claimed: 0, last: '' }, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
 
 export function loadProfile(): Profile {
   try {
@@ -75,6 +75,7 @@ export function loadProfile(): Profile {
       style: (['tdm', 'rescue', 'collect', 'point', 'flag', 'vip'] as string[]).includes(p.style as string) ? p.style as GameMode : 'bomb',
       weaponSet: (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as string[]).includes(p.weaponSet as string) ? p.weaponSet as WeaponSet : 'all',
       pick: p.pick === 'auto' ? 'auto' : 'manual',
+      difficulty: p.difficulty === 'easy' || p.difficulty === 'hard' ? p.difficulty : 'normal',
       custom: p.custom && typeof p.custom === 'object' ? Object.fromEntries(WEAPONS.filter((w) => (p.custom as Record<string, unknown>)[w.id] !== undefined).map((w) => [w.id, cleanCustom(w.id, (p.custom as Record<string, unknown>)[w.id])])) : {},
       autoBuy: {
         primary: p.autoBuy && Number.isInteger(p.autoBuy.primary) && (p.autoBuy.primary as number) >= 3 ? (p.autoBuy.primary as number) : null,

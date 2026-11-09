@@ -1,5 +1,5 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
-import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_BASE, KIT_NAMES, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_BASE, KIT_NAMES, TITLE_RANK, GAME_MODES, WEAPON_SETS, DIFFICULTIES, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
 import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
 import { saveProfile, clearHistory, SKIN_PRICES, KIT_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
 
@@ -80,6 +80,12 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       pk.addEventListener('change', () => { profile.pick = pk.value as 'manual' | 'auto'; save(); renderRules(); });
     }
     st.value = profile.style; ws.value = profile.weaponSet; pk.value = profile.pick;
+    const df = $('diff') as HTMLSelectElement;
+    df.innerHTML = DIFFICULTIES.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join('');
+    df.value = profile.difficulty;
+    const diffNote = () => { $('diffnote').textContent = (DIFFICULTIES.find((d) => d.id === profile.difficulty)?.blurb ?? '') + ' (single player; the multiplayer server uses Normal bots)'; };
+    diffNote();
+    df.addEventListener('change', () => { profile.difficulty = df.value as typeof profile.difficulty; save(); diffNote(); });
     const free = isFreeLoadout(profile.style, profile.weaponSet);
     // "All guns" means buying with cash, which only exists in the bomb mission
     Array.from(ws.options).forEach((o) => { o.disabled = profile.style !== 'bomb' && o.value === 'all'; });
