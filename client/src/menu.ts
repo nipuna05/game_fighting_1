@@ -1,10 +1,11 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
 import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_BASE, KIT_NAMES, TITLE_RANK, GAME_MODES, WEAPON_SETS, DIFFICULTIES, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
 import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
-import { saveProfile, clearHistory, SKIN_PRICES, KIT_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
+import { saveProfile, clearHistory, makeChallenges, ensureChallenges, claimChallenge, challengesReady, SKIN_PRICES, KIT_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
 
 import { music } from './music';
 import { asset, staticHost } from './assets';
+import { mapThumb } from './mapthumb';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -60,7 +61,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       const d = document.createElement('div');
       d.className = `mapcard${profile.map === id ? ' sel' : ''}`;
       d.title = m.blurb;
-      d.innerHTML = `<div class="mapprev ${m.theme}"></div><div class="mi"><b>${esc(m.name)}</b><span>${esc(m.blurb)}</span></div>`;
+      d.innerHTML = `<div class="mapprev ${m.theme}" style="background-image:url(${asset(`/maps/${id}.jpg`)}),url(${mapThumb(m)})"></div><div class="mi"><b>${esc(m.name)}</b><span>${esc(m.blurb)}</span></div>`;
       d.addEventListener('click', () => { profile.map = id; save(); hooks.onMap(id); renderMaps(); });
       box.appendChild(d);
     }
@@ -390,7 +391,24 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     btn.disabled = !claimable;
     btn.textContent = claimable ? `Claim day ${nextIdx + 1}: ${rewardInfo(REWARDS[nextIdx]).label}` : 'Claimed today';
     $('claimnote').textContent = claimable ? 'Your reward for today is ready.' : `Next reward in ${untilTomorrow()}`;
-    $('rdot').classList.toggle('on', claimable);
+    $('rdot').classList.toggle('on', claimable || challengesReady(profile));
+    renderChallenges();
+  };
+  const renderChallenges = () => {
+    const ch = ensureChallenges(profile), defs = makeChallenges(ch.date);
+    const n = new Date(), ms = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
+    $('chlist').innerHTML = `<p class="note" style="margin:0 0 8px">Three new challenges every day, counted from the games you finish (not the practice range). New ones in ${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m.</p>`
+      + defs.map((d, i) => {
+        const prog = ch.progress[i], full = prog >= d.target, claimed = ch.claimed[i];
+        return `<div class="chc${claimed ? ' done' : ''}" data-s="ch"><b>${esc(d.text)}</b><div class="chb"><i style="width:${Math.round((prog / d.target) * 100)}%"></i></div>`
+          + `<small>${Math.min(prog, d.target)} / ${d.target} &middot; reward ${d.reward} coins</small>`
+          + (claimed ? '<button class="btn ghost" disabled>Claimed</button>' : full ? `<button class="btn go" data-chclaim="${i}">Claim ${d.reward}</button>` : '<button class="btn ghost" disabled>In progress</button>') + '</div>';
+      }).join('');
+    $('chlist').querySelectorAll<HTMLElement>('[data-chclaim]').forEach((b) => b.addEventListener('click', () => {
+      const got = claimChallenge(profile, Number(b.dataset.chclaim));
+      if (got) { renderCoins(); renderRewards(); say(`Challenge complete: +${got} coins!`); }
+    }));
+    subs['tab-rewards']?.apply();
   };
   $('claimbtn').addEventListener('click', claimDaily);
   window.setInterval(() => { if ($('tab-rewards').classList.contains('on') || true) renderRewards(); }, 30000);
@@ -477,7 +495,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   subTabs('tab-profile', [['over', 'Overview'], ['stats', 'Stats'], ['hist', 'History']], '#pname');
   subTabs('tab-setup', [['map', 'Map'], ['match', 'Game'], ['player', 'Player']], '.setuphead');
   subTabs('tab-controls', [['opts', 'Options'], ['move', 'Movement'], ['weapons', 'Weapons'], ['items', 'Items'], ['other', 'Other']]);
-  subTabs('tab-rewards', [['w1', 'Days 1-14'], ['w2', 'Days 15-28']], '.dprog');
+  subTabs('tab-rewards', [['w1', 'Days 1-14'], ['w2', 'Days 15-28'], ['ch', 'Daily challenges']], '.dprog');
   subTabs('tab-shop', [['costumes', 'Costumes'], ['kits', 'Dress kits'], ['sidearms', 'Sidearms'], ['finishes', 'Finishes']], '.rhead');
   if (profile.daily.claimed >= 14 && profile.daily.claimed < 28) subs['tab-rewards'].set('w2');
 }

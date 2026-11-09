@@ -30,7 +30,8 @@ export interface Unlocks { skins: number[]; sidearms: number[]; tints: number[];
 export interface Daily { claimed: number; last: string }     // days claimed in this 28-day cycle, and the date of the last claim (YYYY-MM-DD)
 export const TINT_PRICES = [0, 0, 0, 0, 400, 900];          // weapon finishes: Factory, Black, Desert, Olive are free; Arctic and Gold cost coins or come from daily rewards
 export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean; music: number; helpSeen?: boolean } // replay = slow-motion kill cam; voice = team voice chat mode
-export interface Profile { options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; kit: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; difficulty: Difficulty; custom: Record<string, number>; daily: Daily; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
+export interface Challenges { date: string; progress: number[]; claimed: boolean[] }   // today's three daily challenges (what they are comes from the date)
+export interface Profile { challenges?: Challenges; options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; kit: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; difficulty: Difficulty; custom: Record<string, number>; daily: Daily; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
 
 const KEY = 'fight.profile.v1';
@@ -86,6 +87,7 @@ export function loadProfile(): Profile {
       packVer: PACK_VERSION,
       pack: p.packVer === PACK_VERSION && p.pack && Array.isArray(p.pack.weapons) ? { weapons: p.pack.weapons.filter(Number.isInteger), armor: !!p.pack.armor } : null,
       history: Array.isArray(p.history) ? p.history.slice(0, MAX_HISTORY) : [],
+      challenges: p.challenges && typeof p.challenges.date === 'string' && Array.isArray(p.challenges.progress) && Array.isArray(p.challenges.claimed) ? { date: p.challenges.date.slice(0, 10), progress: p.challenges.progress.slice(0, 3).map((n) => (Number.isFinite(n) ? Math.max(0, n) : 0)), claimed: p.challenges.claimed.slice(0, 3).map(Boolean) } : undefined,
       totals: { ...base.totals, ...(p.totals ?? {}), byWeapon: p.totals?.byWeapon && typeof p.totals.byWeapon === 'object' ? p.totals.byWeapon : {} },
     };
   } catch {
@@ -97,7 +99,60 @@ export function saveProfile(p: Profile) {
   try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private mode / quota: ignore */ }
 }
 
+// ---------- daily challenges: three per day, the same for everybody, picked from the date ----------
+export interface ChallengeDef { kind: 'catKills' | 'winMode' | 'damage' | 'streak' | 'accuracy' | 'play' | 'kills'; arg?: string; text: string; target: number; reward: number }
+export const localDate = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const MODE_NAMES: Record<string, string> = { bomb: 'Bomb mission', tdm: 'Team deathmatch', rescue: 'Hostage rescue', collect: 'Collect the intel', point: 'Control point', flag: 'Capture the flag', vip: 'VIP escort' };
+export function makeChallenges(date: string): ChallengeDef[] {
+  let h = 2166136261; for (const ch of date) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  const rnd = () => { h = (h + 0x6D2B79F5) | 0; let t = Math.imul(h ^ (h >>> 15), 1 | h); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };   // a small seeded random generator
+  const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
+  const cat = pick(['SMG', 'Rifle', 'Shotgun', 'Sniper', 'LMG']), mode = pick(['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag', 'vip']);
+  const catTarget: Record<string, number> = { SMG: 12, Rifle: 12, Shotgun: 8, Sniper: 6, LMG: 10 };
+  const pool: ChallengeDef[] = [
+    { kind: 'catKills', arg: cat, text: `Get ${catTarget[cat]} kills with ${cat === 'SMG' ? 'SMGs' : cat === 'LMG' ? 'LMGs' : `${cat.toLowerCase()}s`}`, target: catTarget[cat], reward: 150 },
+    { kind: 'winMode', arg: mode, text: `Win a game of ${MODE_NAMES[mode]}`, target: 1, reward: 200 },
+    { kind: 'damage', text: 'Deal 1500 damage in total', target: 1500, reward: 150 },
+    { kind: 'streak', text: 'Get a 3-kill streak in one game', target: 3, reward: 150 },
+    { kind: 'accuracy', text: 'Finish a game with 30% accuracy (at least 20 shots)', target: 1, reward: 200 },
+    { kind: 'play', text: 'Finish 3 games', target: 3, reward: 100 },
+    { kind: 'kills', text: 'Get 20 kills in total', target: 20, reward: 120 },
+  ];
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  return pool.slice(0, 3);
+}
+/** Today's progress: a new day starts three fresh challenges. */
+export function ensureChallenges(p: Profile): Challenges {
+  const today = localDate();
+  if (!p.challenges || p.challenges.date !== today || p.challenges.progress.length !== 3) p.challenges = { date: today, progress: [0, 0, 0], claimed: [false, false, false] };
+  return p.challenges;
+}
+export function claimChallenge(p: Profile, i: number): number {
+  const ch = ensureChallenges(p), d = makeChallenges(ch.date)[i];
+  if (!d || ch.claimed[i] || ch.progress[i] < d.target) return 0;
+  ch.claimed[i] = true; p.coins += d.reward; saveProfile(p);
+  return d.reward;
+}
+export const challengesReady = (p: Profile) => { const ch = ensureChallenges(p), defs = makeChallenges(ch.date); return defs.some((d, i) => !ch.claimed[i] && ch.progress[i] >= d.target); };
+function countChallenges(p: Profile, e: MatchEntry, extra?: { byWeapon: Record<string, number>; bestStreak: number }) {
+  const ch = ensureChallenges(p), defs = makeChallenges(ch.date);
+  defs.forEach((d, i) => {
+    let v = ch.progress[i];
+    switch (d.kind) {
+      case 'catKills': v += Object.entries(extra?.byWeapon ?? {}).reduce((n, [id, k]) => n + (WEAPONS.find((w) => w.id === id)?.cat === d.arg ? k : 0), 0); break;
+      case 'winMode': if (e.won && e.style === d.arg) v += 1; break;
+      case 'damage': v += e.dmg ?? 0; break;
+      case 'streak': v = Math.max(v, extra?.bestStreak ?? 0); break;
+      case 'accuracy': if ((e.shots ?? 0) >= 20 && (e.hits ?? 0) / (e.shots ?? 1) >= 0.3) v += 1; break;
+      case 'play': v += 1; break;
+      case 'kills': v += e.kills; break;
+    }
+    ch.progress[i] = Math.min(d.target, v);
+  });
+}
+
 export function addMatch(p: Profile, e: MatchEntry, extra?: { byWeapon: Record<string, number>; bestStreak: number }) {
+  countChallenges(p, e, extra);
   p.history.unshift(e);
   p.history = p.history.slice(0, MAX_HISTORY);
   p.totals.matches++;
