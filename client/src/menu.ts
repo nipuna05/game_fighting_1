@@ -357,9 +357,9 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const canClaim = () => profile.daily.last !== today();
   const rewardInfo = (r: Reward) => {
     if (r.kind === 'coins') return { icon: '<i class="coin"></i>', label: `${r.v} coins` };
-    if (r.kind === 'skin') return { icon: '<span class="ic">&#127894;</span>', label: `Costume ${r.v + 1}` };
-    if (r.kind === 'sidearm') return { icon: '<span class="ic">&#128299;</span>', label: WEAPONS[r.v].name };
-    return { icon: '<span class="ic">&#127912;</span>', label: `${TINT_NAMES[r.v]} finish` };
+    if (r.kind === 'skin') return { icon: '<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.6 9.4a4.4 4.4 0 0 1 8.8 0z"/><path d="M6.6 9.4h10.8"/><path d="M9.6 12.2c.7 1 1.5 1.5 2.4 1.5s1.7-.5 2.4-1.5"/><path d="M4.4 21c.7-4.3 3.7-6.7 7.6-6.7s6.9 2.4 7.6 6.7"/></svg></span>', label: `Costume ${r.v + 1}` };
+    if (r.kind === 'sidearm') return { icon: '<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 7.2h15.6l2.1 1.6v2.5H11.8l-.7 3.2c-.2.8-.9 1.4-1.7 1.4H7.6c-1 0-1.7-.9-1.5-1.8l.9-2.8H2.8z"/><path d="M12.2 11.3v2.1M5.2 7.2V5.9h2.2v1.3"/></svg></span>', label: WEAPONS[r.v].name };
+    return { icon: '<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7.5" y="9.5" width="8" height="11.5" rx="1.6"/><path d="M9.5 9.5V7h4v2.5M10.5 4.6h2"/><path d="M7.5 14.5h8"/><path d="M18 5.6h.01M20.2 7.6h.01M18.4 8.6h.01M20 4.2h.01"/></svg></span>', label: `${TINT_NAMES[r.v]} finish` };
   };
   const grant = (r: Reward) => {
     if (r.kind === 'coins') profile.coins += r.v;
@@ -435,7 +435,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const renderPlayExtra = () => {
     const r = rankOf();
     $('playextra').innerHTML = `<div class="rankbox">RANK <b>${esc(r.name)}</b> &middot; ${r.xp} XP${r.next !== undefined ? ` &middot; ${r.next - r.xp} XP to the next rank` : ' &middot; top rank!'}<div class="bar"><i style="width:${r.pct}%"></i></div></div>`
-      + (canClaim() ? `<div class="minireward"><span>&#127873; Your daily reward is ready: <b>${esc(rewardInfo(REWARDS[profile.daily.claimed >= 28 ? 0 : profile.daily.claimed]).label)}</b></span><button class="btn go" id="minclaim">Claim</button></div>` : '');
+      + (canClaim() ? `<div class="minireward"><span><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px;color:#ffd27a\"><rect x=\"4\" y=\"10.2\" width=\"16\" height=\"10\" rx=\"1.6\"/><path d=\"M3 7h18v3.2H3zM12 7v13.2\"/><path d=\"M12 7C9.6 2.8 5.6 4.2 7 7M12 7c2.4-4.2 6.4-2.8 5 0\"/></svg> Your daily reward is ready: <b>${esc(rewardInfo(REWARDS[profile.daily.claimed >= 28 ? 0 : profile.daily.claimed]).label)}</b></span><button class="btn go" id="minclaim">Claim</button></div>` : '');
     const mc = document.getElementById('minclaim'); if (mc) mc.addEventListener('click', () => { claimDaily(); });
   };
 
