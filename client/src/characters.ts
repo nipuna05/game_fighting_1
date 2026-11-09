@@ -42,6 +42,8 @@ export let rigName: Template['rig'] | null = null; // which character is loaded 
 // Costumes 0..3 are four different soldiers: 0 = Soldier Cole, 1..3 = Mixamo soldiers (Ch15, Ch35, Ch18) wearing Cole's animations.
 // A costume whose model file is missing falls back to Cole with a colour tint of his camo.
 const COLE_TINTS = [0xffffff, 0xaec0d6, 0xe6d3a2, 0x80838c];
+// dress kits: colour outfits multiplied over any costume (the kit number is packed into the skin number, see KIT_NAMES in shared)
+const KIT_TINTS = [0xffffff, 0xb4d08a, 0xf0d29a, 0xe8f0fa, 0x7e8794, 0xe06a5a, 0xffd24a];
 const MIXAMO_SKINS: [number, string][] = [[1, 'ch15'], [2, 'ch35'], [3, 'ch18']];
 const templates: Record<number, Template> = {};
 export let template: Template | null = null; // the default (costume 0) template; null means: use the blocky soldier
@@ -126,7 +128,8 @@ export async function loadTemplate(): Promise<void> {
   }
 }
 
-export function makeModelCharacter(skinIdx: number, color: number): Character {
+export function makeModelCharacter(skinNo: number, color: number): Character {
+  const kit = Math.max(0, Math.min(KIT_TINTS.length - 1, Math.floor(skinNo / 4))), skinIdx = skinNo % 4;
   const t = templates[skinIdx] ?? template!;
   const root = new THREE.Group();
   const model = SkeletonUtils.clone(t.scene) as THREE.Group;
@@ -141,6 +144,12 @@ export function makeModelCharacter(skinIdx: number, color: number): Character {
     if (t.rig === 'cole') { // costume = tint of the camo texture (each character gets its own material copy)
       const mat = (m.material as THREE.MeshStandardMaterial).clone();
       mat.color.setHex(COLE_TINTS[skinIdx % COLE_TINTS.length]);
+      m.material = mat;
+    }
+    if (kit > 0) {
+      const mat = (m.material as THREE.MeshStandardMaterial).clone();
+      if (mat.color) mat.color.multiply(new THREE.Color(KIT_TINTS[kit]));
+      if (kit === KIT_TINTS.length - 1) { mat.metalness = 0.55; mat.roughness = 0.4; }   // royal gold shines
       m.material = mat;
     }
   });

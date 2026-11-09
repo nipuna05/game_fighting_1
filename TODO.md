@@ -103,3 +103,12 @@ Possible next: a roof / third floor, jumping up onto ledges and crates, balcony 
   CuiGames accessory kit, and the Poly Pizza gun authors (author names still needed from the Poly Pizza pages).
 - Dev URL options: `?mode=single`, `&map=dock|desert|town`, `&zoom=0.4`, `&timescale=40`, `&god=1` (invincible), `&top=1`,
   `&debug=1`, `?gallery=1` (weapon models), `/preview.html`, `/gallery.html`.
+
+## Done (2026-11-09): maps, weapons, outfits, equipment, menu pages
+- Four more themed maps: Outpost Delta (military base), Jungle Ruins, Frozen Pass (snow canyon), Dead Canyon (winding gorge). Same 2400 x 1800 size
+  (per-map sizes would touch WORLD_W/WORLD_H everywhere; still on the list). Add a map with a `MapDef`, a theme entry in world.ts `THEMES`, a floor texture and a `.mapprev` colour.
+- Seven new weapons appended to `WEAPONS` (Vector, AUG, SCAR-H, SVD Marksman, M870 Pump, RPK, AWM) with built-in models and their own gunshot voices. NEVER insert weapons in the middle: indexes are saved in profiles and sent over the network.
+- Aim down the sights (hold right mouse) for every gun: tighter spread (`ADS_SPREAD`), slower walk (`ADS_SPEED`), a light zoom; snipers still get the scope. Recoil climbs the camera and kicks the gun, the gun sways when you walk, and the aim cross shows the real spread.
+- Dress kits: 7 colour outfits over any costume (Standard, Woodland free; others cost coins). The kit is packed into the skin number (`skin = costume + 4 * kit`), so no protocol change.
+- New items: Painkillers (key 0), First-aid kit (F), Impact grenade (H, bursts on contact). Appended to `ITEMS`.
+- Menu: sub-tabs so nothing needs scrolling (Equipment: Weapons / Customize / Outfit; Setup: Map / Game / Player; Settings: Options / Movement / Weapons / Items / Other; Shop; Rewards). Mark blocks with `data-s="page"` and call `subTabs(...)` in menu.ts.

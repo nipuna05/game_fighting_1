@@ -1,7 +1,7 @@
 // Landing-page menu: Play / Loadout / Costume / Profile tabs.
-import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_COUNT, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
+import { WEAPONS, TEAM_INFO, MAPS, MAP_IDS, SKIN_BASE, KIT_NAMES, TITLE_RANK, GAME_MODES, WEAPON_SETS, isFreeLoadout, SIGHT_NAMES, TINT_NAMES, SIGHT_GUNS, GRIP_GUNS, TINT_GUNS, defaultCustom, cleanCustom, customMods, type GameMode, type WeaponSet } from '@fight/shared';
 import { ACTIONS, binds, applyBinds, keyLabel, hintText, resolveBinds } from './keybinds';
-import { saveProfile, clearHistory, SKIN_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
+import { saveProfile, clearHistory, SKIN_PRICES, KIT_PRICES, SIDEARM_PRICES, TINT_PRICES, type Profile, type TeamPref } from './profile';
 
 import { music } from './music';
 import { asset, staticHost } from './assets';
@@ -59,6 +59,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       const m = MAPS[id];
       const d = document.createElement('div');
       d.className = `mapcard${profile.map === id ? ' sel' : ''}`;
+      d.title = m.blurb;
       d.innerHTML = `<div class="mapprev ${m.theme}"></div><div class="mi"><b>${esc(m.name)}</b><span>${esc(m.blurb)}</span></div>`;
       d.addEventListener('click', () => { profile.map = id; save(); hooks.onMap(id); renderMaps(); });
       box.appendChild(d);
@@ -176,7 +177,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const renderSkins = () => {
     const box = $('skins');
     box.innerHTML = '';
-    for (let i = 0; i < SKIN_COUNT; i++) {
+    for (let i = 0; i < SKIN_BASE; i++) {
       const owned = profile.unlocks.skins.includes(i);
       const d = document.createElement('div');
       d.className = `skin${profile.skin === i ? ' sel' : ''}${owned ? '' : ' locked'}`;
@@ -184,11 +185,24 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       if (portraits) d.classList.add('p');
       if (!owned) d.innerHTML = `<em>${SKIN_PRICES[i]} coins</em>`;
       d.addEventListener('click', () => {
-        if (owned) { profile.skin = i; save(); hooks.onSkin(i); renderSkins(); return; }
-        askUnlock(`skin${i}`, `Costume ${i + 1}`, SKIN_PRICES[i], () => { profile.unlocks.skins.push(i); profile.skin = i; hooks.onSkin(i); }, renderSkins);
+        if (owned) { profile.skin = i; save(); hooks.onSkin(i + SKIN_BASE * profile.kit); renderSkins(); return; }
+        askUnlock(`skin${i}`, `Costume ${i + 1}`, SKIN_PRICES[i], () => { profile.unlocks.skins.push(i); profile.skin = i; hooks.onSkin(i + SKIN_BASE * profile.kit); }, renderSkins);
       });
       box.appendChild(d);
     }
+  };
+
+  // dress kits: colour outfits over the chosen costume
+  const KIT_CSS = ['#8d98a6', '#7e9a52', '#d9b46e', '#dbe6f2', '#5c6572', '#c8483a', '#e6b72a'];
+  const renderKits = () => {
+    const box = $('kits');
+    box.innerHTML = KIT_NAMES.map((n, k) => { const own = profile.unlocks.kits.includes(k); return `<button class="cbtn${profile.kit === k ? ' on' : ''}${own ? '' : ' locked'}" data-kit="${k}"><i class="sw" style="background:${KIT_CSS[k]}"></i>${esc(n)}${own ? '' : ' &#128274; ' + KIT_PRICES[k]}</button>`; }).join('');
+    box.querySelectorAll<HTMLElement>('[data-kit]').forEach((b) => b.addEventListener('click', () => {
+      const k = Number(b.dataset.kit);
+      const pick = () => { profile.kit = k; save(); hooks.onSkin(profile.skin + SKIN_BASE * k); renderKits(); };
+      if (profile.unlocks.kits.includes(k)) pick();
+      else askUnlock(`kit${k}`, `${KIT_NAMES[k]} dress kit`, KIT_PRICES[k], () => { profile.unlocks.kits.push(k); profile.kit = k; hooks.onSkin(profile.skin + SKIN_BASE * k); }, () => { renderKits(); renderShop(); });
+    }));
   };
 
   // ---------- Profile tab ----------
@@ -211,6 +225,25 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     $('pclear').textContent = confirmClear ? 'Click again to confirm' : 'Clear history';
   };
 
+  // ---------- sub-tabs: split a long pane into short pages so nothing needs scrolling ----------
+  // Blocks carry data-s="page ids"; the buttons show one page at a time (class .sh hides the rest).
+  const subs: Record<string, { apply(): void; set(id: string): void }> = {};
+  const subTabs = (paneId: string, pages: [string, string][], after?: string) => {
+    const pane = $(paneId);
+    const bar = document.createElement('div'); bar.className = 'subbar';
+    let cur = pages[0][0];
+    const set = (id: string) => {
+      cur = id;
+      bar.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.sub === id));
+      pane.querySelectorAll<HTMLElement>('[data-s]').forEach((el) => el.classList.toggle('sh', !el.dataset.s!.split(' ').includes(id)));
+    };
+    for (const [id, label] of pages) { const b = document.createElement('button'); b.dataset.sub = id; b.textContent = label; b.addEventListener('click', () => set(id)); bar.appendChild(b); }
+    const anchor = after ? pane.querySelector(after) : null;
+    if (anchor) anchor.after(bar); else pane.insertBefore(bar, pane.firstChild);
+    set(cur);
+    return (subs[paneId] = { apply: () => set(cur), set });
+  };
+
   // ---------- Controls tab: rebind the keyboard shortcuts ----------
   let capturing: { act: string; slot: number } | null = null;
   const renderHint = () => { const h = document.getElementById('hint'); if (h) h.textContent = hintText(); };
@@ -219,9 +252,10 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     box.innerHTML = '';
     let group = '';
     for (const a of ACTIONS) {
-      if (a.group !== group) { group = a.group; const h = document.createElement('h4'); h.textContent = group; box.appendChild(h); }
+      const page = a.group === 'Movement' ? 'move' : a.group === 'Round' || a.group === 'Weapons' ? 'weapons' : a.group === 'Items' ? 'items' : 'other';
+      if (a.group !== group) { group = a.group; const h = document.createElement('h4'); h.textContent = group; h.dataset.s = page; box.appendChild(h); }
       const row = document.createElement('div');
-      row.className = 'krow';
+      row.className = 'krow'; row.dataset.s = page;
       row.innerHTML = `<span>${esc(a.label)}</span>`;
       for (let slot = 0; slot < 2; slot++) {
         const code = binds()[a.id][slot];
@@ -236,6 +270,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       box.appendChild(row);
     }
     renderHint();
+    subs['tab-controls']?.apply();
   };
   const saveBinds = (next: Record<string, string[]>) => {
     profile.keybinds = next;
@@ -319,7 +354,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     if (profile.daily.claimed >= 28) profile.daily.claimed = 0;                 // a new cycle begins
     const r = REWARDS[profile.daily.claimed];
     grant(r); profile.daily.claimed++; profile.daily.last = today(); save();
-    renderCoins(); renderRewards(); renderShop(); renderSidearms(); renderSkins(); renderCustom(); renderPlayExtra();
+    renderCoins(); renderRewards(); renderShop(); renderSidearms(); renderSkins(); renderKits(); renderCustom(); renderPlayExtra();
     say(`Day ${profile.daily.claimed} reward claimed: ${rewardInfo(r).label}!`);
   };
   const untilTomorrow = () => { const n = new Date(), t = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1); const ms = t.getTime() - n.getTime(); return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`; };
@@ -328,8 +363,9 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     const nextIdx = done >= 28 ? 0 : done;
     $('days').innerHTML = REWARDS.map((r, i) => {
       const info = rewardInfo(r), isDone = i < done && !(done >= 28 && claimable), isNext = claimable ? i === nextIdx : false;
-      return `<div class="day${isDone ? ' done' : ''}${isNext ? ' next' : ''}${i === 27 ? ' big' : ''}"><small>DAY ${i + 1}</small>${info.icon}<b>${esc(info.label)}</b></div>`;
+      return `<div data-s="${i < 14 ? 'w1' : 'w2'}" class="day${isDone ? ' done' : ''}${isNext ? ' next' : ''}${i === 27 ? ' big' : ''}"><small>DAY ${i + 1}</small>${info.icon}<b>${esc(info.label)}</b></div>`;
     }).join('');
+    subs['tab-rewards']?.apply();
     const shown = done >= 28 && claimable ? 0 : done;
     $('dayprog').textContent = `DAY ${Math.min(28, shown + (claimable ? 1 : 0))} / 28`;
     ($('dayfill') as HTMLElement).style.width = `${Math.round((shown / 28) * 100)}%`;
@@ -345,16 +381,18 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   // ---------- shop: everything that can be unlocked with coins ----------
   const renderShop = () => {
     const box = $('shopbox');
-    const sec = (title: string, items: { key: string; name: string; sub: string; owned: boolean; price: number; buy: () => void }[]) =>
-      `<div class="shopsec"><h4>${title}</h4><div class="shopgrid">${items.map((it) => `<div class="shopitem${it.owned ? ' own' : ''}"><b>${esc(it.name)}</b><span>${esc(it.sub)}</span>${it.owned ? '<span class="tag2">OWNED</span>' : `<button class="btn ghost" data-buy="${it.key}">Unlock &middot; ${it.price} coins</button>`}</div>`).join('')}</div></div>`;
+    const sec = (key: string, title: string, items: { key: string; name: string; sub: string; owned: boolean; price: number; buy: () => void }[]) =>
+      `<div class="shopsec" data-s="${key}"><h4>${title}</h4><div class="shopgrid">${items.map((it) => `<div class="shopitem${it.owned ? ' own' : ''}"><b>${esc(it.name)}</b><span>${esc(it.sub)}</span>${it.owned ? '<span class="tag2">OWNED</span>' : `<button class="btn ghost" data-buy="${it.key}">Unlock &middot; ${it.price} coins</button>`}</div>`).join('')}</div></div>`;
     const list: Record<string, { name: string; price: number; buy: () => void }> = {};
     const skins = [2, 3].map((i) => { list[`skin${i}`] = { name: `Costume ${i + 1}`, price: SKIN_PRICES[i], buy: () => { profile.unlocks.skins.push(i); } }; return { key: `skin${i}`, name: `Costume ${i + 1}`, sub: 'A new soldier look', owned: profile.unlocks.skins.includes(i), price: SKIN_PRICES[i], buy: () => undefined }; });
     const sides = [1, 2].map((i) => { list[`sidearm${i}`] = { name: WEAPONS[i].name, price: SIDEARM_PRICES[i], buy: () => { profile.unlocks.sidearms.push(i); } }; return { key: `sidearm${i}`, name: WEAPONS[i].name, sub: 'Sidearm', owned: profile.unlocks.sidearms.includes(i), price: SIDEARM_PRICES[i], buy: () => undefined }; });
     const tints = [4, 5].map((i) => { list[`tint${i}`] = { name: `${TINT_NAMES[i]} finish`, price: TINT_PRICES[i], buy: () => { profile.unlocks.tints.push(i); } }; return { key: `tint${i}`, name: `${TINT_NAMES[i]} weapon finish`, sub: 'Paint any gun', owned: profile.unlocks.tints.includes(i), price: TINT_PRICES[i], buy: () => undefined }; });
-    box.innerHTML = sec('Costumes', skins) + sec('Sidearms', sides) + sec('Weapon finishes', tints);
+    const kits = [2, 3, 4, 5, 6].map((i) => { list[`kit${i}`] = { name: `${KIT_NAMES[i]} dress kit`, price: KIT_PRICES[i], buy: () => { profile.unlocks.kits.push(i); } }; return { key: `kit${i}`, name: `${KIT_NAMES[i]} dress kit`, sub: 'A new colour outfit for any costume', owned: profile.unlocks.kits.includes(i), price: KIT_PRICES[i], buy: () => undefined }; });
+    box.innerHTML = sec('costumes', 'Costumes', skins) + sec('kits', 'Dress kits', kits) + sec('sidearms', 'Sidearms', sides) + sec('finishes', 'Weapon finishes', tints);
+    subs['tab-shop']?.apply();
     box.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) => b.addEventListener('click', () => {
       const it = list[b.dataset.buy!];
-      askUnlock(b.dataset.buy!, it.name, it.price, () => it.buy(), () => { renderShop(); renderSidearms(); renderSkins(); renderCustom(); });
+      askUnlock(b.dataset.buy!, it.name, it.price, () => it.buy(), () => { renderShop(); renderSidearms(); renderSkins(); renderKits(); renderCustom(); });
     }));
   };
 
@@ -372,9 +410,13 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   };
 
   // ---------- tabs and buttons ----------
+  let eqSub: 'loadout' | 'custom' | 'costume' = 'loadout';
   const showTab = (name: string) => {
     document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === (name === 'setup' ? 'play' : name)));
-    document.querySelectorAll<HTMLElement>('.pane').forEach((p) => p.classList.toggle('on', p.id === `tab-${name}` || (name === 'loadout' && p.id === 'tab-costume')));   // Equipment = weapons + costume
+    const pane = name === 'loadout' ? `tab-${eqSub}` : `tab-${name}`;                      // Equipment has sub-tabs: Weapons, Customize, Outfit
+    document.querySelectorAll<HTMLElement>('.pane').forEach((p) => p.classList.toggle('on', p.id === pane));
+    $('subtabs').classList.toggle('on', name === 'loadout');
+    document.querySelectorAll<HTMLElement>('#subtabs button').forEach((b) => b.classList.toggle('on', b.dataset.sub === eqSub));
     $('panel').classList.toggle('wide', name !== 'play');
     if (name === 'rewards') renderRewards();
     if (name === 'shop') renderShop();
@@ -383,6 +425,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     if (name === 'credits') void renderCredits();
   };
   document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab!)));
+  document.querySelectorAll<HTMLElement>('#subtabs button').forEach((b) => b.addEventListener('click', () => { eqSub = b.dataset.sub as typeof eqSub; showTab('loadout'); }));
   $('pclear').addEventListener('click', () => {
     if (!confirmClear) { confirmClear = true; renderProfile(); window.setTimeout(() => { confirmClear = false; renderProfile(); }, 3500); return; }
     confirmClear = false; clearHistory(profile); renderProfile(); renderCoins();
@@ -410,5 +453,10 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   armor.addEventListener('change', () => { profile.autoBuy.armor = armor.checked; save(); });
   ($('name') as HTMLInputElement).value = profile.name;
 
-  renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderRewards(); renderShop(); renderPlayExtra(); renderSidearms(); renderPrimaries(); renderSkins(); renderControls();
+  renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderRewards(); renderShop(); renderPlayExtra(); renderSidearms(); renderPrimaries(); renderSkins(); renderKits(); renderControls();
+  subTabs('tab-setup', [['map', 'Map'], ['match', 'Game'], ['player', 'Player']], '.setuphead');
+  subTabs('tab-controls', [['opts', 'Options'], ['move', 'Movement'], ['weapons', 'Weapons'], ['items', 'Items'], ['other', 'Other']]);
+  subTabs('tab-rewards', [['w1', 'Days 1-14'], ['w2', 'Days 15-28']], '.dprog');
+  subTabs('tab-shop', [['costumes', 'Costumes'], ['kits', 'Dress kits'], ['sidearms', 'Sidearms'], ['finishes', 'Finishes']], '.rhead');
+  if (profile.daily.claimed >= 14 && profile.daily.claimed < 28) subs['tab-rewards'].set('w2');
 }

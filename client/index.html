@@ -44,8 +44,11 @@
     .logo { font: 900 clamp(56px, 9vw, 124px)/0.92 Impact, 'Arial Black', system-ui, sans-serif; letter-spacing: .06em; background: linear-gradient(180deg, #fff 18%, #ffd27a 55%, #ff8a3d 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 28px rgba(255,140,60,.5)); }
     .tag { letter-spacing: .55em; font-size: 12px; color: #d3dcea; text-transform: uppercase; margin: 8px 0 0 6px; text-shadow: 0 2px 8px #000; }
     #coins { pointer-events: auto; color: #ffd34d; font: 800 15px ui-monospace, monospace; background: rgba(12,17,25,.7); border: 1px solid rgba(255,211,77,.35); padding: 8px 14px; border-radius: 999px; backdrop-filter: blur(8px); }
-    #panel { margin: 0 0 0 auto; width: min(470px, 100%); transition: width .2s ease; background: rgba(12,17,25,.74); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; box-shadow: 0 24px 90px rgba(0,0,0,.65); overflow: hidden; }
-    .pane { display: none; padding: 14px 18px 16px; max-height: calc(100vh - 200px); overflow: auto; } .pane.on { display: block; }
+    #panel { margin: 0 0 0 auto; width: min(470px, 100%); transition: width .2s ease; background: rgba(12,17,25,.74); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; box-shadow: 0 24px 90px rgba(0,0,0,.65); overflow: hidden; display: flex; flex-direction: column; max-height: calc(100vh - 150px); }
+    .pane { display: none; padding: 14px 18px 16px; min-height: 0; overflow: auto; } .pane.on { display: block; flex: 1 1 auto; }
+    #subtabs { display: none; gap: 6px; padding: 10px 18px 0; flex: 0 0 auto; } #subtabs.on { display: flex; }
+    #subtabs button { font: 700 12px system-ui; letter-spacing: .08em; text-transform: uppercase; color: #a9b8cb; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+    #subtabs button:hover { color: #fff; } #subtabs button.on { color: #fff; background: rgba(255,154,61,.25); border-color: #ff9a3d; }
     .pane h4 { margin: 12px 0 7px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #8fa0b5; } .pane h4:first-child { margin-top: 0; }
     .pane input[type=text], #name, #room { width: 100%; box-sizing: border-box; font-size: 16px; padding: 11px 14px; border-radius: 10px; border: 1px solid #2a3544; background: rgba(21,28,38,.85); color: inherit; }
     .btn { font: 700 16px system-ui; padding: 12px 18px; border-radius: 10px; border: 1px solid #2a3544; background: #1c2735; color: #e8eef5; cursor: pointer; }
@@ -56,6 +59,7 @@
     .card { padding: 10px; border-radius: 10px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; font-size: 13px; position: relative; }
     .card b { display: block; font-size: 14px; } .card span { display: block; color: #8fa0b5; font-size: 11px; margin-top: 3px; }
     .card.sel, .mapcard.sel, .skin.sel, .chip.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8455; }
+    .cards.tight .card { padding: 6px 8px; font-size: 12px; } .cards.tight .card b { font-size: 12.5px; } .cards.tight .card span, .cards.tight .card em { font-size: 10.5px; margin-top: 1px; }
     .card.locked { opacity: .55; } .card em, .skin em { display: block; font-style: normal; color: #ffd34d; font-size: 11px; margin-top: 4px; }
     .mapcard { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 12px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; }
     .mapprev { flex: 0 0 78px; height: 44px; border-radius: 8px; }
@@ -105,7 +109,12 @@
     .homebtn.single:hover { border-color: #ff9a3d; } .homebtn.multi:hover { border-color: #3ddc84; }
     .setuphead { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; } .setuphead h2 { margin: 0; font: 900 24px Impact, system-ui; letter-spacing: .05em; } .setuphead .btn { font-size: 13px; padding: 8px 14px; }
     .setupfoot { position: sticky; bottom: -16px; margin: 14px -18px -16px; padding: 12px 18px 16px; background: linear-gradient(180deg, rgba(12,17,25,0), rgba(12,17,25,.96) 35%); } .setupfoot .btn { width: 100%; }
-    .setupgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; } @media (max-width: 820px) { .setupgrid { grid-template-columns: 1fr; } }
+    .setupgrid { display: block; }
+    .sh { display: none !important; }
+    .subbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+    .subbar button { font: 700 12px system-ui; letter-spacing: .08em; text-transform: uppercase; color: #a9b8cb; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+    .subbar button:hover { color: #fff; } .subbar button.on { color: #fff; background: rgba(255,154,61,.25); border-color: #ff9a3d; }
+    .cards.maps { grid-template-columns: 1fr 1fr; } .cards.maps .mi span { display: none; }
     .shopsec h4 { margin-top: 16px; } .shopgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
     .shopitem { border: 2px solid #2a3544; background: rgba(21,28,38,.85); border-radius: 12px; padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; } .shopitem b { font-size: 14px; } .shopitem span { color: #8fa0b5; font-size: 11px; }
     .shopitem .btn { font-size: 13px; padding: 8px 10px; } .shopitem.own { border-color: #1f7a4d; } .shopitem .tag2 { color: #3ddc84; font: 800 11px system-ui; letter-spacing: .08em; }
@@ -144,7 +153,7 @@
     body.touch #respawn b { font-size: 44px; }
     #spec b { display: block; font: 800 20px system-ui; color: #fff; letter-spacing: .04em; margin-bottom: 2px; }
     .opt { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #cdd7e4; padding: 5px 0; } .opt select { background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
-    .sel { width: 100%; background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 9px 10px; font-size: 14px; }
+    select.sel { width: 100%; background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 9px 10px; font-size: 14px; }
     #goal { position: fixed; left: 50%; top: calc(54px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 4; max-width: 70vw; text-align: center; pointer-events: none; font: 600 15px system-ui; color: #e8eef5; background: #000b; padding: 8px 18px; border-radius: 10px; border-left: 4px solid #ffd24a; display: none; text-shadow: 0 1px 4px #000; }
     #goal .gt { display: block; font-size: 11px; letter-spacing: 2px; color: #ffd24a; margin-bottom: 2px; }
     #goal .gx { display: block; } #goal .gp { display: block; margin-top: 3px; font-size: 13px; color: #7dff9c; } #goal .gp:empty { display: none; }
@@ -227,7 +236,7 @@
     body.touch #mic { right: auto; left: 50%; transform: translateX(-50%); top: calc(44px + env(safe-area-inset-top)); bottom: auto; }
     body.touch #feed { top: calc(54px + env(safe-area-inset-top)); right: calc(56px + env(safe-area-inset-right)); } body.touch #feed .k { font-size: 11px; padding: 2px 8px; }
     body.touch #multi b { font-size: 34px; } body.touch #spec { bottom: 24%; }
-    @media (max-height: 520px) { #shell { padding: 8px 14px; } .logo { font-size: 26px; } .tag { display: none; } .pane { max-height: 62vh; } #panel { margin-top: 4px; } }
+    @media (max-height: 520px) { #shell { padding: 8px 14px; } .logo { font-size: 26px; } .tag { display: none; } #panel { margin-top: 4px; max-height: 70vh; } }
   </style>
 </head>
 <body>
@@ -291,6 +300,7 @@
         <button data-tab="profile"><i>&#128100;</i>Profile</button><button data-tab="controls"><i>&#9881;</i>Settings</button><button data-tab="credits"><i>&#8505;</i>Credits</button>
       </nav>
       <section id="panel">
+        <div id="subtabs"><button data-sub="loadout" class="on">Weapons</button><button data-sub="custom">Customize</button><button data-sub="costume">Outfit</button></div>
         <div class="pane on" id="tab-play">
           <div class="homecards">
             <button id="homeSingle" class="homebtn single"><b>Single player</b><span>Play against bots. Pick a map, a game style and your weapons on the next screen.</span></button>
@@ -302,15 +312,15 @@
         <div class="pane" id="tab-setup">
           <div class="setuphead"><button id="setupback" class="btn ghost">&larr; Back</button><h2 id="setuptitle"></h2></div>
           <div class="setupgrid">
-            <div>
-              <h4>Map</h4><div id="maps" class="cards maps"></div>
-            </div>
-            <div>
-              <h4>Callsign</h4><input id="name" type="text" maxlength="14" placeholder="Your name" />
+            <div data-s="map"><h4>Map</h4><div id="maps" class="cards maps"></div></div>
+            <div data-s="match">
               <h4>Game style</h4><select id="style" class="sel"></select><p class="note" id="stylenote"></p>
               <h4>Weapons</h4><select id="wset" class="sel"></select>
               <label class="opt" id="wpickrow">Weapon choice <select id="wpick"><option value="manual">I choose my weapon</option><option value="auto">Automatic (random)</option></select></label>
               <p class="note" id="wsetnote"></p>
+            </div>
+            <div data-s="player">
+              <h4>Callsign</h4><input id="name" type="text" maxlength="14" placeholder="Your name" />
               <h4>Team</h4><div id="teams"></div>
               <div id="roomrow"><h4>Room</h4><input id="room" type="text" maxlength="16" placeholder="Room code (blank = public game)" /><p class="note">Friends who type the same room code join the same game. Leave it blank to meet other players in the public game for this style.</p></div>
             </div>
@@ -318,29 +328,31 @@
           <div class="setupfoot"><button id="startgo" class="btn go">Start</button></div>
         </div>
         <div class="pane" id="tab-loadout">
-          <h4>Sidearm</h4><div id="sidearms" class="cards three"></div>
-          <h4>Primary weapon (bought automatically each round)</h4><div id="primaries" class="cards three"></div>
+          <h4>Sidearm</h4><div id="sidearms" class="cards three tight"></div>
+          <h4>Primary weapon (bought automatically each round)</h4><div id="primaries" class="cards four tight"></div>
+          <label class="check" title="Auto-buy runs at the start of every buy phase if you can afford it."><input type="checkbox" id="autoarmor" /> Also buy armor automatically</label>
+        </div>
+        <div class="pane" id="tab-custom">
           <h4>Customize a weapon</h4><div id="custwep" class="crow"></div><div id="custopts"></div>
-          <label class="check"><input type="checkbox" id="autoarmor" /> Also buy armor automatically</label>
-          <p class="note">Auto-buy happens at the start of every buy phase if you can afford it. Your sidearm is free and always yours. Locked sidearms cost coins.</p>
         </div>
         <div class="pane" id="tab-costume">
           <h4>Costume</h4><div id="skins" class="cards four"></div>
+          <h4>Dress kit</h4><div id="kits" class="crow"></div>
           <p class="note">Other players see your costume. Locked costumes unlock with coins, which you earn after every finished match.</p>
         </div>
         <div class="pane" id="tab-controls">
-          <h4>Options</h4>
-          <label class="opt"><input type="checkbox" id="optreplay" /> Show a slow-motion replay of how I died</label>
-          <label class="opt">Music volume <input type="range" id="optmusic" min="0" max="100" step="5" style="width:160px" /> <span id="optmusicv"></span></label>
-          <label class="opt">Camera view
+          <h4 data-s="opts">Options</h4>
+          <label class="opt" data-s="opts"><input type="checkbox" id="optreplay" /> Show a slow-motion replay of how I died</label>
+          <label class="opt" data-s="opts">Music volume <input type="range" id="optmusic" min="0" max="100" step="5" style="width:160px" /> <span id="optmusicv"></span></label>
+          <label class="opt" data-s="opts">Camera view
             <select id="optview"><option value="fps">First-person (through the soldier's eyes, default)</option><option value="top">Top-down</option></select></label>
-          <p class="note">You can switch while playing with <b>P</b>. In first-person: move the mouse to look, W/S walk forward/back, A/D strafe. Click the game once to capture the mouse; Esc releases it.</p>
-          <label class="opt">Team voice chat
+          <p class="note" data-s="opts">You can switch while playing with <b>P</b>. In first-person: move the mouse to look, W/S walk forward/back, A/D strafe. Click the game once to capture the mouse; Esc releases it.</p>
+          <label class="opt" data-s="opts">Team voice chat
             <select id="optvoice"><option value="off">Off</option><option value="ptt">Push-to-talk (hold a key)</option><option value="open">Open microphone</option></select></label>
-          <p class="note">Voice is only heard by your own team (real players, not bots). The browser asks for permission to use your microphone. It needs <b>https</b> or <b>localhost</b>.</p>
+          <p class="note" data-s="opts">Voice is only heard by your own team (real players, not bots). The browser asks for permission to use your microphone. It needs <b>https</b> or <b>localhost</b>.</p>
           <div id="controls"></div>
-          <div class="row"><button id="resetkeys" class="btn ghost">Reset all keys to defaults</button></div>
-          <p class="note">Click a key, then press the new one. Esc cancels, Backspace clears. If the key is already used for another action, it moves here. Mouse: aim with the mouse, left click shoots, right click scopes a sniper. Your keys are saved in your profile.</p>
+          <div class="row" data-s="move weapons items other"><button id="resetkeys" class="btn ghost">Reset all keys to defaults</button></div>
+          <p class="note" data-s="move weapons items other">Click a key, then press the new one. Esc cancels, Backspace clears. A key can only do one thing, so it moves here if it is used elsewhere. Mouse: aim with the mouse, left click shoots, hold right click to aim down the sights (a sniper gets the scope). Keys are saved in your profile.</p>
         </div>
         <div class="pane" id="tab-profile">
           <h2 id="pname"></h2><div id="pstats"></div>
@@ -350,7 +362,7 @@
           <div class="row"><button id="pclear" class="btn ghost">Clear history</button></div>
         </div>
         <div class="pane" id="tab-credits">
-          <h4>Credits</h4><p class="note">This game stands on the work of these artists and developers. Thank you!</p><div id="creditslist"></div>
+          <p class="note" style="margin-top:0">This game stands on the work of these artists and developers. Thank you!</p><div id="creditslist"></div>
         </div>
         <div class="pane" id="tab-rewards">
           <div class="rhead"><div><small>DAILY LOGIN</small><h2>Daily rewards</h2><p class="note" style="margin:0">Log in every day and claim one reward. Missing a day does not reset anything. After day 28 a new cycle starts.</p></div>
@@ -365,7 +377,6 @@
         <div id="menumsg"></div>
       </section>
       </div>
-      <footer id="hint">WASD move &middot; mouse aim &middot; click shoot &middot; Space jump &middot; 3-9 heal / throw items &middot; hold C kneel &middot; R reload &middot; X lie down (prone) &middot; hold Shift sneak &middot; hold E plant / defuse &middot; P camera (top-down / first-person) &middot; Esc menu / leave &middot; click the buy menu (V armor, B rebuy) &middot; 1 sidearm / 2 primary / wheel / Q switch &middot; M mute</footer>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

@@ -70,12 +70,16 @@ export const ITEMS: ItemDef[] = [
   { id: 'smoke',      name: 'Smoke grenade',  kind: 'throw', cost: 200, max: 2, use: 0, heal: 0 },
   { id: 'flash',      name: 'Flashbang',      kind: 'throw', cost: 200, max: 2, use: 0, heal: 0 },
   { id: 'molotov',    name: 'Molotov',        kind: 'throw', cost: 400, max: 2, use: 0, heal: 0 },
+  // added later (appended, so item numbers keep their meaning)
+  { id: 'painkiller', name: 'Painkillers',    kind: 'heal',  cost: 80,  max: 6, use: 1.2, heal: 15 },
+  { id: 'firstaid',   name: 'First-aid kit',  kind: 'heal',  cost: 300, max: 3, use: 3, heal: 55 },
+  { id: 'impact',     name: 'Impact grenade', kind: 'throw', cost: 350, max: 2, use: 0, heal: 0 },   // explodes the moment it hits a wall
 ];
 export const ITEM_BASE = 100;       // buy() item id for ITEMS[k] is ITEM_BASE + k
 export const FRAG_R = 115, FRAG_DMG = 125, FLASH_R = 300, SMOKE_R = 95, SMOKE_TIME = 10, FIRE_R = 75, FIRE_TIME = 7, FIRE_DPS = 16;
 export const THROW_SPEED = 430, THROW_CD = 0.8, BOOST_TIME = 10, BOOST_SPEED = 1.2, SUPPLY_RESPAWN = 40;
-const FUSE = [0, 0, 0, 2.3, 1.2, 1.4, 1.7];                            // seconds until a throwable goes off (index = ITEMS index)
-const SUPPLY_WEIGHTS = [30, 12, 10, 16, 12, 12, 8];
+const FUSE = [0, 0, 0, 2.3, 1.2, 1.4, 1.7, 0, 0, 3.5];                            // seconds until a throwable goes off (index = ITEMS index)
+const SUPPLY_WEIGHTS = [30, 12, 10, 16, 12, 12, 8, 22, 7, 8];
 const rollItem = () => { let r = Math.random() * SUPPLY_WEIGHTS.reduce((a, b) => a + b, 0); for (let i = 0; i < SUPPLY_WEIGHTS.length; i++) { r -= SUPPLY_WEIGHTS[i]; if (r <= 0) return i; } return 0; };
 export interface GrenadeState { id: number; x: number; y: number; k: number; lv: number }
 export interface ZoneState { id: number; x: number; y: number; r: number; k: 'smoke' | 'fire'; left: number; lv: number }
@@ -101,7 +105,10 @@ export const TEAM_INFO: Record<Team, { name: string; short: string; role: string
 };
 export type Phase = 'buy' | 'live' | 'post' | 'over';
 export const TEAM_SIZE = 3;
-export const SKIN_COUNT = 4; // costumes a player can choose from
+export const SKIN_BASE = 4;   // soldier models a player can choose from
+/** Dress kits: colour outfits on top of a costume. The kit is packed into the costume number (skin = costume + SKIN_BASE * kit), so the network protocol did not change. */
+export const KIT_NAMES = ['Standard', 'Woodland', 'Desert', 'Arctic', 'Urban', 'Crimson', 'Royal gold'];
+export const SKIN_COUNT = SKIN_BASE * KIT_NAMES.length; // every costume + kit combination
 export const BUY_TIME = 10;
 export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
@@ -837,7 +844,7 @@ export class Sim {
       if (hx) g.vx *= -0.45; else g.x = nx;
       if (hy) g.vy *= -0.45; else g.y = ny;
       const f = Math.max(0, 1 - 1.4 * dt); g.vx *= f; g.vy *= f;       // friction: it rolls to a stop
-      if (g.age >= FUSE[g.k] || ((hx || hy) && ITEMS[g.k].id === 'molotov')) this.explode(g); else keep.push(g);
+      if (g.age >= FUSE[g.k] || ((hx || hy) && (ITEMS[g.k].id === 'molotov' || ITEMS[g.k].id === 'impact'))) this.explode(g); else keep.push(g);
     }
     this.grenades = keep;
     this.zones = this.zones.filter((z) => this.time < z.until);
@@ -851,7 +858,7 @@ export class Sim {
   }
   private explode(g: { id: number; k: number; owner: string; team: Team; x: number; y: number; lv?: number }) {
     const lv = g.lv ?? 0;
-    const id = ITEMS[g.k].id, r = id === 'frag' ? FRAG_R : id === 'flash' ? FLASH_R : id === 'smoke' ? SMOKE_R : FIRE_R;
+    const id = ITEMS[g.k].id === 'impact' ? 'frag' : ITEMS[g.k].id, r = id === 'frag' ? FRAG_R : id === 'flash' ? FLASH_R : id === 'smoke' ? SMOKE_R : FIRE_R;
     this.blastLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(g.x), y: Math.round(g.y), k: g.k, r, lv });
     if (this.blastLog.length > 30) this.blastLog.shift();
     for (const p of this.players.values()) {

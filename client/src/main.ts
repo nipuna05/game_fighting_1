@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, adsSpeed, ADS_SPREAD, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -105,7 +105,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'prone': if (v) keys.prone = !keys.prone; break;                                         // lie down / get up
     case 'sneak': keys.sneak = v; break;
     case 'reload': keys.reload = v; if (v) game?.queueReload(); break;
-    case 'item0': case 'item1': case 'item2': case 'item3': case 'item4': case 'item5': case 'item6': if (v) game?.useItem(Number(act.slice(4))); break;
+    case 'item0': case 'item1': case 'item2': case 'item3': case 'item4': case 'item5': case 'item6': case 'item7': case 'item8': case 'item9': if (v) game?.useItem(Number(act.slice(4))); break;
     case 'view': if (v) game?.toggleView(); break;
     case 'jump': if (v && keys.prone) { keys.prone = false; break; } keys.jump = v; if (v) game?.queueJump(); break;   // from the ground the first press only gets you up
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
@@ -1085,7 +1085,7 @@ class Game {
   private lastBlast = -1;
   private lastGrenades = new Set<number>();
   private smokeTex: THREE.CanvasTexture | null = null;
-  private itemColor = [0xf2f2f2, 0xf2f2f2, 0xffd34d, 0x3f7f3f, 0x9aa3ad, 0xf5e04a, 0xe8772e];
+  private itemColor = [0xf2f2f2, 0xf2f2f2, 0xffd34d, 0x3f7f3f, 0x9aa3ad, 0xf5e04a, 0xe8772e, 0xe85a5a, 0xcfeccf, 0x3fa3d9];
   private makeSupply(k: number): THREE.Object3D {
     const g = new THREE.Group(), d = ITEMS[k], c = this.itemColor[k];
     const body = d.kind === 'heal'
@@ -1158,7 +1158,7 @@ class Game {
       if (b.id <= this.lastBlast) continue;
       const d = me ? Math.hypot(b.x - me.x, b.y - me.y) : 999, vol = Math.max(0, 1 - d / 1100), pan = me ? (b.x - me.x) / 500 : 0;
       const id = ITEMS[b.k].id;
-      if (id === 'frag') {
+      if (id === 'frag' || id === 'impact') {
         sfx.frag(vol, pan);
         this.spawnFx('flash', b.x, b.y, 26 + b.lv * FLOOR_H, 0, 0, 0, 0.16, 150);
         for (let i = 0; i < 14; i++) { const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 190; this.spawnFx('spark', b.x, b.y, 22, Math.cos(a) * sp, 60 + Math.random() * 140, Math.sin(a) * sp, 0.45, 6, -380); }
@@ -1692,7 +1692,7 @@ async function start(mode: 'single' | 'multi') {
   const style = (['bomb', 'tdm', 'rescue', 'collect'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
   const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
-  game = new Game({ mode, name, room, skin: profile.skin, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });
+  game = new Game({ mode, name, room, skin: profile.skin + SKIN_BASE * profile.kit, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });
 }
 if (QS.has('debug')) (window as unknown as { __music: typeof music }).__music = music;   // dev: test the soundtrack from the console
 const wakeMusic = () => {
@@ -1715,7 +1715,7 @@ void (async () => {
   if (new URLSearchParams(location.search).get('gallery')) return;
   await Promise.all([loadTemplate(), loadGunModels()]);
   if (started) return;
-  landing = startLanding($('hero'), { map: profile.map, skin: profile.skin, primary: profile.autoBuy.primary, custom: (w) => profile.custom[WEAPONS[w].id] });
+  landing = startLanding($('hero'), { map: profile.map, skin: profile.skin + SKIN_BASE * profile.kit, primary: profile.autoBuy.primary, custom: (w) => profile.custom[WEAPONS[w].id] });
 })();
 
 // dev shortcut: http://localhost:5173/?mode=single (or multi) skips the menu
