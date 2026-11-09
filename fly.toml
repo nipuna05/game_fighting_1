@@ -1,20 +1,22 @@
-# Fly.io settings for the multiplayer game server (see README, "Putting multiplayer online").
-# `app` must match the app created on Fly (names are global).
-app = "game-fighting-1"
-primary_region = "sin"          # Singapore, the closest Fly region to Sri Lanka ("bom" / Mumbai is not available for new apps)
+# fly.toml app configuration file generated for game-fighting-1 on 2026-11-09T12:03:07Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'game-fighting-1'
+primary_region = 'sin'
 
 [build]
-
 [env]
-  PORT = "8080"
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
-  force_https = true            # players connect with wss:// (secure WebSocket) on port 443
-  auto_stop_machines = "off"    # keep it running so a game is always available
+  force_https = true
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
