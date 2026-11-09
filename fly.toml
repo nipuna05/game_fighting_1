@@ -1,0 +1,20 @@
+# Fly.io settings for the multiplayer game server (see README, "Putting multiplayer online").
+# Change `app` to a name that is free on Fly (names are global), e.g. fight-game-<your name>.
+app = "fight-game-server"
+primary_region = "bom"          # Mumbai, the closest Fly region to Sri Lanka; "sin" (Singapore) also works
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true            # players connect with wss:// (secure WebSocket) on port 443
+  auto_stop_machines = "off"    # keep it running so a game is always available
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
