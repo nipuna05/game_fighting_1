@@ -175,6 +175,13 @@ export const sfx = {
     nz(out, t, 'lowpass', 600, 0.7, 0.8 * k, 0.13); osc(out, t, 'sine', 130, 50, 0.7 * k, 0.15);
     grunt(out, t + 0.03, 150 + Math.random() * 25, 90, 0.2, 0.55 * k);
   },
+  /** My bullet hit somebody: a short tick, and a heavy thud on a kill. */
+  hitTick(kill = false) {
+    if (!ctx || muted || !noiseBuf || !master) return;
+    const t = ctx.currentTime + 0.002, out = bus(kill ? 0.9 : 0.55, 0, 0, 0);
+    osc(out, t, 'square', kill ? 1500 : 2400, kill ? 800 : 1800, 0.3, 0.05);
+    if (kill) { osc(out, t, 'sine', 170, 55, 0.9, 0.2); nz(out, t, 'lowpass', 900, 0.7, 0.4, 0.12); }
+  },
   /** I died: a longer groan, then the body hits the ground. */
   death() {
     if (!ctx || muted || !noiseBuf || !master) return;

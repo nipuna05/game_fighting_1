@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, adsSpeed, ADS_SPREAD, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, FRAG_R, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -230,7 +230,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
+  private ev = { maxKill: -1, maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -570,6 +570,39 @@ class Game {
     c.m.material = cat === 'Shotgun' ? this.casingMats.shell : this.casingMats.brass;
     c.m.scale.set(l, w, w); c.m.position.copy(pos); c.m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     c.v.copy(vel); c.life = 1.6; c.spin.set((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30); c.m.visible = true;
+  }
+  /** The X on the aim cross when my bullet hits somebody (red and bigger for a kill), with a tick sound. */
+  private hitMarker(kill: boolean) {
+    const el = $('hitmark');
+    const c = this.aimXY.x || window.innerWidth / 2, d = this.aimXY.y || window.innerHeight / 2;
+    el.style.left = `${c}px`; el.style.top = `${d}px`;
+    el.className = kill ? 'kill' : '';
+    void el.offsetWidth;                                                  // restart the animation
+    el.classList.add('show');
+    sfx.hitTick(kill);
+  }
+  /** A red arc around the screen centre pointing at whoever shot me. a = the bullet's direction, so the shooter is the other way. */
+  private damageArc(a: number) {
+    const yaw = this.fpActive ? this.yaw : -Math.PI / 2;                  // "up" on the screen: where I look (first-person) or away from the camera (top-down)
+    const el = document.createElement('div');
+    el.className = 'dmgarc'; el.style.transform = `rotate(${(a + Math.PI - yaw).toFixed(3)}rad)`;
+    document.body.appendChild(el);
+    window.setTimeout(() => el.remove(), 1150);
+  }
+  private rings: { m: THREE.Mesh; age: number; max: number; r: number }[] = [];
+  /** A shockwave ring that sweeps out over the ground from an explosion. */
+  private spawnRing(x: number, y: number, z: number, r: number) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.scale.setScalar(8); this.scene.add(m);
+    this.rings.push({ m, age: 0, max: 0.4, r });
+  }
+  private updateRings(dt: number) {
+    for (const g of this.rings) {
+      g.age += dt; const k = Math.min(1, g.age / g.max);
+      g.m.scale.setScalar(8 + (g.r - 8) * (1 - Math.pow(1 - k, 2)));
+      (g.m.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
+    }
+    this.rings = this.rings.filter((g) => { if (g.age < g.max) return true; this.scene.remove(g.m); g.m.geometry.dispose(); (g.m.material as THREE.Material).dispose(); return false; });
   }
   private updateCasings(dt: number) {
     for (const c of this.casings) {
@@ -976,6 +1009,7 @@ class Game {
 
   // ---------- weapon aim marker: a cross whose gap is the real bullet spread (same rules as the server's shot code) ----------
   private aimGap = 8;
+  private aimXY = { x: 0, y: 0 };                         // where the aim cross is on screen (hit markers appear there)
   private updateAim(me: PlayerState | undefined, fpNow: boolean, ease: number, mine: boolean, dt: number) {
     const xh = $('xhair'), line = $('aimline');
     const live = !!me?.alive && mine && !this.paused && ease < 0.3 && !(isTouch && !fpNow);
@@ -1005,7 +1039,7 @@ class Game {
     }
     this.aimGap += (Math.min(70, Math.max(3, px)) - this.aimGap) * Math.min(1, dt * 14);   // eased, so it breathes with your movement
     xh.style.display = 'block';
-    xh.style.left = `${cx}px`; xh.style.top = `${cy}px`;
+    xh.style.left = `${cx}px`; xh.style.top = `${cy}px`; this.aimXY = { x: cx, y: cy };
     xh.style.setProperty('--g', `${this.aimGap.toFixed(1)}px`);
     xh.classList.toggle('empty', me.am === 0 && me.rl === 0);        // red: the magazine is empty
     xh.classList.toggle('rl', (me.rl ?? 0) > 0);                       // amber: reloading
@@ -1160,6 +1194,7 @@ class Game {
       const id = ITEMS[b.k].id;
       if (id === 'frag' || id === 'impact') {
         sfx.frag(vol, pan);
+        this.spawnRing(b.x, 3 + b.lv * FLOOR_H, b.y, FRAG_R * 1.25);
         this.spawnFx('flash', b.x, b.y, 26 + b.lv * FLOOR_H, 0, 0, 0, 0.16, 150);
         for (let i = 0; i < 14; i++) { const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 190; this.spawnFx('spark', b.x, b.y, 22, Math.cos(a) * sp, 60 + Math.random() * 140, Math.sin(a) * sp, 0.45, 6, -380); }
         for (let i = 0; i < 6; i++) { const a = Math.random() * Math.PI * 2; this.spawnFx('dust', b.x + Math.cos(a) * 14, b.y + Math.sin(a) * 14, 20, Math.cos(a) * 30, 24, Math.sin(a) * 30, 0.9, 38); }
@@ -1371,6 +1406,7 @@ class Game {
     this.lastImpactFx = Math.max(this.lastImpactFx, maxI);
 
     this.updateCasings(dt);
+    this.updateRings(dt);
     for (const p of this.fxParts) { // animate
       if (p.life <= 0) continue;
       p.life -= dt;
@@ -1495,11 +1531,19 @@ class Game {
       // bullets hitting things: flesh or walls, panned and louder when close
       const maxImp = s.impacts.reduce((m, e) => Math.max(m, e.id), 0);
       if (ev.maxImpact < 0) ev.maxImpact = maxImp;
+      let hitEnemy = false;
       for (const e of s.impacts) {
         if (e.id <= ev.maxImpact) continue;
         sfx.impact(e.kind, 1 - Math.hypot(e.x - me.x, e.y - me.y) / 800, (e.x - me.x) / 450);
+        if (e.kind === 'body' && e.o === this.myId && e.v !== this.myId) hitEnemy = true;                 // my bullet hit someone
+        if (e.kind === 'body' && e.v === this.myId && e.a !== undefined && me.alive) this.damageArc(e.a);   // I was shot: show where from
       }
       ev.maxImpact = Math.max(ev.maxImpact, maxImp);
+      const maxKill = s.kills.reduce((m, k) => Math.max(m, k.id), 0);
+      if (ev.maxKill < 0) ev.maxKill = maxKill;
+      const myKill = s.kills.some((k) => k.id > ev.maxKill && k.killer === this.myId && k.victim !== this.myId);
+      ev.maxKill = Math.max(ev.maxKill, maxKill);
+      if ((hitEnemy || myKill) && me.alive) this.hitMarker(myKill);
       if (me.hp < ev.hp && me.alive) {
         sfx.hurt(ev.hp - me.hp);
         const el = $('hurt'); el.style.transition = 'none'; el.style.opacity = '0.9';

@@ -182,7 +182,7 @@ export interface PlayerState {
   bo: boolean;   // adrenaline boost is active
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number; z: number } // a = direction (radians), w = weapon index
-export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body'; z: number }
+export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body'; z: number; o?: string; v?: string; a?: number }   // body hits also say who shot (o), who was hit (v) and the bullet's direction (a)
 export interface PickupState { id: number; x: number; y: number; kind: 'heal' | 'cash'; amount?: number }
 export type BombStatus = 'none' | 'carried' | 'dropped' | 'planted';
 export interface BombState {
@@ -300,8 +300,8 @@ export class Sim {
   private firstBloodDone = false;
   private impactLog: ImpactEvent[] = [];
   private nextImpact = 1;
-  private addImpact(x: number, y: number, kind: 'wall' | 'body', z = 0) {
-    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind, z: Math.round(z) });
+  private addImpact(x: number, y: number, kind: 'wall' | 'body', z = 0, who?: { o: string; v: string; a: number }) {
+    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind, z: Math.round(z), ...(who ? { o: who.o, v: who.v, a: Math.round(who.a * 100) / 100 } : {}) });
     if (this.impactLog.length > 40) this.impactLog.shift();
   }
   private nextKill = 1;
@@ -759,7 +759,7 @@ export class Sim {
         if (this.time < p.protect) continue;                // just respawned: untouchable for a moment
         if (b.over > 0 && (p.st === 1 || p.st === 3)) continue;   // kneeling or lying behind the cover this shot just flew over
         if (Math.hypot(p.x - b.x, p.y - b.y) <= (p.st === 3 ? PRONE_R : PLAYER_R)) {
-          this.addImpact(b.x, b.y, 'body', b.z);
+          this.addImpact(b.x, b.y, 'body', b.z, { o: b.owner, v: p.id, a: Math.atan2(b.vy, b.vx) });
           if (this.invincible.has(p.id)) { hit = true; break; }
           this.damage(p, b.dmg, b.owner, b.team, b.wid); hit = true;
           break;

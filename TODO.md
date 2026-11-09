@@ -112,3 +112,4 @@ Possible next: a roof / third floor, jumping up onto ledges and crates, balcony 
 - Dress kits: 7 colour outfits over any costume (Standard, Woodland free; others cost coins). The kit is packed into the skin number (`skin = costume + 4 * kit`), so no protocol change.
 - New items: Painkillers (key 0), First-aid kit (F), Impact grenade (H, bursts on contact). Appended to `ITEMS`.
 - Menu: sub-tabs so nothing needs scrolling (Equipment: Weapons / Customize / Outfit; Setup: Map / Game / Player; Settings: Options / Movement / Weapons / Items / Other; Shop; Rewards). Mark blocks with `data-s="page"` and call `subTabs(...)` in menu.ts.
+- Hit feedback: an X marker on the aim cross when my bullet hits (red and bigger on a kill) with a tick / thud sound, red arcs pointing at whoever shot me (`ImpactEvent` now carries shooter, victim and bullet direction), and a shockwave ring on frag / impact grenade blasts.
