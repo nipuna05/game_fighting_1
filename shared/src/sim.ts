@@ -29,6 +29,14 @@ export const WEAPONS: WeaponDef[] = [
   { id: 'l118a',   name: 'L118A',        slot: 'primary', cat: 'Sniper',  cost: 4750, dmg: 85,  cooldown: 1.3,   speed: 1500, life: 1.3,  pellets: 1, spread: 0.0, mag: 5, reload: 2.8 },
   { id: 'm60e4',   name: 'M60E4',        slot: 'primary', cat: 'LMG',     cost: 5200, dmg: 13,  cooldown: 0.075, speed: 790,  life: 1.0,  pellets: 1, spread: 0.14, mag: 100, reload: 4.2 },
   { id: 'barrett', name: 'Barrett .50',  slot: 'primary', cat: 'Sniper',  cost: 6000, dmg: 120, cooldown: 1.6,   speed: 1700, life: 1.4,  pellets: 1, spread: 0.0, mag: 7, reload: 3.2 },
+  // added later (appended, so saved profiles and the network protocol keep their weapon numbers)
+  { id: 'vector',  name: 'Vector',       slot: 'primary', cat: 'SMG',     cost: 2000, dmg: 9,   cooldown: 0.05,  speed: 730,  life: 0.6,  pellets: 1, spread: 0.13, mag: 33, reload: 1.7 },
+  { id: 'aug',     name: 'AUG',          slot: 'primary', cat: 'Rifle',   cost: 3000, dmg: 13,  cooldown: 0.08,  speed: 810,  life: 1.0,  pellets: 1, spread: 0.045, mag: 42, reload: 2.2 },
+  { id: 'scar',    name: 'SCAR-H',       slot: 'primary', cat: 'Rifle',   cost: 3400, dmg: 21,  cooldown: 0.12,  speed: 830,  life: 1.0,  pellets: 1, spread: 0.06, mag: 20, reload: 2.3 },
+  { id: 'svd',     name: 'SVD Marksman', slot: 'primary', cat: 'Rifle',   cost: 3800, dmg: 46,  cooldown: 0.42,  speed: 1250, life: 1.2,  pellets: 1, spread: 0.02, mag: 10, reload: 2.5 },
+  { id: 'm870',    name: 'M870 Pump',    slot: 'primary', cat: 'Shotgun', cost: 1400, dmg: 15,  cooldown: 0.95,  speed: 640,  life: 0.42, pellets: 8, spread: 0.26, mag: 6, reload: 2.8 },
+  { id: 'rpk',     name: 'RPK',          slot: 'primary', cat: 'LMG',     cost: 4300, dmg: 15,  cooldown: 0.09,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.11, mag: 75, reload: 3.6 },
+  { id: 'awm',     name: 'AWM',          slot: 'primary', cat: 'Sniper',  cost: 5000, dmg: 105, cooldown: 1.4,   speed: 1600, life: 1.35, pellets: 1, spread: 0.0, mag: 5, reload: 3.0 },
 ];
 // ---- weapon customization: a small code per weapon = sight (bits 0-1) + foregrip (bit 2) + finish (bits 3-5) ----
 export const SIGHT_NAMES = ['Iron sights', 'Holo sight', '4x scope', '8x scope'];
@@ -242,6 +250,10 @@ export function segmentHitsWalls(x1: number, y1: number, x2: number, y2: number,
 
 /** Moves a player one step with wall collision. The server and the client's prediction use this same function. */
 export const SCOPED_SPEED = 0.5; // movement multiplier while scoped with a sniper
+export const ADS_SPEED = 0.78;   // movement multiplier while aiming down the sights of any other gun
+export const ADS_SPREAD = 0.55;  // aiming down the sights tightens the spread of any other gun to this fraction
+/** Speed multiplier for holding the aim button with this weapon. */
+export const adsSpeed = (cat: string, aiming: boolean) => (!aiming ? 1 : cat === 'Sniper' ? SCOPED_SPEED : ADS_SPEED);
 export const CROUCH_SPEED = 0.5; // movement multiplier while kneeling
 export const PRONE_SPEED = 0.22;  // crawling
 export const SNEAK_SPEED = 0.45;  // slow walk (hold Shift)
@@ -659,11 +671,11 @@ export class Sim {
       if (p.bot) { this.thinkBot(p, dt); if (this.time < p.blindUntil) p.input.fire = false; }
       if (!frozen) {
         const px = p.x, py = p.y;
-        const scoped = !!p.input.scoped && WEAPONS[p.weapon].cat === 'Sniper';
+        const scoped = !!p.input.scoped;
         p.jumpCd -= dt; if (p.air > 0) p.air -= dt;
         if (p.input.jump && p.air <= 0 && p.jumpCd <= 0 && !p.input.prone) { p.air = JUMP_TIME; p.jumpCd = JUMP_COOLDOWN; }
         p.st = p.air > 0 ? 2 : p.input.prone ? 3 : p.input.crouch ? 1 : 0;
-        const mult = (scoped ? SCOPED_SPEED : 1) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : p.st === 3 ? PRONE_SPEED : p.input.sneak ? SNEAK_SPEED : 1);
+        const mult = adsSpeed(WEAPONS[p.weapon].cat, scoped) * (p.st === 1 ? CROUCH_SPEED : p.st === 2 ? JUMP_SPEED : p.st === 3 ? PRONE_SPEED : p.input.sneak ? SNEAK_SPEED : 1);
         movePlayer(p, p.input.mx, p.input.my, dt, this.wallsAt(p.lv), PLAYER_SPEED * mult * customMods(this.customOf(p)).speed * (p.usingItem >= 0 ? 0.55 : 1) * (p.boostUntil > this.time ? BOOST_SPEED : 1), p.st === 2);
         updateLevel(this.map, p);
         if (p.bot && (p.input.mx || p.input.my)) { // detect a bot pinned against a wall and nudge it sideways
@@ -694,7 +706,7 @@ export class Sim {
         p.ammoIn[p.weapon]--;
         for (let i = 0; i < w.pellets; i++) {
           const base = w.cat === 'Sniper' ? (p.bot || p.input.scoped ? 0 : 0.09) : w.spread;
-          const spread = base * customMods(this.customOf(p)).spread * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1);   // lying is steadiest, kneeling steady, mid-air wild
+          const spread = base * customMods(this.customOf(p)).spread * (p.st === 3 ? 0.35 : p.st === 1 ? 0.55 : p.st === 2 ? 1.8 : p.input.sneak ? 0.8 : 1) * (w.cat !== 'Sniper' && p.input.scoped ? ADS_SPREAD : 1);   // lying is steadiest, kneeling steady, mid-air wild
           const a = p.angle + (Math.random() - 0.5) * 2 * spread;
           this.bullets.push({
             id: this.nextBullet++, owner: p.id, team: p.team, dmg: w.dmg, wid: p.weapon, lv: p.lv, z: p.z, crouch: p.st === 1 || p.st === 3, over: 0,

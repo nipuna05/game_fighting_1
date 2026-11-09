@@ -82,6 +82,13 @@ const VOICES: Record<string, Voice> = {
   l118a:   { crack: 1.00, crackHz: 2000, body: 0.95, bodyHz: 1100, boomHz: 100, dur: 0.50, tail: 0.75, sub: 0.5, mech: 'bolt' },
   m60e4:   { crack: 0.80, crackHz: 1800, body: 1.00, bodyHz: 800,  boomHz: 85,  dur: 0.30, tail: 0.50, sub: 0.6 },
   barrett: { crack: 1.00, crackHz: 1600, body: 1.10, bodyHz: 700,  boomHz: 70,  dur: 0.80, tail: 0.95, sub: 0.8, mech: 'bolt' },
+  vector:  { crack: 0.50, crackHz: 3800, body: 0.35, bodyHz: 2400, boomHz: 230, dur: 0.09, tail: 0.15 },
+  aug:     { crack: 0.78, crackHz: 3100, body: 0.58, bodyHz: 1800, boomHz: 155, dur: 0.19, tail: 0.36 },
+  scar:    { crack: 0.88, crackHz: 2300, body: 0.90, bodyHz: 1150, boomHz: 115, dur: 0.27, tail: 0.46, sub: 0.4 },
+  svd:     { crack: 0.95, crackHz: 2100, body: 0.85, bodyHz: 1100, boomHz: 105, dur: 0.38, tail: 0.6, sub: 0.45 },
+  m870:    { crack: 0.70, crackHz: 1700, body: 1.00, bodyHz: 850,  boomHz: 78,  dur: 0.44, tail: 0.5, sub: 0.6, mech: 'pump' },
+  rpk:     { crack: 0.82, crackHz: 1900, body: 1.00, bodyHz: 850,  boomHz: 90,  dur: 0.27, tail: 0.48, sub: 0.5 },
+  awm:     { crack: 1.00, crackHz: 1900, body: 1.00, bodyHz: 900,  boomHz: 85,  dur: 0.62, tail: 0.85, sub: 0.6, mech: 'bolt' },
 };
 
 /** A gain that jumps to `peak` and dies away over `dur` seconds. */

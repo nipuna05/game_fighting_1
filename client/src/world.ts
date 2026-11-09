@@ -864,7 +864,36 @@ export function makeWeaponModel(idx: number, custom?: number): THREE.Group {
       box(9, 7, 3.6, M.black, 8, -6.2); box(18, 9, 5, M.tan, -14, -1.4, 0, -0.08); box(2.6, 11, 6, M.rubber, -23.5, -1.8, 0, -0.08); box(4.2, 9.5, 4, M.black, 0, -7, 0, -0.22); box(12, 2, 2, M.gun, 20, 6.6);
       bipod(38, 13);
       break;
+    case 'vector':
+      box(20, 8, 4.8, M.black, 8, 0.6); box(14, 4.4, 4.4, M.poly, 24, 0.8); cyl(1.3, 8, M.steel, 35, 1); box(3.5, 14, 3.4, M.mag, 11, -9.5, 0, 0.05); box(4, 8.5, 3.6, M.black, 2, -6, 0, -0.22);
+      box(8, 2.4, 3.2, M.gun, -8, 3.4); box(10, 1.8, 3.4, M.poly, -12, 1.4, 0, -0.06); box(4, 2.4, 2.4, M.gun, 14, 5.6);
+      break;
+    case 'aug':
+      box(26, 7.4, 4.8, M.olive, 10, 0.6); box(8, 4, 3.4, M.black, 16, 6.4); cyl(1.2, 14, M.steel, 38, 1.8); box(4.4, 11, 3.4, M.mag, 7, -7, 0, 0.04);
+      box(4, 9, 3.6, M.olive, 14, -6.4, 0, -0.1); box(10, 6.4, 4.4, M.olive, -11, 0.2, 0, -0.05); cyl(2.6, 11, M.black, 12, 8.2); cyl(3.2, 2, M.glass, 18.2, 8.2); box(4, 2.6, 2.6, M.gun, 46, 1.8);
+      break;
+    case 'scar':
+      box(22, 7, 4.8, M.tan, 9, 1.4); box(21, 5.4, 4.6, M.tan, 28, 1); cyl(1.3, 10, M.steel, 44, 1.2); box(4, 3, 3, M.gun, 49.5, 1.2); box(19, 2, 2.8, M.gun, 14, 5.6);
+      box(4.6, 12, 3.6, M.black, 10, -8, 0, 0.1); box(4, 8.8, 3.6, M.tan, 3, -6, 0, -0.24); box(15, 6, 4, M.tan, -10, -0.2, 0, -0.06); box(2, 3.4, 1.6, M.gun, 40, 4.2);
+      break;
+    case 'svd':
+      box(18, 6, 4.4, M.gun, 10, 1.2); box(26, 4.2, 4, M.wood, 30, 0.6); cyl(1.2, 24, M.steel, 46, 1.4); box(3, 3.4, 3.4, M.gun, 59, 1.4); box(3.6, 11, 3.2, M.black, 13, -7, 0, 0.12);
+      box(16, 3.6, 3.4, M.wood, -8, 0.4, 0, -0.05); box(8, 4.6, 3.6, M.wood, -17, -1.6); box(4, 8.5, 3.6, M.wood, 4, -6, 0, -0.22);
+      cyl(2.4, 14, M.black, 10, 7, 0); cyl(3, 3, M.black, 17.6, 7, 0); cyl(2.5, 1.2, M.glass, 19, 7, 0);
+      break;
+    case 'm870':
+      cyl(1.9, 42, M.steel, 22, 2.4); cyl(1.7, 30, M.gun, 16, -0.8); box(10, 4.6, 4.8, M.wood, 24, -2.8); box(14, 6.4, 4.6, M.black, 4, 0.5);
+      box(16, 4.6, 3.8, M.wood, -9, 0.4, 0, -0.1); box(2, 8.5, 3.6, M.wood, -17, -2.6, 0, 0.1); box(4.2, 9, 3.6, M.black, 1, -6, 0, -0.22); box(3, 2.2, 2.2, M.gun, 43, 2.4);
+      break;
+    case 'rpk':
+      box(24, 7, 5, M.gun, 9, 1.2); cyl(1.4, 30, M.steel, 34, 1.4); cyl(2.2, 8, M.wood, 24, 0.4); box(18, 5, 4, M.wood, 38, -0.6); box(5, 24, 4, M.black, 16, -14, 0, 0.35);
+      box(16, 6.4, 4, M.wood, -10, -0.6, 0, -0.1); box(4, 9, 3.6, M.wood, 3, -6, 0, -0.24); bipod(36, 11); box(1.4, 3, 1.4, M.gun, 49, 4);
+      break;
+    case 'awm':
+      cyl(1.9, 44, M.steel, 32, 2.2); cyl(2.4, 6, M.gun, 56, 2.2); box(28, 7.4, 5, M.olive, 8, 1.4); box(18, 8.8, 5, M.olive, -14, -1.6, 0, -0.08); box(3, 10, 5.6, M.rubber, -23, -2, 0, -0.08);
+      cyl(3.4, 18, M.black, 10, 8.6); cyl(4.2, 4, M.black, 20.6, 8.6); cyl(3.6, 1.4, M.glass, 22, 8.6); box(5, 6, 3, M.black, 7, -5, 0, 0.1); box(4.2, 9, 3.6, M.black, 0, -7, 0, -0.22); bipod(34, 12);
+      break;
   }
-  g.scale.setScalar(id === 'barrett' ? 0.5 : id === 'm60e4' ? 0.58 : 0.72); // built-in models are drawn large: bring them in proportion with the soldier
+  g.scale.setScalar(id === 'barrett' ? 0.5 : id === 'awm' ? 0.46 : id === 'm60e4' ? 0.58 : id === 'rpk' ? 0.52 : ['vector', 'aug', 'scar', 'svd', 'm870'].includes(id) ? 0.62 : 0.72); // built-in models are drawn large: bring them in proportion with the soldier
   return g;
 }

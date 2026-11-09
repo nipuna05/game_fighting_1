@@ -11,7 +11,7 @@ import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
 import {
-  Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
+  Sim, movePlayer, PLAYER_SPEED, adsSpeed, ADS_SPREAD, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
   levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
@@ -503,6 +503,7 @@ class Game {
   /** The weapon in my hands, drawn on top of everything in front of the camera. */
   private viewGunKey = '';
   private viewFlash: THREE.Sprite | null = null;
+  private adsEase = 0; private recoilPitch = 0; private bobT = 0;
   private flashT = 0; private equipAnim = 0; private reloadTotal = 0; private lastDry = 0;
   private casings: { m: THREE.Mesh; v: THREE.Vector3; life: number; spin: THREE.Vector3 }[] = [];
   private casingMats = { brass: new THREE.MeshStandardMaterial({ color: 0xd9a441, metalness: 0.9, roughness: 0.3 }), shell: new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.6 }) };
@@ -531,14 +532,22 @@ class Game {
     this.kick = Math.max(0, this.kick - dt * 9);
     this.equipAnim = Math.max(0, this.equipAnim - dt * 4);
     const rp = rl > 0 && this.reloadTotal > 0 ? Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - rl / this.reloadTotal))) : 0;   // 0 -> 1 -> 0 during a reload
-    g.position.set(10, -11 + this.kick * 0.8 - this.equipAnim * 9 - rp * 7, -26 + this.kick * 4);
-    g.rotation.set(this.kick * 0.06 - rp * 0.35, 0, rp * 0.5 + this.equipAnim * 0.4);
+    const inp = this.localInput, moving = !!inp && (inp.mx !== 0 || inp.my !== 0) && !inp.crouch && !inp.prone;
+    this.bobT += dt * (moving ? (inp?.sneak ? 5 : 9.5) : 1.6);          // the gun sways as you walk and breathes when you stand
+    const bobAmp = (moving ? (inp?.sneak ? 0.25 : 0.7) : 0.12) * (1 - 0.7 * this.adsEase);
+    const bx = Math.sin(this.bobT) * bobAmp, by = Math.abs(Math.cos(this.bobT)) * bobAmp * 0.8;
+    this.recoilPitch *= Math.exp(-dt * 7);                              // the muzzle climbs with every shot and settles back
+    g.position.set(10 - 7.5 * this.adsEase + bx, -11 + 3.2 * this.adsEase + this.kick * 0.8 - this.equipAnim * 9 - rp * 7 - by, -26 + this.kick * 4 + 4 * this.adsEase);
+    g.rotation.set(this.kick * 0.06 - rp * 0.35, 0, rp * 0.5 + this.equipAnim * 0.4 + bx * 0.015);
   }
 
   /** My own shot (first-person): flash at the barrel, recoil and a casing thrown out to the right. */
   private onLocalShot(me: Snapshot['players'][number]) {
-    this.kick = 1;
-    if (!this.fpActive) return;
+    const cat = WEAPONS[me.weapon]?.cat ?? 'Sidearm';
+    const power: Record<string, number> = { Sidearm: 0.6, SMG: 0.35, Rifle: 0.55, LMG: 0.7, Shotgun: 1.2, Sniper: 1.6 };   // how hard each class kicks
+    this.kick = Math.min(1.6, 0.6 + (power[cat] ?? 0.6) * 0.6);
+    this.recoilPitch = Math.min(0.12, this.recoilPitch + (power[cat] ?? 0.6) * 0.016 * (1 - 0.35 * this.adsEase));
+    if (!this.fpActive) { this.shake = Math.max(this.shake, (power[cat] ?? 0.6) * 0.12); return; }   // top-down: a tiny camera jolt instead
     this.flashT = 0.06;
     const c = this.camera; c.updateMatrixWorld(true);
     const pos = new THREE.Vector3(9, -6, -22).applyMatrix4(c.matrixWorld);
@@ -622,7 +631,7 @@ class Game {
     this.predCd -= dt; if (this.predAir > 0) this.predAir -= dt;          // same jump rules as the server
     if (input.jump && this.predAir <= 0 && this.predCd <= 0) { this.predAir = JUMP_TIME; this.predCd = JUMP_COOLDOWN; }
     const air = this.predAir > 0;
-    const speed = PLAYER_SPEED * (input.scoped && WEAPONS[me.weapon]?.cat === 'Sniper' ? SCOPED_SPEED : 1) * (air ? JUMP_SPEED : input.prone ? PRONE_SPEED : input.crouch ? CROUCH_SPEED : input.sneak ? SNEAK_SPEED : 1) * customMods(me.cu ?? 0).speed;
+    const speed = PLAYER_SPEED * adsSpeed(WEAPONS[me.weapon]?.cat ?? '', !!input.scoped) * (air ? JUMP_SPEED : input.prone ? PRONE_SPEED : input.crouch ? CROUCH_SPEED : input.sneak ? SNEAK_SPEED : 1) * customMods(me.cu ?? 0).speed;
     movePlayer(this.pred, input.mx * k, input.my * k, dt, walls, speed, air);
     // The server's copy is a little behind (network delay + tick). Aim at where it will be by now, so the correction is
     // gentle while running and settles exactly onto the server position once the player stops.
@@ -662,7 +671,7 @@ class Game {
       if (this.raycaster.ray.intersectPlane(this.aimPlane, this.tmp)) { angle = Math.atan2(this.tmp.z - me.y, this.tmp.x - me.x); this.aimPoint = { x: this.tmp.x, y: this.tmp.z }; }
     }
     const myP = this.me();
-    const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && WEAPONS[myP.weapon]?.cat === 'Sniper' && this.snap?.round?.phase !== 'buy';
+    const scoped = (mouse.right || keys.scope) && !!myP && myP.alive && this.snap?.round?.phase !== 'buy';   // right mouse: aim down the sights (any gun; a sniper gets the scope view)
     return { mx: wmx, my: wmy, angle, fire, weapon: this.pendingWeapon ?? undefined, use: keys.use, scoped, crouch: keys.crouch, jump: keys.jump || this.jumpPending, prone: keys.prone, sneak: keys.sneak, reload: keys.reload || this.reloadPending, item: this.pendingItem ?? undefined };
   }
 
@@ -908,8 +917,12 @@ class Game {
     this.scopeT += ((wantScope ? 1 : 0) - this.scopeT) * Math.min(1, dt * 9);
     if (Math.abs(this.scopeT - (wantScope ? 1 : 0)) < 0.002) this.scopeT = wantScope ? 1 : 0;
     if (wantScope !== this.wasScoped) { sfx.scope(wantScope); this.wasScoped = wantScope; }
-    const ease = this.scopeT * this.scopeT * (3 - 2 * this.scopeT);
-    const fov = this.fpActive ? 78 - 48 * ease : 45 - 25 * ease;
+    const eased = this.scopeT * this.scopeT * (3 - 2 * this.scopeT);
+    const camP = s.players.find((q) => q.id === camId);
+    const sniperGun = WEAPONS[camP?.weapon ?? 0]?.cat === 'Sniper';
+    const ease = sniperGun ? eased : 0;                                // the scope overlay and look-ahead camera are for snipers only
+    this.adsEase = sniperGun ? 0 : eased;                              // other guns: a lighter zoom, the gun slides to the centre
+    const fov = this.fpActive ? 78 - 48 * ease - 14 * this.adsEase : 45 - 25 * ease - 7 * this.adsEase;
     const near = this.fpActive ? 3 : 10;
     if (this.camera.near !== near) { this.camera.near = near; this.camera.updateProjectionMatrix(); }
     if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
@@ -945,7 +958,8 @@ class Game {
       const eye = 52 - 20 * (ch?.crouchK ?? 0) - 38 * (ch?.proneK ?? 0) + (ch?.root.position.y ?? 0);   // eye height: lower when kneeling, higher in a jump
       this.camera.position.set(me.x, eye, me.y);
       const cp = Math.cos(this.pitch);
-      this.camera.lookAt(me.x + Math.cos(this.yaw) * 100 * cp, eye + Math.sin(this.pitch) * 100, me.y + Math.sin(this.yaw) * 100 * cp);
+      const cpt = Math.min(1.3, this.pitch + this.recoilPitch), cq = Math.cos(cpt);
+      this.camera.lookAt(me.x + Math.cos(this.yaw) * 100 * cq, eye + Math.sin(cpt) * 100, me.y + Math.sin(this.yaw) * 100 * cq);
     } else if (QS.has('top')) { // dev: straight-down camera, handy for checking which way characters face
       this.camera.position.set(this.camTarget.x, 640 * zoom + this.camTarget.y, this.camTarget.z + 0.01);
       this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
@@ -968,7 +982,7 @@ class Game {
     if (!live || !me) { xh.style.display = 'none'; line.style.display = 'none'; return; }
     const w = WEAPONS[me.weapon], input = this.localInput;
     const base = w.cat === 'Sniper' ? (input?.scoped ? 0 : 0.09) : w.spread;
-    const spread = base * customMods(me.cu ?? 0).spread * (me.st === 3 ? 0.35 : me.st === 1 ? 0.55 : me.st === 2 ? 1.8 : input?.sneak ? 0.8 : 1);
+    const spread = base * customMods(me.cu ?? 0).spread * (me.st === 3 ? 0.35 : me.st === 1 ? 0.55 : me.st === 2 ? 1.8 : input?.sneak ? 0.8 : 1) * (w.cat !== 'Sniper' && input?.scoped ? ADS_SPREAD : 1);
     const moving = !!input && (input.mx !== 0 || input.my !== 0) && me.st !== 2;
     const eff = spread * (moving ? 1.25 : 1);                          // running blurs the aim a little more on screen
     const H = window.innerHeight;
