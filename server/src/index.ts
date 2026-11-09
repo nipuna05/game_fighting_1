@@ -45,7 +45,7 @@ wss.on('connection', (ws) => {
   function handle(msg: ClientMsg) {
     if (msg.type === 'ping') { send(ws, { type: 'pong', t: Number(msg.t) || 0 }); return; }
     if (msg.type === 'join' && !room) {
-      const style: GameMode = (['tdm', 'rescue', 'collect', 'point', 'flag'] as string[]).includes(String(msg.style)) ? (msg.style as GameMode) : 'bomb';
+      const style: GameMode = (['tdm', 'rescue', 'collect', 'point', 'flag', 'vip'] as string[]).includes(String(msg.style)) ? (msg.style as GameMode) : 'bomb';
       const wset: WeaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(msg.wset as WeaponSet) ? msg.wset as WeaponSet : 'all';
       const pick: PickMode = msg.pick === 'auto' ? 'auto' : 'manual';
       // the public room is per game style, so people who want different rules never end up in the same game

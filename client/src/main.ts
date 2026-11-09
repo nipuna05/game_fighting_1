@@ -230,7 +230,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { fsig: '', capT: -1, capCT: -1, cpOwner: '', maxKill: -1, maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
+  private ev = { vip: '', fsig: '', capT: -1, capCT: -1, cpOwner: '', maxKill: -1, maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -1104,6 +1104,17 @@ class Game {
         const col = new THREE.Color(Game.OWNER_COLOR[r.cp.owner] ?? 0xffffff);
         for (const m of o.userData.mats as THREE.MeshBasicMaterial[]) m.color.copy(col);
       }
+      if (r.mode === 'vip' && r.vip) {
+        const e = r.extract, k = 'vex'; want.add(k);
+        let o = this.objects.get(k); if (!o) { o = this.makePoint(Math.max(e.w, e.h) / 2); this.objects.set(k, o); this.scene.add(o); for (const m of o.userData.mats as THREE.MeshBasicMaterial[]) m.color.setHex(0x3ddc84); }
+        o.position.set(e.x + e.w / 2, 0, e.y + e.h / 2);
+        const v = s.players.find((q) => q.id === r.vip);
+        if (v && v.alive) {
+          let b = this.objects.get('vipb');
+          if (!b) { b = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 210, 8, 1, true), this.beamMat(0xffd24a)); this.objects.set('vipb', b); this.scene.add(b); }
+          b.position.set(v.x, 105 + v.z, v.y); want.add('vipb');
+        }
+      }
       for (const f of r.flags) {
         const k = `f${f.team}`; want.add(k);
         let o = this.objects.get(k); if (!o) { o = this.makeFlag(f.team === 'T' ? 0xe08a2c : 0x3f8cff); this.objects.set(k, o); this.scene.add(o); }
@@ -1127,6 +1138,10 @@ class Game {
       if (r.mode === 'rescue') {
         for (const h of r.hostages) if (!h.carried) list.push({ key: `h${h.id}`, x: h.x, y: h.y, text: 'HOSTAGE', cls: 'host' });
         if (r.hostages.some((h) => h.by === this.myId)) list.push({ key: 'ex', x: r.extract.x + r.extract.w / 2, y: r.extract.y + r.extract.h / 2, text: 'EXTRACTION', cls: 'ext' });
+      } else if (r.mode === 'vip' && r.vip) {
+        const v = s.players.find((q) => q.id === r.vip);
+        if (v && v.id !== me.id && v.alive) list.push({ key: 'vip', x: v.x, y: v.y, text: me.team === 'CT' ? 'YOUR VIP' : 'VIP', cls: 'vip' });
+        if (me.team === 'CT') list.push({ key: 'ex', x: r.extract.x + r.extract.w / 2, y: r.extract.y + r.extract.h / 2, text: 'EXTRACTION', cls: 'ext' });
       } else if (r.mode === 'point' && r.cp) {
         list.push({ key: 'cp', x: r.cp.x, y: r.cp.y, text: 'ZONE', cls: 'ext' });
       } else if (r.mode === 'flag') {
@@ -1626,6 +1641,7 @@ class Game {
         if (ev.capT >= 0 && (r.capT > ev.capT || r.capCT > ev.capCT)) { const mineCap = (r.capT > ev.capT) === (me.team === 'T'); this.toast(mineCap ? 'YOUR TEAM CAPTURED THE FLAG!' : 'THE ENEMY CAPTURED YOUR FLAG'); (mineCap ? sfx.win : sfx.lose)(); }
         ev.fsig = sig; ev.capT = r.capT; ev.capCT = r.capCT;
       } else { ev.fsig = ''; ev.capT = -1; ev.capCT = -1; }
+      if (r.mode === 'vip' && r.vip) { if (r.vip === this.myId && ev.vip !== r.vip) { this.toast('YOU ARE THE VIP'); sfx.beep(); } ev.vip = r.vip; } else ev.vip = '';
       if (r.mode === 'point' && r.cp) {
         if (ev.cpOwner && r.cp.owner !== ev.cpOwner) {
           if (r.cp.owner === 'contested') this.toast('ZONE CONTESTED');
@@ -1663,12 +1679,12 @@ class Game {
     const tdm = r.mode === 'tdm';
     const tense = (r.mode === 'point' && Math.max(r.cpT, r.cpCT) >= r.cpTarget - 15) || (r.mode === 'flag' && r.flags.some((f) => f.carried)) || r.bomb.status === 'planted' || (r.mode === 'rescue' && r.hostages.some((h) => h.carried)) || (r.mode === 'collect' && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2) || (tdm && Math.max(r.tKills, r.ctKills) >= r.killTarget - 4) || (r.phase === 'live' && r.timeLeft < 20);
     music.setMode(r.phase === 'live' ? (tense ? 'intense' : 'game') : 'calm');                // the soundtrack follows the action
-    const rescue = r.mode === 'rescue', collect = r.mode === 'collect', point = r.mode === 'point', flag = r.mode === 'flag';
+    const rescue = r.mode === 'rescue', collect = r.mode === 'collect', point = r.mode === 'point', flag = r.mode === 'flag', vipMode = r.mode === 'vip';
     const ctScore = tdm ? r.ctKills : collect ? r.ctItems : point ? r.cpCT : flag ? r.capCT : rescue ? r.rescued : r.ctWins, tScore = tdm ? r.tKills : collect ? r.tItems : point ? r.cpT : flag ? r.capT : r.tWins;
     $('ctw').textContent = `${TEAM_INFO.CT.short} ${ctScore}${rescue ? `/${r.hostageCount}` : ''}`;
     $('tw').textContent = rescue ? TEAM_INFO.T.short : `${tScore} ${TEAM_INFO.T.short}`;
     const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? (r.free ? 'GET READY' : 'BUY') : r.phase === 'live' ? fmt(r.timeLeft) : '';
-    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : point ? `ZONE ${r.cpTarget}  ${clock}` : flag ? `FLAG ${r.capTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
+    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : point ? `ZONE ${r.cpTarget}  ${clock}` : vipMode ? `VIP  ${clock}` : flag ? `FLAG ${r.capTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
     const tenseMission = (rescue && r.hostages.some((h) => h.carried)) || (collect && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2);
     const goalEl = $('goal');                                       // the instruction text: what do we have to do in this game?
     goalEl.style.display = r.phase === 'live' || r.phase === 'buy' ? 'block' : 'none';
@@ -1676,6 +1692,7 @@ class Game {
     const progress = tdm ? `Kills  ${TEAM_INFO[myTeam].short} ${myTeam === 'CT' ? r.ctKills : r.tKills}  -  ${myTeam === 'CT' ? r.tKills : r.ctKills} ${TEAM_INFO[myTeam === 'CT' ? 'T' : 'CT'].short}  (target ${r.killTarget})`
       : collect ? `Intel cases  you ${myTeam === 'CT' ? r.ctItems : r.tItems} / ${r.itemTarget}  -  enemy ${myTeam === 'CT' ? r.tItems : r.ctItems}`
       : point ? `Zone points  you ${myTeam === 'CT' ? r.cpCT : r.cpT} / ${r.cpTarget}  -  enemy ${myTeam === 'CT' ? r.cpT : r.cpCT}   |   ${!r.cp || r.cp.owner === 'none' ? 'zone empty' : r.cp.owner === 'contested' ? 'CONTESTED' : r.cp.owner === myTeam ? 'YOU HOLD IT' : 'ENEMY HOLDS IT'}`
+      : vipMode ? (() => { const v = s.players.find((q) => q.id === r.vip); const d = v ? Math.round(Math.hypot(r.extract.x + r.extract.w / 2 - v.x, r.extract.y + r.extract.h / 2 - v.y) / 30) : 0; return v ? `VIP ${v.name}  ${Math.max(0, Math.round(v.hp))} hp  -  ${d} m from the extraction` : ''; })()
       : flag ? `Captures  you ${myTeam === 'CT' ? r.capCT : r.capT} / ${r.capTarget}  -  enemy ${myTeam === 'CT' ? r.capT : r.capCT}`
       : rescue ? `Hostages rescued  ${r.rescued} / ${r.hostageCount}`
       : r.bomb.status === 'planted' ? `Bomb planted - ${Math.ceil(r.bomb.fuse)} s` : '';
@@ -1727,6 +1744,11 @@ class Game {
       }
     }
     if (intro && !big && me?.alive) { big = `YOUR AIM: ${modeName}`; if (!sub) sub = r.goal[myTeam]; }
+    if (vipMode && me?.alive && r.phase === 'live') {
+      if (r.vip === this.myId) sub = 'You are the VIP! Stay with your escort and reach the green extraction zone';
+      else if (myTeam === 'CT') sub = 'Protect the VIP and walk with them to the green extraction zone';
+      else sub = 'Find and kill the VIP (gold marker) before they reach the extraction zone';
+    }
     if (flag && me?.alive && r.phase === 'live') {                       // capture the flag: what to do right now
       const theirs = r.flags.find((f) => f.team !== myTeam), mine = r.flags.find((f) => f.team === myTeam);
       if (theirs?.by === this.myId) sub = mine?.home ? 'You have the flag! Run to your own flag to score' : 'You have the flag, but yours is not home: get your flag back first';
@@ -1804,7 +1826,7 @@ async function start(mode: 'single' | 'multi') {
   if (!template) await loadTemplate();
   await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
-  const style = (['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
+  const style = (['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag', 'vip'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
   const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
   game = new Game({ mode, name, room, skin: profile.skin + SKIN_BASE * profile.kit, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });

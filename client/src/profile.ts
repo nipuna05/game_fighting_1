@@ -71,7 +71,7 @@ export function loadProfile(): Profile {
       team: p.team === 'CT' || p.team === 'T' ? p.team : 'auto',
       sidearm: Number.isInteger(p.sidearm) ? Math.max(0, Math.min(2, p.sidearm as number)) : 0,
       map: typeof p.map === 'string' ? p.map.slice(0, 20) : base.map,
-      style: (['tdm', 'rescue', 'collect', 'point', 'flag'] as string[]).includes(p.style as string) ? p.style as GameMode : 'bomb',
+      style: (['tdm', 'rescue', 'collect', 'point', 'flag', 'vip'] as string[]).includes(p.style as string) ? p.style as GameMode : 'bomb',
       weaponSet: (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as string[]).includes(p.weaponSet as string) ? p.weaponSet as WeaponSet : 'all',
       pick: p.pick === 'auto' ? 'auto' : 'manual',
       custom: p.custom && typeof p.custom === 'object' ? Object.fromEntries(WEAPONS.filter((w) => (p.custom as Record<string, unknown>)[w.id] !== undefined).map((w) => [w.id, cleanCustom(w.id, (p.custom as Record<string, unknown>)[w.id])])) : {},

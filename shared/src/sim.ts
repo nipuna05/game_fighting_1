@@ -114,7 +114,7 @@ export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
 export const OVER_TIME = 15;
 // ---- game styles and weapon rules ----
-export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect' | 'point' | 'flag';
+export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect' | 'point' | 'flag' | 'vip';
 export type WeaponSet = 'all' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'sniper' | 'random';
 export type PickMode = 'manual' | 'auto';
 export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
@@ -123,6 +123,7 @@ export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
   { id: 'rescue', name: 'Hostage rescue', blurb: 'Sentinels find the hostages, untie them and escort them to the extraction zone. Raiders must stop them before time runs out.' },
   { id: 'collect', name: 'Collect the intel', blurb: 'Both teams race to grab the intel cases scattered over the map. The first team to collect them all wins.' },
   { id: 'point', name: 'Control point', blurb: 'Hold the glowing zone in the middle of the map. Your team earns a point every second that it is inside with no enemy there. First to 100 points wins.' },
+  { id: 'vip', name: 'VIP escort', blurb: 'One Sentinel is the VIP. The Sentinels must escort them to the extraction zone in the middle of the Raiders\' side; if the VIP dies, the Raiders win.' },
   { id: 'flag', name: 'Capture the flag', blurb: 'Steal the enemy flag and carry it back to your own flag. Your flag must be at home to score. First team to 3 captures wins.' },
 ];
 export const UNTIE_TIME = 1.2;          // seconds holding the use key next to a hostage
@@ -131,8 +132,9 @@ export const COLLECT_TIME = 240;
 export const COLLECT_TARGET = 8;      // intel cases a team needs
 export const POINT_TIME = 300, POINT_TARGET = 100, POINT_R = 140;   // control point: round time, points to win, zone radius
 export const FLAG_TIME = 360, FLAG_TARGET = 3, FLAG_RETURN = 20, FLAG_TOUCH = 24;   // capture the flag: round time, captures to win, seconds before a dropped flag returns, pick-up reach
+export const VIP_TIME = 300;          // VIP escort: round time
 export const ITEM_RESPAWN = 25;       // a taken case comes back after this many seconds
-const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : m === 'point' ? POINT_TIME : m === 'flag' ? FLAG_TIME : LIVE_TIME);
+const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : m === 'point' ? POINT_TIME : m === 'flag' ? FLAG_TIME : m === 'vip' ? VIP_TIME : LIVE_TIME);
 export const WEAPON_SETS: { id: WeaponSet; name: string }[] = [
   { id: 'all', name: 'All guns (bomb mission: buy with cash)' }, { id: 'pistol', name: 'Pistols only' }, { id: 'smg', name: 'SMGs only' },
   { id: 'shotgun', name: 'Shotguns only' }, { id: 'rifle', name: 'Rifles only' }, { id: 'sniper', name: 'Snipers only' }, { id: 'random', name: 'Random weapon every life' },
@@ -209,6 +211,7 @@ export interface RoundState {
   items: ItemState[]; tItems: number; ctItems: number; itemTarget: number;          // collect the intel
   cp: PointState | null; cpT: number; cpCT: number; cpTarget: number;                // control point
   flags: FlagState[]; capT: number; capCT: number; capTarget: number;               // capture the flag
+  vip: string | null;                                                                // VIP escort: who the VIP is (the extraction zone is `extract`)
   goal: Record<Team, string>;                                                // the instruction text for each team
 }
 export interface KillEvent {
@@ -325,7 +328,8 @@ export class Sim {
   private cp: { x: number; y: number; r: number } | null = null;                          // control point
   private cpOwner: PointState['owner'] = 'none'; private cpT = 0; private cpCT = 0;
   private flags: { team: Team; hx: number; hy: number; x: number; y: number; carrier: string | null; dropT: number }[] = [];   // capture the flag
-  private capT = 0; private capCT = 0;       // bots: the team attacks together until this time
+  private capT = 0; private capCT = 0;
+  private vipId: string | null = null; private vipExtract: Rect | null = null;           // VIP escort       // bots: the team attacks together until this time
   private winner: Team | null = null;
   private reason = '';
   private freshMatch = true;
@@ -346,12 +350,12 @@ export class Sim {
   private supplies: { id: number; x: number; y: number; item: number; readyAt: number }[] = [];
   private nextThrow = 1;
   /** The extraction zone for hostages: the Sentinels' spawn area, a little bigger. */
-  private get extract(): Rect { const z = this.map.spawns.CT; return { x: z.x - 70, y: z.y - 70, w: z.w + 140, h: z.h + 140 }; }
+  private get extract(): Rect { if (this.mode === 'vip' && this.vipExtract) return this.vipExtract; const z = this.map.spawns.CT; return { x: z.x - 70, y: z.y - 70, w: z.w + 140, h: z.h + 140 }; }
   get free() { return this.rounds && isFreeLoadout(this.mode, this.weaponSet); }
 
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
-    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' || opts.mode === 'point' || opts.mode === 'flag' ? opts.mode : 'bomb';
+    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' || opts.mode === 'point' || opts.mode === 'flag' || opts.mode === 'vip' ? opts.mode : 'bomb';
     this.weaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(opts.weaponSet as WeaponSet) ? opts.weaponSet as WeaponSet : 'all';
     this.pick = opts.pick === 'auto' ? 'auto' : 'manual';
     this.map = getMap(opts.map);
@@ -535,6 +539,14 @@ export class Sim {
     this.items = this.mode === 'collect' ? this.map.loot.slice(0, 12).map((l, i) => ({ id: i + 1, x: l.x, y: l.y, readyAt: 0 })) : [];
     this.tItems = 0; this.ctItems = 0;
     this.cpT = 0; this.cpCT = 0; this.cpOwner = 'none'; this.capT = 0; this.capCT = 0;
+    this.vipId = null; this.vipExtract = null;
+    if (this.mode === 'vip') {
+      const tz = this.map.spawns.T, ex = this.freeSpot(tz.x + tz.w + 900, tz.y + tz.h / 2, 95, true);          // in front of the Raiders' spawn, where the flag would stand
+      this.vipExtract = { x: ex.x - 90, y: ex.y - 90, w: 180, h: 180 };
+      const cts = [...this.players.values()].filter((p) => p.team === 'CT');
+      const vip = cts[Math.floor(Math.random() * cts.length)];
+      if (vip) { this.vipId = vip.id; vip.armor = 100; }                                                          // the VIP is tougher: body armor from the start
+    }
     this.cp = this.mode === 'point' ? { ...this.freeSpot(WORLD_W / 2, WORLD_H / 2, POINT_R * 0.55, true, true), r: POINT_R } : null;
     if (this.mode === 'flag') {                                         // the Raiders' flag first; the Sentinels' flag is its mirror image, so neither team is favoured
       const z = this.map.spawns.T, t = this.freeSpot(z.x + z.w + 680, z.y + z.h / 2, 34, false);
@@ -633,6 +645,17 @@ export class Sim {
     }
   }
 
+  // ---------- VIP escort ----------
+  private stepVip() {
+    let v = this.vipId ? this.players.get(this.vipId) : undefined;
+    if (!v) { const cts = [...this.players.values()].filter((p) => p.team === 'CT' && p.alive); v = cts[Math.floor(Math.random() * cts.length)]; this.vipId = v?.id ?? null; if (v) v.armor = Math.max(v.armor, 100); }   // the VIP left the game: pick another
+    const ex = this.extract;
+    if (!v) this.endRound('T', 'The Sentinels have nobody left to escort');
+    else if (!v.alive) this.endRound('T', `The VIP ${v.name} was killed`);
+    else if (v.lv === 0 && v.x > ex.x && v.x < ex.x + ex.w && v.y > ex.y && v.y < ex.y + ex.h) this.endRound('CT', `The VIP ${v.name} reached the extraction zone`);
+    else if (this.time >= this.phaseEndsAt) this.endRound('T', 'Time ran out: the VIP did not make it');
+  }
+
   // ---------- capture the flag ----------
   private stepFlag(dt: number) {
     void dt;
@@ -710,6 +733,7 @@ export class Sim {
     if (this.mode === 'collect') { this.stepCollect(dt); return; }
     if (this.mode === 'point') { this.stepPoint(dt); return; }
     if (this.mode === 'flag') { this.stepFlag(dt); return; }
+    if (this.mode === 'vip') { this.stepVip(); return; }
     const b = this.bomb;
     const standing = (p: Player) => Math.hypot(p.input.mx, p.input.my) < 0.1;
     if (b.status === 'carried') {
@@ -859,7 +883,7 @@ export class Sim {
   // ---------- damage and kills (bullets, grenades and fire all end up here) ----------
   private damage(p: Player, amount: number, ownerId: string, ownerTeam: Team, weapon: number) {
     if (!p.alive || this.invincible.has(p.id) || this.time < p.protect) return;
-    let dmg = amount;
+    let dmg = amount * (this.mode === 'vip' && p.id === this.vipId ? 0.6 : 1);       // the VIP is tougher
     if (p.armor > 0) { const soaked = Math.min(p.armor, dmg * 0.5); p.armor -= soaked; dmg -= soaked; }
     p.hp -= dmg;
     p.usingItem = -1;                                                  // being hurt interrupts using an item
@@ -1093,6 +1117,29 @@ export class Sim {
       this.botGo(p, this.cp.x + Math.cos(a) * this.cp.r * 0.45, this.cp.y + Math.sin(a) * this.cp.r * 0.45, 24);
       return true;
     }
+    if (this.mode === 'vip' && this.vipId) {
+      const vip = this.players.get(this.vipId), ex = this.extract, ec = { x: ex.x + ex.w / 2, y: ex.y + ex.h / 2 };
+      if (!vip) return false;
+      if (p.team === 'CT') {
+        const sc = this.map.spawns.CT, start = { x: sc.x + sc.w / 2, y: sc.y + sc.h / 2 };
+        const escorts = [...this.players.values()].filter((o) => o.alive && o.team === 'CT' && o.id !== vip.id);
+        if (p.id === vip.id) {                                                                              // the VIP waits for company, then walks to the extraction zone
+          const near = escorts.filter((o) => Math.hypot(o.x - p.x, o.y - p.y) < 300).length;
+          if (near >= Math.min(2, escorts.length) || this.time > this.phaseEndsAt - VIP_TIME + 60) this.botGo(p, ec.x, ec.y, 30);
+          else this.botGo(p, start.x + 160, start.y, 30);
+          return true;
+        }
+        const d = Math.hypot(ec.x - vip.x, ec.y - vip.y) || 1;                                              // escorts walk a little ahead of the VIP
+        const lead = 110 + (p.botGoal % 3) * 40, side = (p.botGoal % 2 ? 1 : -1) * 70;
+        this.botGo(p, vip.x + ((ec.x - vip.x) / d) * lead - ((ec.y - vip.y) / d) * side, vip.y + ((ec.y - vip.y) / d) * lead + ((ec.x - vip.x) / d) * side, 50);
+        return true;
+      }
+      if (vip.alive && Math.hypot(vip.x - p.x, vip.y - p.y) < 560) { this.botGo(p, vip.x, vip.y, 70); return true; }   // the VIP is close: hunt them
+      const sc = this.map.spawns.CT, from = { x: sc.x + sc.w / 2, y: sc.y + sc.h / 2 }, f = 0.45 + (p.botGoal % 3) * 0.2;   // otherwise wait in ambush along the way
+      const dx = ec.x - from.x, dy = ec.y - from.y, dl = Math.hypot(dx, dy) || 1, off = (p.botGoal % 2 ? 1 : -1) * 170;
+      this.botGo(p, from.x + dx * f - (dy / dl) * off, from.y + dy * f + (dx / dl) * off, 60);
+      return true;
+    }
     if (this.mode === 'flag' && this.flags.length) {
       const mine = this.flags.find((f) => f.team === p.team)!, theirs = this.flags.find((f) => f.team !== p.team)!;
       const mineHome = Math.hypot(mine.x - mine.hx, mine.y - mine.hy) < 4;
@@ -1182,6 +1229,7 @@ export class Sim {
         rescued: this.rescued, hostageCount: this.hostages.length, extract: this.extract,
         items: this.items.filter((it) => this.time >= it.readyAt).map((it) => ({ id: it.id, x: it.x, y: it.y })),
         tItems: this.tItems, ctItems: this.ctItems, itemTarget: COLLECT_TARGET,
+        vip: this.vipId,
         cp: this.cp ? { x: this.cp.x, y: this.cp.y, r: this.cp.r, owner: this.cpOwner } : null, cpT: Math.floor(this.cpT), cpCT: Math.floor(this.cpCT), cpTarget: POINT_TARGET,
         flags: this.flags.map((f) => ({ team: f.team, x: Math.round(f.x), y: Math.round(f.y), hx: f.hx, hy: f.hy, carried: !!f.carrier, home: Math.hypot(f.x - f.hx, f.y - f.hy) < 4, by: f.carrier ?? undefined })), capT: this.capT, capCT: this.capCT, capTarget: FLAG_TARGET,
         goal: this.mode === 'tdm'
@@ -1192,6 +1240,8 @@ export class Sim {
           ? { T: `Collect ${COLLECT_TARGET} intel cases before the Sentinels do. Walk over a case to take it`, CT: `Collect ${COLLECT_TARGET} intel cases before the Raiders do. Walk over a case to take it` }
           : this.mode === 'point'
           ? { T: `Stand in the glowing zone in the middle of the map with no enemy inside to earn points. First to ${POINT_TARGET} points wins`, CT: `Stand in the glowing zone in the middle of the map with no enemy inside to earn points. First to ${POINT_TARGET} points wins` }
+          : this.mode === 'vip'
+          ? { T: 'Kill the VIP (the Sentinel with the gold marker) before they reach the extraction zone. If they get there, the Sentinels win', CT: 'Escort the VIP (gold marker) to the green extraction zone on the Raiders\' side. If the VIP dies, you lose' }
           : this.mode === 'flag'
           ? { T: `Steal the Sentinels' flag and carry it back to your own flag. Your flag must be at home to score. First to ${FLAG_TARGET} captures wins`, CT: `Steal the Raiders' flag and carry it back to your own flag. Your flag must be at home to score. First to ${FLAG_TARGET} captures wins` }
           : { T: 'Plant the bomb at a bomb site (A, B or the one upstairs in the house), then protect it until it explodes', CT: 'Defend the bomb sites. If the bomb is planted, defuse it before it explodes' },
