@@ -113,3 +113,10 @@ Possible next: a roof / third floor, jumping up onto ledges and crates, balcony 
 - New items: Painkillers (key 0), First-aid kit (F), Impact grenade (H, bursts on contact). Appended to `ITEMS`.
 - Menu: sub-tabs so nothing needs scrolling (Equipment: Weapons / Customize / Outfit; Setup: Map / Game / Player; Settings: Options / Movement / Weapons / Items / Other; Shop; Rewards). Mark blocks with `data-s="page"` and call `subTabs(...)` in menu.ts.
 - Hit feedback: an X marker on the aim cross when my bullet hits (red and bigger on a kill) with a tick / thud sound, red arcs pointing at whoever shot me (`ImpactEvent` now carries shooter, victim and bullet direction), and a shockwave ring on frag / impact grenade blasts.
+
+## Balance pass (2026-11-09), measured with bot-only games (64 team deathmatches with a random gun every life, plus 36 games per mission)
+- Weapon K/D now ranges from about 0.5 (SPAS-12) to 1.1 (SCAR-H); before it was 0.54 to 1.26. Tuned: RPK, Striker, SPAS-12, L118A (one-shot kill now), SVD, MP5, Vector, M870, AUG, Barrett cost. Shotguns are still the weakest against bots (short range), a bot-AI limit as much as a weapon one.
+- Bomb: plant 3 -> 3.5 s, defuse 5 -> 4 s; Raiders won 67% of games before, now about 47%.
+- Rescue: untie 2 -> 1.2 s, time 240 -> 270 s; Sentinels won 25% before, now 33%. It still leans to the Raiders: the bots free one hostage and stall on the second (a bot-behaviour issue: Raiders camp the hostages).
+- Collect the intel: Sentinels won 61% (not changed, within noise).
+- Test scripts: balance.ts / modewins.ts were temporary (scratchpad); worth keeping as `tools/balance.ts` if we balance again.

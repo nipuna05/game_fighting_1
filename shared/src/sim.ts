@@ -20,22 +20,22 @@ export const WEAPONS: WeaponDef[] = [
   { id: 'deagle',  name: 'Desert Eagle', slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 48,  cooldown: 0.62,  speed: 780,  life: 1.0,  pellets: 1, spread: 0.02, mag: 7, reload: 1.6 },
   { id: 'glock',   name: 'Glock 18',     slot: 'sidearm', cat: 'Sidearm', cost: 0,    dmg: 11,  cooldown: 0.085, speed: 680,  life: 0.7,  pellets: 1, spread: 0.11, mag: 20, reload: 1.5 },
   // primaries: bought each round
-  { id: 'mp5',     name: 'MP5',          slot: 'primary', cat: 'SMG',     cost: 1500, dmg: 11,  cooldown: 0.075, speed: 720,  life: 0.65, pellets: 1, spread: 0.10, mag: 30, reload: 1.9 },
+  { id: 'mp5',     name: 'MP5',          slot: 'primary', cat: 'SMG',     cost: 1500, dmg: 12,  cooldown: 0.075, speed: 720,  life: 0.65, pellets: 1, spread: 0.10, mag: 30, reload: 1.9 },
   { id: 'p90',     name: 'P90',          slot: 'primary', cat: 'SMG',     cost: 2300, dmg: 10,  cooldown: 0.06,  speed: 740,  life: 0.7,  pellets: 1, spread: 0.12, mag: 50, reload: 2.2 },
-  { id: 'spas12',  name: 'SPAS-12',      slot: 'primary', cat: 'Shotgun', cost: 1800, dmg: 12,  cooldown: 0.75,  speed: 650,  life: 0.45, pellets: 7, spread: 0.30, mag: 8, reload: 2.6 },
-  { id: 'striker', name: 'Striker',      slot: 'primary', cat: 'Shotgun', cost: 2600, dmg: 9,   cooldown: 0.32,  speed: 650,  life: 0.45, pellets: 6, spread: 0.34, mag: 12, reload: 2.4 },
+  { id: 'spas12',  name: 'SPAS-12',      slot: 'primary', cat: 'Shotgun', cost: 1800, dmg: 14,  cooldown: 0.75,  speed: 650,  life: 0.55, pellets: 7, spread: 0.27, mag: 8, reload: 2.6 },
+  { id: 'striker', name: 'Striker',      slot: 'primary', cat: 'Shotgun', cost: 2600, dmg: 10,   cooldown: 0.32,  speed: 650,  life: 0.5, pellets: 6, spread: 0.3, mag: 12, reload: 2.4 },
   { id: 'ak47',    name: 'AK-47',        slot: 'primary', cat: 'Rifle',   cost: 2700, dmg: 17,  cooldown: 0.10,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.09, mag: 30, reload: 2.1 },
   { id: 'm4a1',    name: 'M4A1',         slot: 'primary', cat: 'Rifle',   cost: 3100, dmg: 14,  cooldown: 0.085, speed: 820,  life: 1.0,  pellets: 1, spread: 0.05, mag: 30, reload: 2.0 },
-  { id: 'l118a',   name: 'L118A',        slot: 'primary', cat: 'Sniper',  cost: 4750, dmg: 85,  cooldown: 1.3,   speed: 1500, life: 1.3,  pellets: 1, spread: 0.0, mag: 5, reload: 2.8 },
+  { id: 'l118a',   name: 'L118A',        slot: 'primary', cat: 'Sniper',  cost: 4750, dmg: 100,  cooldown: 1.2,   speed: 1500, life: 1.3,  pellets: 1, spread: 0.0, mag: 5, reload: 2.8 },
   { id: 'm60e4',   name: 'M60E4',        slot: 'primary', cat: 'LMG',     cost: 5200, dmg: 13,  cooldown: 0.075, speed: 790,  life: 1.0,  pellets: 1, spread: 0.14, mag: 100, reload: 4.2 },
-  { id: 'barrett', name: 'Barrett .50',  slot: 'primary', cat: 'Sniper',  cost: 6000, dmg: 120, cooldown: 1.6,   speed: 1700, life: 1.4,  pellets: 1, spread: 0.0, mag: 7, reload: 3.2 },
+  { id: 'barrett', name: 'Barrett .50',  slot: 'primary', cat: 'Sniper',  cost: 5500, dmg: 120, cooldown: 1.6,   speed: 1700, life: 1.4,  pellets: 1, spread: 0.0, mag: 7, reload: 3.2 },
   // added later (appended, so saved profiles and the network protocol keep their weapon numbers)
-  { id: 'vector',  name: 'Vector',       slot: 'primary', cat: 'SMG',     cost: 2000, dmg: 9,   cooldown: 0.05,  speed: 730,  life: 0.6,  pellets: 1, spread: 0.13, mag: 33, reload: 1.7 },
-  { id: 'aug',     name: 'AUG',          slot: 'primary', cat: 'Rifle',   cost: 3000, dmg: 13,  cooldown: 0.08,  speed: 810,  life: 1.0,  pellets: 1, spread: 0.045, mag: 42, reload: 2.2 },
+  { id: 'vector',  name: 'Vector',       slot: 'primary', cat: 'SMG',     cost: 2000, dmg: 10,   cooldown: 0.05,  speed: 730,  life: 0.6,  pellets: 1, spread: 0.12, mag: 33, reload: 1.7 },
+  { id: 'aug',     name: 'AUG',          slot: 'primary', cat: 'Rifle',   cost: 3000, dmg: 14,  cooldown: 0.08,  speed: 810,  life: 1.0,  pellets: 1, spread: 0.045, mag: 42, reload: 2.2 },
   { id: 'scar',    name: 'SCAR-H',       slot: 'primary', cat: 'Rifle',   cost: 3400, dmg: 21,  cooldown: 0.12,  speed: 830,  life: 1.0,  pellets: 1, spread: 0.06, mag: 20, reload: 2.3 },
-  { id: 'svd',     name: 'SVD Marksman', slot: 'primary', cat: 'Rifle',   cost: 3800, dmg: 46,  cooldown: 0.42,  speed: 1250, life: 1.2,  pellets: 1, spread: 0.02, mag: 10, reload: 2.5 },
-  { id: 'm870',    name: 'M870 Pump',    slot: 'primary', cat: 'Shotgun', cost: 1400, dmg: 15,  cooldown: 0.95,  speed: 640,  life: 0.42, pellets: 8, spread: 0.26, mag: 6, reload: 2.8 },
-  { id: 'rpk',     name: 'RPK',          slot: 'primary', cat: 'LMG',     cost: 4300, dmg: 15,  cooldown: 0.09,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.11, mag: 75, reload: 3.6 },
+  { id: 'svd',     name: 'SVD Marksman', slot: 'primary', cat: 'Rifle',   cost: 3800, dmg: 51,  cooldown: 0.48,  speed: 1250, life: 1.2,  pellets: 1, spread: 0.015, mag: 10, reload: 2.5 },
+  { id: 'm870',    name: 'M870 Pump',    slot: 'primary', cat: 'Shotgun', cost: 1400, dmg: 17,  cooldown: 0.95,  speed: 640,  life: 0.5, pellets: 8, spread: 0.26, mag: 6, reload: 2.8 },
+  { id: 'rpk',     name: 'RPK',          slot: 'primary', cat: 'LMG',     cost: 4300, dmg: 14,  cooldown: 0.09,  speed: 800,  life: 1.0,  pellets: 1, spread: 0.11, mag: 70, reload: 3.6 },
   { id: 'awm',     name: 'AWM',          slot: 'primary', cat: 'Sniper',  cost: 5000, dmg: 105, cooldown: 1.4,   speed: 1600, life: 1.35, pellets: 1, spread: 0.0, mag: 5, reload: 3.0 },
 ];
 // ---- weapon customization: a small code per weapon = sight (bits 0-1) + foregrip (bit 2) + finish (bits 3-5) ----
@@ -123,8 +123,8 @@ export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
   { id: 'rescue', name: 'Hostage rescue', blurb: 'Sentinels find the hostages, untie them and escort them to the extraction zone. Raiders must stop them before time runs out.' },
   { id: 'collect', name: 'Collect the intel', blurb: 'Both teams race to grab the intel cases scattered over the map. The first team to collect them all wins.' },
 ];
-export const UNTIE_TIME = 2;          // seconds holding the use key next to a hostage
-export const RESCUE_TIME = 240;
+export const UNTIE_TIME = 1.2;          // seconds holding the use key next to a hostage
+export const RESCUE_TIME = 270;
 export const COLLECT_TIME = 240;
 export const COLLECT_TARGET = 8;      // intel cases a team needs
 export const ITEM_RESPAWN = 25;       // a taken case comes back after this many seconds
@@ -154,8 +154,8 @@ export const KILL_MONEY = 200;
 export const LOOT_AMOUNT = 350; // cash stack lying on the map (once per round)
 export const DROP_AMOUNT = 250; // bag dropped by a fallen player
 export const MAX_MONEY = 16000;
-export const PLANT_TIME = 3;
-export const DEFUSE_TIME = 5;
+export const PLANT_TIME = 3.5;
+export const DEFUSE_TIME = 4;
 export const BOMB_FUSE = 30;
 export const DEFUSE_RANGE = 55;
 
