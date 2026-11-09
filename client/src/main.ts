@@ -12,7 +12,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, SCOPED_SPEED, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  levelWalls, FLOOR_H, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
+  levelWalls, FLOOR_H, GAME_MODES, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -217,6 +217,7 @@ class Game {
   /** Use a healing item / throw a grenade (latched until it has been sent). */
   useItem(k: number) { this.pendingItem = k; }
   private endDismissed = false;
+  private introUntil = 0;
   private predAir = 0; private predCd = 0;      // local copy of the jump timers (for prediction)
   // bullet effects and the sniper scope
   private lastBulletFx = -1;
@@ -1511,7 +1512,16 @@ class Game {
     const tenseMission = (rescue && r.hostages.some((h) => h.carried)) || (collect && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2);
     const goalEl = $('goal');                                       // the instruction text: what do we have to do in this game?
     goalEl.style.display = r.phase === 'live' || r.phase === 'buy' ? 'block' : 'none';
-    goalEl.textContent = r.goal[myTeam];
+    const modeName = (GAME_MODES.find((m) => m.id === r.mode)?.name ?? 'Mission').toUpperCase();
+    const progress = tdm ? `Kills  ${TEAM_INFO[myTeam].short} ${myTeam === 'CT' ? r.ctKills : r.tKills}  -  ${myTeam === 'CT' ? r.tKills : r.ctKills} ${TEAM_INFO[myTeam === 'CT' ? 'T' : 'CT'].short}  (target ${r.killTarget})`
+      : collect ? `Intel cases  you ${myTeam === 'CT' ? r.ctItems : r.tItems} / ${r.itemTarget}  -  enemy ${myTeam === 'CT' ? r.tItems : r.ctItems}`
+      : rescue ? `Hostages rescued  ${r.rescued} / ${r.hostageCount}`
+      : r.bomb.status === 'planted' ? `Bomb planted - ${Math.ceil(r.bomb.fuse)} s` : '';
+    goalEl.innerHTML = `<b class="gt">${modeName}</b><span class="gx"></span><span class="gp"></span>`;
+    (goalEl.querySelector('.gx') as HTMLElement).textContent = r.goal[myTeam];
+    (goalEl.querySelector('.gp') as HTMLElement).textContent = progress;
+    if (r.phase === 'buy') this.introUntil = performance.now() + 6000;   // a big "your aim" banner while the game starts
+    const intro = performance.now() < this.introUntil && r.phase !== 'over' && r.phase !== 'post';
 
     // banner: round result, bomb actions, role hints
     const endEl = $('endscreen');
@@ -1554,6 +1564,7 @@ class Game {
         sub = near ? 'Hold ' + (isTouch ? 'USE' : 'E') + ' next to the hostage to untie it' : '';
       }
     }
+    if (intro && !big && me?.alive) { big = `YOUR AIM: ${modeName}`; if (!sub) sub = r.goal[myTeam]; }
     $('bigtxt').textContent = big;
     $('subtxt').textContent = sub;
     const bar = $('bar');

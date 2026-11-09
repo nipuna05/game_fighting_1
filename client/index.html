@@ -142,7 +142,10 @@
     #spec b { display: block; font: 800 20px system-ui; color: #fff; letter-spacing: .04em; margin-bottom: 2px; }
     .opt { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #cdd7e4; padding: 5px 0; } .opt select { background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
     .sel { width: 100%; background: rgba(21,28,38,.9); color: #fff; border: 1px solid #2f3d52; border-radius: 8px; padding: 9px 10px; font-size: 14px; }
-    #goal { position: fixed; left: 50%; top: calc(54px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 4; max-width: 70vw; text-align: center; pointer-events: none; font: 600 13px system-ui; color: #e8eef5; background: #000a; padding: 5px 14px; border-radius: 8px; display: none; }
+    #goal { position: fixed; left: 50%; top: calc(54px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 4; max-width: 70vw; text-align: center; pointer-events: none; font: 600 15px system-ui; color: #e8eef5; background: #000b; padding: 8px 18px; border-radius: 10px; border-left: 4px solid #ffd24a; display: none; text-shadow: 0 1px 4px #000; }
+    #goal .gt { display: block; font-size: 11px; letter-spacing: 2px; color: #ffd24a; margin-bottom: 2px; }
+    #goal .gx { display: block; } #goal .gp { display: block; margin-top: 3px; font-size: 13px; color: #7dff9c; } #goal .gp:empty { display: none; }
+    body.touch #goal { font-size: 12px; padding: 5px 10px; }
     #buy .pickhint { color: #b8c4d4; font-size: 13px; margin: 4px 0 10px; } #buy button.cur { background: #1b3a2c; border-color: #3ddc84; }
     .crow { display: flex; flex-wrap: wrap; gap: 6px; } .cbtn { font: 600 12.5px system-ui; color: #dbe5f1; background: #1b2634; border: 1px solid #2f3d52; border-radius: 8px; padding: 7px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
     .cbtn:hover { border-color: #ff9a3d; } .cbtn.on { background: #3a2a14; border-color: #ff9a3d; color: #fff; } .cbtn .sw { width: 11px; height: 11px; border-radius: 3px; border: 1px solid #0008; display: inline-block; }
