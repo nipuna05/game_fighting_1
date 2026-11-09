@@ -178,6 +178,22 @@ const sandFloorC = () => canvas(256, 256, (g, w, h) => {
   for (let y = 10; y < h; y += 26) { g.beginPath(); for (let x = 0; x <= w; x += 8) g.lineTo(x, y + Math.sin(x * 0.08 + y) * 3); g.stroke(); } // wind ripples
 });
 
+const jungleFloorC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#3d5a2a'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 2600, 40, 140, 0.32);
+  for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(${rnd(30, 70)},${rnd(90, 150)},${rnd(25, 55)},0.45)`; g.beginPath(); g.ellipse(rnd(0, w), rnd(0, h), rnd(6, 22), rnd(4, 12), rnd(0, 3), 0, Math.PI * 2); g.fill(); } // moss and ferns
+  g.fillStyle = 'rgba(70,50,30,0.35)';
+  for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(rnd(20, 236), rnd(20, 236), rnd(10, 26), rnd(4, 9), rnd(0, 3), 0, Math.PI * 2); g.fill(); } // wet mud
+});
+const snowFloorC = () => canvas(256, 256, (g, w, h) => {
+  g.fillStyle = '#e4edf5'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 1800, 205, 255, 0.22);
+  g.fillStyle = 'rgba(150,175,205,0.28)';
+  for (let i = 0; i < 9; i++) { g.beginPath(); g.ellipse(rnd(0, w), rnd(0, h), rnd(14, 44), rnd(5, 14), rnd(0, 3), 0, Math.PI * 2); g.fill(); } // drifts and shadows
+  g.strokeStyle = 'rgba(120,150,185,0.22)'; g.lineWidth = 2;
+  for (let i = 0; i < 4; i++) { g.beginPath(); const y = rnd(20, 230); g.moveTo(0, y); g.lineTo(w, y + rnd(-14, 14)); g.stroke(); } // old tracks
+});
+
 // ---------- walls by kind ----------
 function faceMats(factory: () => HTMLCanvasElement, w: number, h: number, d: number, tile: number, top: THREE.Material): THREE.Material[] {
   const base = factory();
@@ -425,8 +441,8 @@ function buildWallVillage(scene: THREE.Scene, r: Rect, index: number) {
 
 function buildWall(scene: THREE.Scene, r: Rect, index: number, theme: MapDef['theme']) {
   if (r.kind === 'house' || r.kind === 'inner' || r.kind === 'window' || r.kind === 'rail') return;   // two-storey houses are built by buildHouses
-  if (theme === 'village') buildWallVillage(scene, r, index);
-  else if (theme === 'dock') buildWallDock(scene, r, index);
+  if (theme === 'village' || theme === 'jungle') buildWallVillage(scene, r, index);       // jungle ruins: the same old stone and plaster
+  else if (theme === 'dock' || theme === 'base' || theme === 'arctic') buildWallDock(scene, r, index);   // the outpost reuses the steel / concrete look
   else if (theme === 'desert') buildWallDesert(scene, r, index);
   else buildWallTown(scene, r, index);
 }
@@ -536,6 +552,9 @@ const THEMES = {
   dock:   { sky: 0x8ea1b5, fogNear: 1000, fogFar: 2800, hemi: [0xd5deea, 0x5a5f66, 1.6], sun: [0xe3ecff, 2.1], ground: 0x4a5058, bunting: false },
   desert: { sky: 0xe9cf9f, fogNear: 1400, fogFar: 3800, hemi: [0xfff0d8, 0xb08a5a, 2.1], sun: [0xffe2b0, 3.1], ground: 0xcfa96c, bunting: false },
   village: { sky: 0xb9cfdc, fogNear: 1100, fogFar: 3200, hemi: [0xdbe8f2, 0x5d6b3c, 1.8], sun: [0xffe9c4, 2.5], ground: 0x55703a, bunting: false },
+  jungle: { sky: 0x9fc4a0, fogNear: 800, fogFar: 2600, hemi: [0xd6efd0, 0x2f4a26, 1.7], sun: [0xfff2c8, 2.3], ground: 0x2f4a26, bunting: false },
+  arctic: { sky: 0xcfe0ee, fogNear: 900, fogFar: 3000, hemi: [0xeaf4ff, 0x8aa0b8, 2.1], sun: [0xf2f7ff, 2.6], ground: 0xdfe8f0, bunting: false },
+  base:   { sky: 0xa8b9a6, fogNear: 1200, fogFar: 3300, hemi: [0xdfe9dc, 0x56604a, 1.7], sun: [0xfff4dc, 2.4], ground: 0x6b7360, bunting: false },
 } as const;
 
 // ---------- two-storey houses: ground walls, a floor slab with a hole for the stairs, a sloped ramp, upper walls with windows ----------
@@ -612,7 +631,9 @@ function buildWorldBase(scene: THREE.Scene, map: MapDef, mode?: string) {
   ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -1, cz);
   scene.add(ground);
 
-  const floorMap = map.theme === 'dock' ? tex(dockFloorC(), WORLD_W / 160, WORLD_H / 160)
+  const floorMap = map.theme === 'dock' || map.theme === 'base' ? tex(dockFloorC(), WORLD_W / 160, WORLD_H / 160)
+    : map.theme === 'jungle' ? tex(jungleFloorC(), WORLD_W / 200, WORLD_H / 200)
+    : map.theme === 'arctic' ? tex(snowFloorC(), WORLD_W / 220, WORLD_H / 220)
     : map.theme === 'desert' ? tex(sandFloorC(), WORLD_W / 220, WORLD_H / 220)
     : map.theme === 'village' ? tex(dirtFloorC(), WORLD_W / 200, WORLD_H / 200)
     : tex(floorC(), WORLD_W / 110, WORLD_H / 110);

@@ -9,7 +9,7 @@ export interface Site { id: string; x: number; y: number; r: number; lv?: number
 export const FLOOR_H = 72;                                    // height of the upper floor above the ground
 export interface Stair { x: number; y: number; w: number; h: number; axis: 'x' | 'y'; dir: 1 | -1 }   // ramp rect; walking along `axis` in direction `dir` climbs
 export interface BuildingDef { rect: Rect; door: { out: { x: number; y: number }; in: { x: number; y: number } }; stair: number; side: 'W' | 'E' }
-export type MapTheme = 'town' | 'dock' | 'desert' | 'village';
+export type MapTheme = 'town' | 'dock' | 'desert' | 'village' | 'base' | 'jungle' | 'arctic';
 
 export interface MapDef {
   id: string;
@@ -149,6 +149,94 @@ const village: MapDef = {
   loot: [{ x: 300, y: 150 }, { x: 1300, y: 1050 }, { x: 560, y: 720 }, { x: 1040, y: 480 }, { x: 660, y: 330 }, { x: 940, y: 870 }],
 };
 
+const outpost: MapDef = {
+  id: 'outpost', name: 'Outpost Delta', theme: 'base',
+  blurb: 'Military outpost in the hills: a radar dome, barracks blocks, two hangars and fuel tanks. Hold the radar, flank through the hangars.',
+  walls: [
+    ...outer(),
+    ...withMirror([
+      { x: 280, y: 180, w: 260, h: 70, kind: 'shop' },       // barracks block (north-west) ...
+      { x: 280, y: 330, w: 60, h: 190, kind: 'shop' },       // ... and its side wing
+      { x: 560, y: 760, w: 200, h: 150, kind: 'fountain' },  // hangar
+      { x: 880, y: 140, w: 130, h: 60, kind: 'shop' },       // supply sheds
+      { x: 470, y: 470, w: 80, h: 80, kind: 'shop' },        // fuel tanks
+      { x: 700, y: 330, w: 44, h: 44, kind: 'crate' }, { x: 380, y: 1000, w: 44, h: 44, kind: 'crate' },
+      { x: 180, y: 600, w: 120, h: 30, kind: 'barrier' },    // sandbag lines
+      { x: 1020, y: 520, w: 30, h: 110, kind: 'barrier' },
+    ]),
+    { x: 720, y: 520, w: 160, h: 160, kind: 'fountain' },    // the radar dome in the middle
+  ],
+  sites: [{ id: 'A', x: 640, y: 250, r: 90 }, { id: 'B', x: 960, y: 950, r: 90 }],
+  spawns: SPAWNS,
+  heal: [{ x: 420, y: 650 }, { x: 1180, y: 550 }, { x: 800, y: 380 }, { x: 800, y: 820 }],
+  loot: [{ x: 250, y: 120 }, { x: 1350, y: 1080 }, { x: 560, y: 380 }, { x: 1040, y: 820 }, { x: 800, y: 600 }, { x: 330, y: 900 }],
+};
+
+const jungle: MapDef = {
+  id: 'jungle', name: 'Jungle Ruins', theme: 'jungle',
+  blurb: 'Overgrown temple ruins: a stepped pyramid in the middle, fallen stones and thick cover. Short, close, dangerous fights.',
+  walls: [
+    ...outer(),
+    ...withMirror([
+      { x: 300, y: 200, w: 150, h: 110, kind: 'shop' },      // ruined halls
+      { x: 540, y: 340, w: 90, h: 90, kind: 'shop' },
+      { x: 330, y: 860, w: 130, h: 100, kind: 'shop' },
+      { x: 470, y: 590, w: 96, h: 28, kind: 'barrier' },     // fallen stone blocks
+      { x: 880, y: 430, w: 28, h: 96, kind: 'barrier' },
+      { x: 190, y: 330, w: 28, h: 100, kind: 'barrier' },
+      { x: 700, y: 140, w: 44, h: 44, kind: 'crate' },       // old supply crates
+      { x: 560, y: 1010, w: 44, h: 44, kind: 'crate' },
+    ]),
+    { x: 700, y: 480, w: 200, h: 240, kind: 'fountain' },    // the stepped pyramid
+  ],
+  sites: [{ id: 'A', x: 820, y: 190, r: 90 }, { id: 'B', x: 780, y: 1010, r: 90 }],
+  spawns: SPAWNS,
+  heal: [{ x: 520, y: 520 }, { x: 1080, y: 680 }, { x: 800, y: 380 }, { x: 800, y: 820 }],
+  loot: [{ x: 300, y: 130 }, { x: 1300, y: 1070 }, { x: 620, y: 640 }, { x: 980, y: 560 }, { x: 380, y: 760 }, { x: 1220, y: 440 }],
+};
+
+const arctic: MapDef = {
+  id: 'arctic', name: 'Frozen Pass', theme: 'arctic',
+  blurb: 'A snow-bound mountain pass: long ice ridges make lanes for snipers, cabins and ice boulders give you somewhere to hide.',
+  walls: [
+    ...outer(),
+    ...withMirror([
+      { x: 300, y: 130, w: 440, h: 56, kind: 'shop' },      // north ridge
+      { x: 420, y: 300, w: 56, h: 260, kind: 'shop' },       // ice wall down the side
+      { x: 640, y: 380, w: 140, h: 56, kind: 'shop' },
+      { x: 260, y: 780, w: 120, h: 100, kind: 'fountain' },  // ice boulders
+      { x: 560, y: 260, w: 44, h: 44, kind: 'crate' },
+      { x: 900, y: 150, w: 96, h: 28, kind: 'barrier' },
+    ]),
+    { x: 720, y: 540, w: 160, h: 120, kind: 'fountain' },    // frozen lake rock in the centre
+  ],
+  sites: [{ id: 'A', x: 900, y: 270, r: 90 }, { id: 'B', x: 700, y: 930, r: 90 }],
+  spawns: SPAWNS,
+  heal: [{ x: 560, y: 640 }, { x: 1040, y: 560 }, { x: 800, y: 330 }, { x: 800, y: 870 }],
+  loot: [{ x: 300, y: 330 }, { x: 1300, y: 870 }, { x: 640, y: 540 }, { x: 960, y: 660 }, { x: 800, y: 200 }, { x: 800, y: 1000 }],
+};
+
+const canyon: MapDef = {
+  id: 'canyon', name: 'Dead Canyon', theme: 'desert',
+  blurb: 'A winding canyon of red rock walls: ambush corners, narrow gorges and one wide plateau to fight over.',
+  walls: [
+    ...outer(),
+    ...withMirror([
+      { x: 280, y: 230, w: 440, h: 70, kind: 'shop' },       // canyon walls
+      { x: 650, y: 300, w: 70, h: 190, kind: 'shop' },
+      { x: 420, y: 560, w: 300, h: 70, kind: 'shop' },
+      { x: 300, y: 850, w: 260, h: 90, kind: 'shop' },
+      { x: 900, y: 330, w: 44, h: 44, kind: 'crate' },
+      { x: 840, y: 640, w: 100, h: 28, kind: 'barrier' },
+      { x: 200, y: 460, w: 28, h: 90, kind: 'barrier' },
+    ]),
+  ],
+  sites: [{ id: 'A', x: 1050, y: 240, r: 90 }, { id: 'B', x: 550, y: 960, r: 90 }],
+  spawns: SPAWNS,
+  heal: [{ x: 540, y: 430 }, { x: 1060, y: 770 }, { x: 800, y: 600 }, { x: 800, y: 200 }],
+  loot: [{ x: 300, y: 130 }, { x: 1300, y: 1070 }, { x: 560, y: 720 }, { x: 1040, y: 480 }, { x: 800, y: 440 }, { x: 800, y: 760 }],
+};
+
 // ---------- enlarge every map ----------
 const isLow = (r: Rect) => r.kind === 'crate' || r.kind === 'barrier' || r.kind === 'scooter';
 const overlaps = (a: Rect, b: Rect, m = 0) => a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y;
@@ -197,7 +285,7 @@ function enlarge(m: MapDef): MapDef {
     sites: m.sites.map((st) => ({ ...st, ...spot(st), r: 100 })),
     spawns: { T: sp(m.spawns.T), CT: { ...sp(m.spawns.CT), x: WORLD_W - m.spawns.CT.w - 70 } },
     heal: m.heal.map(spot),
-    supply: extra.map((e) => { const g = grow(e); return { x: Math.round(g.x + g.w / 2), y: Math.round(g.y - 28) }; })
+    supply: [...extra, ...keep.filter(isLow)].map((e) => { const g = grow(e); return { x: Math.round(g.x + g.w / 2), y: Math.round(g.y - 28) }; })
       .filter((sp) => !([...keep, ...extra].map(grow).some((w) => sp.x > w.x - 22 && sp.x < w.x + w.w + 22 && sp.y > w.y - 22 && sp.y < w.y + w.h + 22)) && sp.x > 60 && sp.x < WORLD_W - 60 && sp.y > 60 && sp.y < WORLD_H - 60)
       .slice(0, 14),
     loot: [...m.loot.map(spot), ...extra.filter((e) => e.kind === 'crate').slice(0, 6).map((e) => { const g = grow(e); return { x: g.x + g.w / 2, y: g.y + g.h + 26 }; })],
@@ -270,7 +358,8 @@ function withBuildings(m: MapDef): MapDef {
   return m;                                                                      // no room: the map stays single-storey
 }
 
-export const MAPS: Record<string, MapDef> = { town: withBuildings(enlarge(town)), dock: withBuildings(enlarge(dock)), desert: withBuildings(enlarge(desert)), village: withBuildings(enlarge(village)) };
+export const MAPS: Record<string, MapDef> = { town: withBuildings(enlarge(town)), dock: withBuildings(enlarge(dock)), desert: withBuildings(enlarge(desert)), village: withBuildings(enlarge(village)), outpost: withBuildings(enlarge(outpost)),
+  jungle: withBuildings(enlarge(jungle)), arctic: withBuildings(enlarge(arctic)), canyon: withBuildings(enlarge(canyon)) };
 export const MAP_IDS = Object.keys(MAPS);
 export const getMap = (id?: string): MapDef => (id && MAPS[id]) || MAPS.town;
 
