@@ -230,7 +230,7 @@ class Game {
   private matchLoot = 0;
   private lastCoins = 0;
   private lastMvp = false;
-  private ev = { maxKill: -1, maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
+  private ev = { fsig: '', capT: -1, capCT: -1, cpOwner: '', maxKill: -1, maxBullet: 0, maxImpact: -1, hp: MAX_HP, alive: true, phase: '', bomb: 'none', nextBeep: 0, am: 0, rl: 0, weapon: -1, us: -1, iv: [] as number[], rescued: -1, mine: -1, theirs: -1 };
   private shown = new Map<string, Shown>();
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AIM_HEIGHT);
@@ -1067,6 +1067,28 @@ class Game {
     g.userData.box = box;
     return g;
   }
+  private static OWNER_COLOR: Record<string, number> = { none: 0xffffff, T: 0xe08a2c, CT: 0x3f8cff, contested: 0xff4040 };
+  private makePoint(r: number): THREE.Object3D {
+    const g = new THREE.Group(), mats: THREE.MeshBasicMaterial[] = [];
+    const mk = (geo: THREE.BufferGeometry, op: number, y: number, rotX = true, add = false) => {
+      const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
+      const o = new THREE.Mesh(geo, m); if (rotX) o.rotation.x = -Math.PI / 2; o.position.y = y; g.add(o); mats.push(m); return o;
+    };
+    mk(new THREE.CircleGeometry(r, 56), 0.16, 1.4);
+    mk(new THREE.RingGeometry(r - 7, r, 64), 0.85, 1.8);
+    mk(new THREE.CylinderGeometry(r, r, 230, 40, 1, true), 0.14, 115, false, true);
+    g.userData.mats = mats;
+    return g;
+  }
+  private makeFlag(color: number): THREE.Object3D {
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 64, 8), new THREE.MeshStandardMaterial({ color: 0xcfd6df, metalness: 0.6, roughness: 0.4 })); pole.position.y = 32; pole.castShadow = true; g.add(pole);
+    const cloth = new THREE.Mesh(new THREE.BoxGeometry(26, 15, 1.2), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.7 })); cloth.position.set(14, 54, 0); cloth.castShadow = true; g.add(cloth);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(14, 20, 28), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; ring.position.y = 1; g.add(ring);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 190, 8, 1, true), this.beamMat(color)); beam.position.y = 95; g.add(beam);
+    g.userData.cloth = cloth; g.userData.ring = ring;
+    return g;
+  }
   private syncObjectives(s: Snapshot, time: number) {
     const r = s.round, want = new Set<string>();
     if (r && !this.replay) {
@@ -1074,6 +1096,20 @@ class Game {
         const k = `h${h.id}`; want.add(k);
         let o = this.objects.get(k); if (!o) { o = this.makeHostage(); this.objects.set(k, o); this.scene.add(o); }
         o.position.set(h.x, 0, h.y); (o.userData.beam as THREE.Object3D).visible = !h.carried;
+      }
+      if (r.cp) {
+        want.add('cp');
+        let o = this.objects.get('cp'); if (!o) { o = this.makePoint(r.cp.r); this.objects.set('cp', o); this.scene.add(o); }
+        o.position.set(r.cp.x, 0, r.cp.y);
+        const col = new THREE.Color(Game.OWNER_COLOR[r.cp.owner] ?? 0xffffff);
+        for (const m of o.userData.mats as THREE.MeshBasicMaterial[]) m.color.copy(col);
+      }
+      for (const f of r.flags) {
+        const k = `f${f.team}`; want.add(k);
+        let o = this.objects.get(k); if (!o) { o = this.makeFlag(f.team === 'T' ? 0xe08a2c : 0x3f8cff); this.objects.set(k, o); this.scene.add(o); }
+        o.position.set(f.x, f.carried ? 30 : 0, f.y);
+        (o.userData.cloth as THREE.Object3D).rotation.y = Math.sin(time * 4 + (f.team === 'T' ? 0 : 2)) * 0.35;
+        (o.userData.ring as THREE.Object3D).visible = !f.carried;
       }
       for (const it of r.items) {
         const k = `i${it.id}`; want.add(k);
@@ -1091,6 +1127,14 @@ class Game {
       if (r.mode === 'rescue') {
         for (const h of r.hostages) if (!h.carried) list.push({ key: `h${h.id}`, x: h.x, y: h.y, text: 'HOSTAGE', cls: 'host' });
         if (r.hostages.some((h) => h.by === this.myId)) list.push({ key: 'ex', x: r.extract.x + r.extract.w / 2, y: r.extract.y + r.extract.h / 2, text: 'EXTRACTION', cls: 'ext' });
+      } else if (r.mode === 'point' && r.cp) {
+        list.push({ key: 'cp', x: r.cp.x, y: r.cp.y, text: 'ZONE', cls: 'ext' });
+      } else if (r.mode === 'flag') {
+        const mine = r.flags.find((f) => f.team === me.team), theirs = r.flags.find((f) => f.team !== me.team);
+        if (theirs && theirs.by !== this.myId) list.push({ key: 'ef', x: theirs.x, y: theirs.y, text: theirs.carried ? 'OUR CARRIER' : 'ENEMY FLAG', cls: 'item' });
+        if (theirs?.by === this.myId && mine) list.push({ key: 'home', x: mine.hx, y: mine.hy, text: 'YOUR BASE', cls: 'ext' });
+        if (mine && !mine.home) list.push({ key: 'mf', x: mine.x, y: mine.y, text: mine.carried ? 'KILL THE CARRIER' : 'YOUR FLAG', cls: 'host' });
+        else if (mine && !theirs?.carried) list.push({ key: 'mh', x: mine.hx, y: mine.hy, text: 'YOUR FLAG', cls: 'host' });
       } else if (r.mode === 'collect') {
         [...r.items].sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y)).slice(0, 4)
           .forEach((it) => list.push({ key: `i${it.id}`, x: it.x, y: it.y, text: 'INTEL', cls: 'item' }));
@@ -1570,6 +1614,26 @@ class Game {
         else if (ev.theirs >= 0 && theirs > ev.theirs) sfx.beep();
         ev.mine = mineNow; ev.theirs = theirs;
       } else { ev.mine = -1; ev.theirs = -1; }
+      if (r.mode === 'flag' && r.flags.length) {                          // capture the flag: say what just happened
+        const sig = r.flags.map((f) => (f.carried ? 'c' : f.home ? 'h' : 'd')).join('');
+        if (ev.fsig) r.flags.forEach((f, i) => {
+          const was = ev.fsig[i], now = sig[i];
+          if (was === now) return;
+          if (now === 'c') { this.toast(f.by === this.myId ? 'YOU HAVE THE FLAG! RUN HOME' : f.team === me.team ? 'YOUR FLAG WAS STOLEN!' : 'YOUR TEAM HAS THE ENEMY FLAG'); sfx.beep(); }
+          else if (was === 'c' && now === 'd') this.toast(f.team === me.team ? 'YOUR FLAG IS DOWN: TOUCH IT' : 'ENEMY FLAG DROPPED: GRAB IT');
+          else if (now === 'h' && was === 'd') this.toast(f.team === me.team ? 'YOUR FLAG IS BACK HOME' : 'ENEMY FLAG RETURNED');
+        });
+        if (ev.capT >= 0 && (r.capT > ev.capT || r.capCT > ev.capCT)) { const mineCap = (r.capT > ev.capT) === (me.team === 'T'); this.toast(mineCap ? 'YOUR TEAM CAPTURED THE FLAG!' : 'THE ENEMY CAPTURED YOUR FLAG'); (mineCap ? sfx.win : sfx.lose)(); }
+        ev.fsig = sig; ev.capT = r.capT; ev.capCT = r.capCT;
+      } else { ev.fsig = ''; ev.capT = -1; ev.capCT = -1; }
+      if (r.mode === 'point' && r.cp) {
+        if (ev.cpOwner && r.cp.owner !== ev.cpOwner) {
+          if (r.cp.owner === 'contested') this.toast('ZONE CONTESTED');
+          else if (r.cp.owner === me.team) this.toast('YOUR TEAM HOLDS THE ZONE');
+          else if (r.cp.owner !== 'none') this.toast('THE ENEMY HOLDS THE ZONE');
+        }
+        ev.cpOwner = r.cp.owner;
+      } else ev.cpOwner = '';
       ev.rescued = r.mode === 'rescue' ? r.rescued : -1;
       if (ev.alive && !me.alive) sfx.death();
       ev.hp = me.hp; ev.alive = me.alive;
@@ -1597,20 +1661,22 @@ class Game {
     const me = s.players.find((p) => p.id === this.myId);
     const myTeam: Team = me?.team ?? 'CT';
     const tdm = r.mode === 'tdm';
-    const tense = r.bomb.status === 'planted' || (r.mode === 'rescue' && r.hostages.some((h) => h.carried)) || (r.mode === 'collect' && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2) || (tdm && Math.max(r.tKills, r.ctKills) >= r.killTarget - 4) || (r.phase === 'live' && r.timeLeft < 20);
+    const tense = (r.mode === 'point' && Math.max(r.cpT, r.cpCT) >= r.cpTarget - 15) || (r.mode === 'flag' && r.flags.some((f) => f.carried)) || r.bomb.status === 'planted' || (r.mode === 'rescue' && r.hostages.some((h) => h.carried)) || (r.mode === 'collect' && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2) || (tdm && Math.max(r.tKills, r.ctKills) >= r.killTarget - 4) || (r.phase === 'live' && r.timeLeft < 20);
     music.setMode(r.phase === 'live' ? (tense ? 'intense' : 'game') : 'calm');                // the soundtrack follows the action
-    const rescue = r.mode === 'rescue', collect = r.mode === 'collect';
-    const ctScore = tdm ? r.ctKills : collect ? r.ctItems : rescue ? r.rescued : r.ctWins, tScore = tdm ? r.tKills : collect ? r.tItems : r.tWins;
+    const rescue = r.mode === 'rescue', collect = r.mode === 'collect', point = r.mode === 'point', flag = r.mode === 'flag';
+    const ctScore = tdm ? r.ctKills : collect ? r.ctItems : point ? r.cpCT : flag ? r.capCT : rescue ? r.rescued : r.ctWins, tScore = tdm ? r.tKills : collect ? r.tItems : point ? r.cpT : flag ? r.capT : r.tWins;
     $('ctw').textContent = `${TEAM_INFO.CT.short} ${ctScore}${rescue ? `/${r.hostageCount}` : ''}`;
     $('tw').textContent = rescue ? TEAM_INFO.T.short : `${tScore} ${TEAM_INFO.T.short}`;
     const clock = r.bomb.status === 'planted' ? `BOMB ${Math.ceil(r.bomb.fuse)}s` : r.phase === 'buy' ? (r.free ? 'GET READY' : 'BUY') : r.phase === 'live' ? fmt(r.timeLeft) : '';
-    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
+    $('tm').textContent = tdm ? `FIRST TO ${r.killTarget}  ${clock}` : collect ? `CASES ${r.itemTarget}  ${clock}` : point ? `ZONE ${r.cpTarget}  ${clock}` : flag ? `FLAG ${r.capTarget}  ${clock}` : rescue ? `RESCUE  ${clock}` : `R${r.roundNo}  ${clock}`;
     const tenseMission = (rescue && r.hostages.some((h) => h.carried)) || (collect && Math.max(r.tItems, r.ctItems) >= r.itemTarget - 2);
     const goalEl = $('goal');                                       // the instruction text: what do we have to do in this game?
     goalEl.style.display = r.phase === 'live' || r.phase === 'buy' ? 'block' : 'none';
     const modeName = (GAME_MODES.find((m) => m.id === r.mode)?.name ?? 'Mission').toUpperCase();
     const progress = tdm ? `Kills  ${TEAM_INFO[myTeam].short} ${myTeam === 'CT' ? r.ctKills : r.tKills}  -  ${myTeam === 'CT' ? r.tKills : r.ctKills} ${TEAM_INFO[myTeam === 'CT' ? 'T' : 'CT'].short}  (target ${r.killTarget})`
       : collect ? `Intel cases  you ${myTeam === 'CT' ? r.ctItems : r.tItems} / ${r.itemTarget}  -  enemy ${myTeam === 'CT' ? r.tItems : r.ctItems}`
+      : point ? `Zone points  you ${myTeam === 'CT' ? r.cpCT : r.cpT} / ${r.cpTarget}  -  enemy ${myTeam === 'CT' ? r.cpT : r.cpCT}   |   ${!r.cp || r.cp.owner === 'none' ? 'zone empty' : r.cp.owner === 'contested' ? 'CONTESTED' : r.cp.owner === myTeam ? 'YOU HOLD IT' : 'ENEMY HOLDS IT'}`
+      : flag ? `Captures  you ${myTeam === 'CT' ? r.capCT : r.capT} / ${r.capTarget}  -  enemy ${myTeam === 'CT' ? r.capT : r.capCT}`
       : rescue ? `Hostages rescued  ${r.rescued} / ${r.hostageCount}`
       : r.bomb.status === 'planted' ? `Bomb planted - ${Math.ceil(r.bomb.fuse)} s` : '';
     goalEl.innerHTML = `<b class="gt">${modeName}</b><span class="gx"></span><span class="gp"></span>`;
@@ -1661,6 +1727,11 @@ class Game {
       }
     }
     if (intro && !big && me?.alive) { big = `YOUR AIM: ${modeName}`; if (!sub) sub = r.goal[myTeam]; }
+    if (flag && me?.alive && r.phase === 'live') {                       // capture the flag: what to do right now
+      const theirs = r.flags.find((f) => f.team !== myTeam), mine = r.flags.find((f) => f.team === myTeam);
+      if (theirs?.by === this.myId) sub = mine?.home ? 'You have the flag! Run to your own flag to score' : 'You have the flag, but yours is not home: get your flag back first';
+      else if (mine && !mine.home && !mine.carried) sub = 'Your flag is lying outside: touch it to send it home';
+    }
     $('bigtxt').textContent = big;
     $('subtxt').textContent = sub;
     const bar = $('bar');
@@ -1733,7 +1804,7 @@ async function start(mode: 'single' | 'multi') {
   if (!template) await loadTemplate();
   await loadGunModels();
   const map = QS.get('map') && MAP_IDS.includes(QS.get('map')!) ? QS.get('map')! : profile.map; // dev: ?map=dock|desert|town
-  const style = (['bomb', 'tdm', 'rescue', 'collect'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
+  const style = (['bomb', 'tdm', 'rescue', 'collect', 'point', 'flag'].includes(QS.get('style') ?? '') ? QS.get('style') : profile.style) as GameMode;       // dev: ?style=tdm&wset=sniper&pick=auto
   const wset = (QS.get('wset') ?? profile.weaponSet) as WeaponSet;
   const pick = (QS.get('pick') ?? profile.pick) as PickMode;
   game = new Game({ mode, name, room, skin: profile.skin + SKIN_BASE * profile.kit, sidearm: profile.sidearm, team: profile.team, map, style, weaponSet: wset, pick });

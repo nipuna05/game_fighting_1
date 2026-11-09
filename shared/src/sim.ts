@@ -114,7 +114,7 @@ export const LIVE_TIME = 150;   // the maps are bigger now
 export const POST_TIME = 4;
 export const OVER_TIME = 15;
 // ---- game styles and weapon rules ----
-export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect';
+export type GameMode = 'bomb' | 'tdm' | 'rescue' | 'collect' | 'point' | 'flag';
 export type WeaponSet = 'all' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'sniper' | 'random';
 export type PickMode = 'manual' | 'auto';
 export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
@@ -122,13 +122,17 @@ export const GAME_MODES: { id: GameMode; name: string; blurb: string }[] = [
   { id: 'tdm', name: 'Team deathmatch', blurb: 'Kills only: the first team to reach the kill target wins. You respawn after 5 seconds.' },
   { id: 'rescue', name: 'Hostage rescue', blurb: 'Sentinels find the hostages, untie them and escort them to the extraction zone. Raiders must stop them before time runs out.' },
   { id: 'collect', name: 'Collect the intel', blurb: 'Both teams race to grab the intel cases scattered over the map. The first team to collect them all wins.' },
+  { id: 'point', name: 'Control point', blurb: 'Hold the glowing zone in the middle of the map. Your team earns a point every second that it is inside with no enemy there. First to 100 points wins.' },
+  { id: 'flag', name: 'Capture the flag', blurb: 'Steal the enemy flag and carry it back to your own flag. Your flag must be at home to score. First team to 3 captures wins.' },
 ];
 export const UNTIE_TIME = 1.2;          // seconds holding the use key next to a hostage
 export const RESCUE_TIME = 270;
 export const COLLECT_TIME = 240;
 export const COLLECT_TARGET = 8;      // intel cases a team needs
+export const POINT_TIME = 300, POINT_TARGET = 100, POINT_R = 140;   // control point: round time, points to win, zone radius
+export const FLAG_TIME = 360, FLAG_TARGET = 3, FLAG_RETURN = 20, FLAG_TOUCH = 24;   // capture the flag: round time, captures to win, seconds before a dropped flag returns, pick-up reach
 export const ITEM_RESPAWN = 25;       // a taken case comes back after this many seconds
-const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : LIVE_TIME);
+const missionTime = (m: GameMode) => (m === 'tdm' ? TDM_TIME : m === 'rescue' ? RESCUE_TIME : m === 'collect' ? COLLECT_TIME : m === 'point' ? POINT_TIME : m === 'flag' ? FLAG_TIME : LIVE_TIME);
 export const WEAPON_SETS: { id: WeaponSet; name: string }[] = [
   { id: 'all', name: 'All guns (bomb mission: buy with cash)' }, { id: 'pistol', name: 'Pistols only' }, { id: 'smg', name: 'SMGs only' },
   { id: 'shotgun', name: 'Shotguns only' }, { id: 'rifle', name: 'Rifles only' }, { id: 'sniper', name: 'Snipers only' }, { id: 'random', name: 'Random weapon every life' },
@@ -194,6 +198,8 @@ export interface BombState {
 }
 export interface HostageState { id: number; x: number; y: number; carried: boolean; by: string | null; progress: number; actor: string | null }
 export interface ItemState { id: number; x: number; y: number }
+export interface FlagState { team: Team; x: number; y: number; hx: number; hy: number; carried: boolean; home: boolean; by?: string }   // the flag of `team`
+export interface PointState { x: number; y: number; r: number; owner: 'T' | 'CT' | 'contested' | 'none' }
 export interface RoundState {
   phase: Phase; timeLeft: number; tWins: number; ctWins: number; roundNo: number;
   winner: Team | null; reason: string; bomb: BombState;
@@ -201,6 +207,8 @@ export interface RoundState {
   tKills: number; ctKills: number; killTarget: number;                      // team deathmatch score
   hostages: HostageState[]; rescued: number; hostageCount: number; extract: Rect;   // hostage rescue
   items: ItemState[]; tItems: number; ctItems: number; itemTarget: number;          // collect the intel
+  cp: PointState | null; cpT: number; cpCT: number; cpTarget: number;                // control point
+  flags: FlagState[]; capT: number; capCT: number; capTarget: number;               // capture the flag
   goal: Record<Team, string>;                                                // the instruction text for each team
 }
 export interface KillEvent {
@@ -313,7 +321,11 @@ export class Sim {
   private tWins = 0;
   private ctWins = 0;
   private roundNo = 0;
-  private pushUntil: Record<Team, number> = { T: 0, CT: 0 };       // bots: the team attacks together until this time
+  private pushUntil: Record<Team, number> = { T: 0, CT: 0 };
+  private cp: { x: number; y: number; r: number } | null = null;                          // control point
+  private cpOwner: PointState['owner'] = 'none'; private cpT = 0; private cpCT = 0;
+  private flags: { team: Team; hx: number; hy: number; x: number; y: number; carrier: string | null; dropT: number }[] = [];   // capture the flag
+  private capT = 0; private capCT = 0;       // bots: the team attacks together until this time
   private winner: Team | null = null;
   private reason = '';
   private freshMatch = true;
@@ -339,7 +351,7 @@ export class Sim {
 
   constructor(opts: SimOptions = {}) {
     this.rounds = !!opts.rounds;
-    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' ? opts.mode : 'bomb';
+    this.mode = opts.mode === 'tdm' || opts.mode === 'rescue' || opts.mode === 'collect' || opts.mode === 'point' || opts.mode === 'flag' ? opts.mode : 'bomb';
     this.weaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(opts.weaponSet as WeaponSet) ? opts.weaponSet as WeaponSet : 'all';
     this.pick = opts.pick === 'auto' ? 'auto' : 'manual';
     this.map = getMap(opts.map);
@@ -522,6 +534,15 @@ export class Sim {
     this.rescued = 0;
     this.items = this.mode === 'collect' ? this.map.loot.slice(0, 12).map((l, i) => ({ id: i + 1, x: l.x, y: l.y, readyAt: 0 })) : [];
     this.tItems = 0; this.ctItems = 0;
+    this.cpT = 0; this.cpCT = 0; this.cpOwner = 'none'; this.capT = 0; this.capCT = 0;
+    this.cp = this.mode === 'point' ? { ...this.freeSpot(WORLD_W / 2, WORLD_H / 2, POINT_R * 0.55, true, true), r: POINT_R } : null;
+    if (this.mode === 'flag') {                                         // the Raiders' flag first; the Sentinels' flag is its mirror image, so neither team is favoured
+      const z = this.map.spawns.T, t = this.freeSpot(z.x + z.w + 680, z.y + z.h / 2, 34, false);
+      const mx = WORLD_W - t.x, my = WORLD_H - t.y;
+      const blocked = this.map.walls.some((w) => mx > w.x - 34 && mx < w.x + w.w + 34 && my > w.y - 34 && my < w.y + w.h + 34);
+      const c = blocked ? this.freeSpot(mx, my, 34, false) : { x: mx, y: my };
+      this.flags = [{ team: 'T', hx: t.x, hy: t.y, x: t.x, y: t.y, carrier: null, dropT: 0 }, { team: 'CT', hx: c.x, hy: c.y, x: c.x, y: c.y, carrier: null, dropT: 0 }];
+    } else this.flags = [];
     this.grenades = []; this.zones = []; this.blastLog = [];
     this.supplies = (this.map.supply ?? []).map((sp, i) => ({ id: i + 1, x: sp.x, y: sp.y, item: rollItem(), readyAt: 0 }));
     const ts = [...this.players.values()].filter((p) => p.team === 'T');
@@ -585,6 +606,67 @@ export class Sim {
     else if (this.time >= this.phaseEndsAt) this.endRound('T', this.rescued ? `Time ran out: ${this.rescued} of ${this.hostages.length} rescued` : 'Time ran out: the hostages are still captive');
   }
 
+  /** The nearest spot (spiralling out from x, y) with no wall within r; low cover counts only when lowOk is false. */
+  private freeSpot(x: number, y: number, r: number, lowOk: boolean, vertical = false): { x: number; y: number } {
+    const blocked = (px: number, py: number) => px < 60 || py < 60 || px > WORLD_W - 60 || py > WORLD_H - 60
+      || this.map.walls.some((w) => !(lowOk && isLow(w)) && px > w.x - r && px < w.x + w.w + r && py > w.y - r && py < w.y + w.h + r);
+    if (vertical) for (let rad = 0; rad <= 700; rad += 30) for (const sgn of rad ? [1, -1] : [1]) { const py = Math.round(y + sgn * rad); if (!blocked(x, py)) return { x, y: py }; }
+    for (let rad = 0; rad <= 800; rad += 30) for (let k = 0; k < (rad ? 18 : 1); k++) {
+      const a = (k / 18) * Math.PI * 2, px = Math.round(x + Math.cos(a) * rad), py = Math.round(y + Math.sin(a) * rad);
+      if (!blocked(px, py)) return { x: px, y: py };
+    }
+    return { x, y };
+  }
+
+  // ---------- control point ----------
+  private stepPoint(dt: number) {
+    const cp = this.cp!;
+    let nT = 0, nCT = 0;
+    for (const p of this.players.values()) if (p.alive && p.lv === 0 && Math.hypot(p.x - cp.x, p.y - cp.y) <= cp.r) { if (p.team === 'T') nT++; else nCT++; }
+    this.cpOwner = nT && nCT ? 'contested' : nT ? 'T' : nCT ? 'CT' : 'none';
+    if (this.cpOwner === 'T') this.cpT += dt; else if (this.cpOwner === 'CT') this.cpCT += dt;
+    if (this.cpT >= POINT_TARGET) this.endRound('T', `${TEAM_INFO.T.name} held the point for ${POINT_TARGET} seconds`);
+    else if (this.cpCT >= POINT_TARGET) this.endRound('CT', `${TEAM_INFO.CT.name} held the point for ${POINT_TARGET} seconds`);
+    else if (this.time >= this.phaseEndsAt) {
+      const a = Math.floor(this.cpT), b = Math.floor(this.cpCT), tie = a === b, t = tie ? this.tKills > this.ctKills : a > b;
+      this.endRound(t ? 'T' : 'CT', tie ? `Time up, tied ${a}-${b}: more kills wins` : `Time up: ${Math.max(a, b)}-${Math.min(a, b)} points`);
+    }
+  }
+
+  // ---------- capture the flag ----------
+  private stepFlag(dt: number) {
+    void dt;
+    for (const f of this.flags) {
+      if (f.carrier) {                                                  // the carrier drags it along; if they die it drops where they fell
+        const c = this.players.get(f.carrier);
+        if (!c || !c.alive) { f.carrier = null; f.dropT = this.time; if (c) { f.x = Math.round(c.x); f.y = Math.round(c.y); } }
+        else { f.x = c.x; f.y = c.y; }
+      }
+      if (!f.carrier) {
+        const atHome = Math.hypot(f.x - f.hx, f.y - f.hy) < 4;
+        if (!atHome && this.time - f.dropT >= FLAG_RETURN) { f.x = f.hx; f.y = f.hy; }          // nobody touched it: it goes home by itself
+        else for (const p of this.players.values()) {
+          if (!p.alive || p.lv !== 0 || Math.hypot(p.x - f.x, p.y - f.y) > FLAG_TOUCH + PLAYER_R) continue;
+          if (p.team === f.team) { if (!atHome) { f.x = f.hx; f.y = f.hy; } }                    // my own flag lying about: touching it sends it home
+          else { f.carrier = p.id; break; }                                                      // an enemy picks it up
+        }
+      }
+    }
+    for (const f of this.flags) {                                       // a carrier who gets home with the enemy flag, while their own flag is home, scores
+      if (!f.carrier) continue;
+      const c = this.players.get(f.carrier), own = this.flags.find((o) => o.team !== f.team);
+      if (!c || !own || own.carrier || Math.hypot(own.x - own.hx, own.y - own.hy) > 4 || Math.hypot(c.x - own.hx, c.y - own.hy) > 52) continue;
+      if (c.team === 'T') this.capT++; else this.capCT++;
+      c.score += 3; f.carrier = null; f.x = f.hx; f.y = f.hy;
+    }
+    if (this.capT >= FLAG_TARGET) this.endRound('T', `${TEAM_INFO.T.name} captured the flag ${FLAG_TARGET} times`);
+    else if (this.capCT >= FLAG_TARGET) this.endRound('CT', `${TEAM_INFO.CT.name} captured the flag ${FLAG_TARGET} times`);
+    else if (this.time >= this.phaseEndsAt) {
+      const tie = this.capT === this.capCT, t = tie ? this.tKills > this.ctKills : this.capT > this.capCT;      // a tie goes to the team with more kills
+      this.endRound(t ? 'T' : 'CT', tie ? `Time up, tied ${this.capT}-${this.capCT}: more kills wins` : `Time up: ${Math.max(this.capT, this.capCT)}-${Math.min(this.capT, this.capCT)} captures`);
+    }
+  }
+
   // ---------- collect the intel ----------
   private stepCollect(dt: number) {
     void dt;
@@ -626,6 +708,8 @@ export class Sim {
     }
     if (this.mode === 'rescue') { this.stepRescue(dt); return; }
     if (this.mode === 'collect') { this.stepCollect(dt); return; }
+    if (this.mode === 'point') { this.stepPoint(dt); return; }
+    if (this.mode === 'flag') { this.stepFlag(dt); return; }
     const b = this.bomb;
     const standing = (p: Player) => Math.hypot(p.input.mx, p.input.my) < 0.1;
     if (b.status === 'carried') {
@@ -900,6 +984,13 @@ export class Sim {
     const visible = !!target && target.lv === p.lv && best < 700 && !segmentHitsWalls(p.x, p.y, target.x, target.y, this.wallsAt(p.lv)) && !this.smokeBlocks(p.x, p.y, target.x, target.y, p.lv);
     this.botItems(p, target, best, visible);
 
+    const carrying = this.mode === 'flag' && this.flags.some((f) => f.carrier === p.id);
+    if (carrying && this.rounds) {                                     // a flag carrier runs home and only shoots on the way
+      this.botObjective(p);
+      if (visible && target) { p.input.angle = Math.atan2(target.y - p.y, target.x - p.x); p.input.fire = true; }
+      if (this.time < p.unstickUntil) { p.input.mx = p.unstickDir.x; p.input.my = p.unstickDir.y; }
+      return;
+    }
     if (target && (visible || !this.rounds)) {
       const ang = Math.atan2(target.y - p.y, target.x - p.x);
       if (p.botThink <= 0) {
@@ -997,6 +1088,26 @@ export class Sim {
       if (g) this.botGo(p, g.x, g.y, 110); else this.botGo(p, ec.x, ec.y, 140);
       return true;
     }
+    if (this.mode === 'point' && this.cp) {                              // everybody heads for the zone and holds it, spread around its middle
+      const a = p.botGoal * 2.1 + (p.id.length + p.id.charCodeAt(p.id.length - 1)) * 0.7;
+      this.botGo(p, this.cp.x + Math.cos(a) * this.cp.r * 0.45, this.cp.y + Math.sin(a) * this.cp.r * 0.45, 24);
+      return true;
+    }
+    if (this.mode === 'flag' && this.flags.length) {
+      const mine = this.flags.find((f) => f.team === p.team)!, theirs = this.flags.find((f) => f.team !== p.team)!;
+      const mineHome = Math.hypot(mine.x - mine.hx, mine.y - mine.hy) < 4;
+      if (theirs.carrier === p.id) { this.botGo(p, mine.hx, mine.hy, 30); return true; }                 // carrying: run home
+      if (mine.carrier) { this.botGo(p, mine.x, mine.y, 24); return true; }                              // my flag was stolen: hunt the carrier
+      if (!mineHome) { this.botGo(p, mine.x, mine.y, 12); return true; }                                 // my flag is lying about: send it home
+      if (p.botGoal % 3 === 0) { this.botGo(p, mine.hx + (p.botGoal % 2 ? 60 : -60), mine.hy + 40, 70); return true; }   // defenders stay by the flag
+      if (theirs.carrier) { this.botGo(p, mine.hx, mine.hy, 110); return true; }                         // a mate has it: cover the home base
+      const stage = { x: mine.hx + (theirs.x - mine.hx) * 0.45, y: mine.hy + (theirs.y - mine.hy) * 0.45 };   // attackers gather first, then go together
+      const mates = [...this.players.values()].filter((o) => o.alive && o.team === p.team && o.botGoal % 3 !== 0);
+      if (mates.filter((o) => Math.hypot(o.x - stage.x, o.y - stage.y) < 320).length >= Math.min(3, mates.length)) this.pushUntil[p.team] = Math.max(this.pushUntil[p.team], this.time + 22);
+      if (this.time < this.pushUntil[p.team] || Math.hypot(theirs.x - p.x, theirs.y - p.y) < 420) this.botGo(p, theirs.x, theirs.y, 16);
+      else this.botGo(p, stage.x, stage.y, 90);
+      return true;
+    }
     if (this.mode === 'collect') {
       let best: { x: number; y: number } | null = null, bd = Infinity;
       for (const it of this.items) { if (this.time < it.readyAt) continue; const d = Math.hypot(it.x - p.x, it.y - p.y); if (d < bd) { bd = d; best = it; } }
@@ -1071,12 +1182,18 @@ export class Sim {
         rescued: this.rescued, hostageCount: this.hostages.length, extract: this.extract,
         items: this.items.filter((it) => this.time >= it.readyAt).map((it) => ({ id: it.id, x: it.x, y: it.y })),
         tItems: this.tItems, ctItems: this.ctItems, itemTarget: COLLECT_TARGET,
+        cp: this.cp ? { x: this.cp.x, y: this.cp.y, r: this.cp.r, owner: this.cpOwner } : null, cpT: Math.floor(this.cpT), cpCT: Math.floor(this.cpCT), cpTarget: POINT_TARGET,
+        flags: this.flags.map((f) => ({ team: f.team, x: Math.round(f.x), y: Math.round(f.y), hx: f.hx, hy: f.hy, carried: !!f.carrier, home: Math.hypot(f.x - f.hx, f.y - f.hy) < 4, by: f.carrier ?? undefined })), capT: this.capT, capCT: this.capCT, capTarget: FLAG_TARGET,
         goal: this.mode === 'tdm'
           ? { T: `Eliminate the Sentinels: the first team to ${KILL_TARGET} kills wins`, CT: `Eliminate the Raiders: the first team to ${KILL_TARGET} kills wins` }
           : this.mode === 'rescue'
           ? { T: 'Stop the Sentinels from rescuing the hostages. Guard them until time runs out', CT: 'Find the hostages (marked on screen), hold E next to one to untie it, then escort it to the extraction zone at your spawn' }
           : this.mode === 'collect'
           ? { T: `Collect ${COLLECT_TARGET} intel cases before the Sentinels do. Walk over a case to take it`, CT: `Collect ${COLLECT_TARGET} intel cases before the Raiders do. Walk over a case to take it` }
+          : this.mode === 'point'
+          ? { T: `Stand in the glowing zone in the middle of the map with no enemy inside to earn points. First to ${POINT_TARGET} points wins`, CT: `Stand in the glowing zone in the middle of the map with no enemy inside to earn points. First to ${POINT_TARGET} points wins` }
+          : this.mode === 'flag'
+          ? { T: `Steal the Sentinels' flag and carry it back to your own flag. Your flag must be at home to score. First to ${FLAG_TARGET} captures wins`, CT: `Steal the Raiders' flag and carry it back to your own flag. Your flag must be at home to score. First to ${FLAG_TARGET} captures wins` }
           : { T: 'Plant the bomb at a bomb site (A, B or the one upstairs in the house), then protect it until it explodes', CT: 'Defend the bomb sites. If the bomb is planted, defuse it before it explodes' },
       } : null,
     };

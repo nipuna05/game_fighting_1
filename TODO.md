@@ -121,3 +121,9 @@ Possible next: a roof / third floor, jumping up onto ledges and crates, balcony 
 - Collect the intel: Sentinels won 61% (not changed, within noise).
 - Test scripts: balance.ts / modewins.ts were temporary (scratchpad); worth keeping as `tools/balance.ts` if we balance again.
 - Bots now use painkillers, first-aid kits and impact grenades, and aim down the sights with rifles / SMGs / LMGs at medium range (tighter spread, slower walk).
+
+## Done (2026-11-09): two new missions
+- **Control point** (`point`): a glowing zone in the middle (found by searching straight up / down from the centre so neither team is favoured). Only your team inside = +1 point per second, 100 points or the best score at 5 minutes wins. World: ring + disc + beam coloured by who holds it; HUD line, toasts, marker.
+- **Capture the flag** (`flag`): the Raiders' flag is placed in front of their spawn, the Sentinels' flag is its mirror image. Touch the enemy flag to carry it (it follows you, drops where you die, goes home by itself after 20 s, or touch your own dropped flag to send it home); get it to your own flag while yours is at home to score. First to 3 captures or most at 6 minutes (tie: more kills). Bots: defenders by the flag, attackers gather then push together, carriers run home, everyone hunts a stolen flag.
+- Bot-only results: control point 16 vs 16, capture the flag about 58% Raiders (28 vs 20); both tie-break on kills.
+- Still open for more missions: VIP escort. A roof / third floor was dropped for now (shots only hit players on the same floor, so a roof would be a place nobody can reach by gunfire; it needs a high-ground shooting rule first).
