@@ -36,6 +36,15 @@
     .dmgarc { position: fixed; left: 50%; top: 50%; width: 0; height: 0; z-index: 4; pointer-events: none; animation: dmgf 1.1s ease-out forwards; }
     .dmgarc::before { content: ''; position: absolute; left: -80px; top: -210px; width: 160px; height: 56px; background: radial-gradient(ellipse at 50% 100%, rgba(255,45,45,.9), rgba(255,45,45,0) 70%); }
     @keyframes dmgf { 0% { opacity: 1; } 100% { opacity: 0; } }
+    #help { position: fixed; inset: 0; z-index: 8; display: none; place-items: center; pointer-events: none; }
+    #help.on { display: grid; }
+    #help .hp { background: rgba(10,14,20,.9); border: 1px solid rgba(255,255,255,.18); border-radius: 16px; padding: 18px 24px 14px; width: min(760px, 94vw); box-shadow: 0 20px 80px rgba(0,0,0,.7); backdrop-filter: blur(10px); }
+    #help h3 { margin: 0 0 10px; font: 900 22px Impact, system-ui; letter-spacing: .08em; color: #ffd27a; }
+    #help .hg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 28px; }
+    #help .hr { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #cfd9e6; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+    #help .hr b { color: #fff; font: 700 12px ui-monospace, monospace; background: #1c2735; border: 1px solid #2f3d52; border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+    #help .hn { margin: 10px 0 0; font-size: 12px; color: #8fa0b5; }
+    @media (max-width: 640px) { #help .hg { grid-template-columns: 1fr; } }
     #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
     #wbar { position: fixed; left: 10px; bottom: 14px; z-index: 4; display: flex; gap: 6px; }
     #wbar button { font: 13px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; min-width: 74px; }
@@ -257,7 +266,8 @@
   <div id="toast"></div>
   <div id="aimline"></div>
   <div id="xhair"><i></i><i></i><i></i><i></i><i></i></div>
-  <div id="fphint">Click to look around &middot; Esc for the menu &middot; P: top-down view</div>
+  <div id="fphint">Click to look around &middot; Esc for the menu &middot; P: top-down view &middot; F1: all controls</div>
+  <div id="help"><div class="hp"><h3>Controls</h3><div class="hg" id="helpgrid"></div><p class="hn">Press <b id="helpkey">F1</b> to close. You can change every key in Settings.</p></div></div>
   <div id="scope"><i class="ring"></i><i class="h"></i><i class="v"></i><i class="dot"></i></div>
   <div id="replay"><i class="bar bt"></i><i class="bar bb"></i><div class="txt"><b>KILL CAM</b><span id="replaywho"></span></div><div class="skip" id="replayskip"></div></div>
   <div id="spec"></div>

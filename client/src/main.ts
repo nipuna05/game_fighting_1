@@ -115,6 +115,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'lastWeapon': if (v) game?.lastWeapon(); break;
     case 'mute': if (v) { toggleMute(); music.refreshMute(); } break;
     case 'perf': if (v) game?.togglePerf(); break;
+    case 'help': if (v) game?.toggleHelp(); break;
     case 'specNext': if (v) game?.specNext(); break;
     case 'talk': game?.talk(v); break;
     case 'replay': if (v) game?.watchAgain(); break;
@@ -216,6 +217,31 @@ class Game {
   private pendingItem: number | null = null;
   /** Use a healing item / throw a grenade (latched until it has been sent). */
   useItem(k: number) { this.pendingItem = k; }
+  // ---------- controls cheat sheet (F1; shown by itself in your first game) ----------
+  private helpTimer = 0; private helpAuto = false;
+  toggleHelp() { if ($('help').classList.contains('on')) this.hideHelp(); else this.showHelp(false); }
+  private showHelp(auto: boolean) {
+    const b = currentBinds(), k = (id: string) => keyLabel(b[id]?.[0] ?? '');
+    const rows: [string, string][] = [
+      ['Move', `${k('up')} ${k('left')} ${k('down')} ${k('right')}`], ['Look / aim', 'Mouse'], ['Shoot', 'Left click'], ['Aim down the sights (scope)', 'Hold right click'],
+      ['Reload', k('reload')], ['Jump over cover', k('jump')], ['Kneel (hold)', k('crouch')], ['Lie down', k('prone')], ['Walk slowly (hold)', k('sneak')],
+      ['Use: plant, defuse, untie', k('use')], ['Sidearm / primary', `${k('sidearm')} / ${k('primary')}`], ['Last weapon', k('lastWeapon')],
+      ['Heal / throw items', `${k('item0')} ... ${k('item6')}  ${k('item7')}  ${k('item8')}  ${k('item9')}`], ['Camera: first-person / top-down', k('view')],
+      ['Talk to team', k('talk')], ['Mute', k('mute')], ['Menu / leave', 'Esc'], ['This sheet', k('help')],
+    ];
+    $('helpgrid').innerHTML = rows.map(([a, c]) => `<div class="hr"><span>${esc(a)}</span><b>${esc(c)}</b></div>`).join('');
+    $('helpkey').textContent = k('help');
+    $('help').classList.add('on'); this.helpAuto = auto;
+    window.clearTimeout(this.helpTimer);
+    if (auto) this.helpTimer = window.setTimeout(() => this.hideHelp(), 16000);
+  }
+  private hideHelp() {
+    window.clearTimeout(this.helpTimer);
+    $('help').classList.remove('on');
+    if (!profile.options.helpSeen) { profile.options.helpSeen = true; saveProfile(profile); }
+  }
+  private helpQueued = false;
+  private game_alive() { return game === this && !this.paused && !!this.me()?.alive; }
   private endDismissed = false;
   private introUntil = 0;
   private predAir = 0; private predCd = 0;      // local copy of the jump timers (for prediction)
@@ -1699,6 +1725,7 @@ class Game {
     goalEl.innerHTML = `<b class="gt">${modeName}</b><span class="gx"></span><span class="gp"></span>`;
     (goalEl.querySelector('.gx') as HTMLElement).textContent = r.goal[myTeam];
     (goalEl.querySelector('.gp') as HTMLElement).textContent = progress;
+    if (r.phase === 'buy' && !profile.options.helpSeen && !isTouch && !this.helpQueued) { this.helpQueued = true; window.setTimeout(() => { if (this.game_alive()) this.showHelp(true); }, 7000); }   // a new player: show the controls after the mission banner
     if (r.phase === 'buy') this.introUntil = performance.now() + 6000;   // a big "your aim" banner while the game starts
     const intro = performance.now() < this.introUntil && r.phase !== 'over' && r.phase !== 'post';
 
