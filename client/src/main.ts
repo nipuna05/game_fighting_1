@@ -1585,7 +1585,8 @@ class Game {
       this.lastMvp = mvp;
       if (mvp) addTitle(profile, MVP_TITLE);
       this.lastCoins = 50 + (won ? 100 : 0) + me.score * 5 + Math.floor(this.matchLoot / 100) + (mvp ? 50 : 0);
-      addMatch(profile, { t: Date.now(), mode: this.cfg.mode, room: this.cfg.room || 'public', team: me.team, won, tWins: r.tWins, ctWins: r.ctWins, kills: me.score, deaths: me.deaths, coins: this.lastCoins });
+      addMatch(profile, { t: Date.now(), mode: this.cfg.mode, room: this.cfg.room || 'public', team: me.team, won, tWins: r.tWins, ctWins: r.ctWins, kills: me.score, deaths: me.deaths, coins: this.lastCoins, style: r.mode, map: this.cfg.map, shots: me.sh, hits: me.ht, dmg: me.dd },
+        { byWeapon: Object.fromEntries([...this.mkStat.byWeapon].map(([w, n]) => [WEAPONS[w]?.id ?? String(w), n])), bestStreak: this.mkStat.bestMulti });
       this.matchLoot = 0;
     }
     if (r.phase !== 'over') this.tp.recorded = false;

@@ -53,6 +53,12 @@
     #endstats td { padding: 4px 6px; text-align: right; border-top: 1px solid rgba(255,255,255,.06); color: #cfd9e6; } #endstats tr.me td { background: rgba(61,220,132,.12); color: #fff; font-weight: 700; }
     #endstats .tc, #endstats .tt { display: inline; margin: 0; font-size: inherit; font-weight: 700; } #endstats .tc { color: #3f8cff; } #endstats .tt { color: #e08a2c; } #endstats .best { color: #ffd34d; font-size: 12px; text-align: center; margin: 0 0 8px; }
     @media (max-width: 640px) { #endstats .sg { grid-template-columns: repeat(3, 1fr); } }
+    #pstat2 .sg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    #pstat2 .sc { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 9px 6px; text-align: center; }
+    #pstat2 .sc b { display: block; font-size: 20px; color: #fff; } #pstat2 .sc small { color: #8fa0b5; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    #pstat2 .wb { display: grid; grid-template-columns: 110px 1fr 40px; align-items: center; gap: 8px; font-size: 12.5px; color: #cfd9e6; padding: 3px 0; }
+    #pstat2 .wb i { display: block; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #ff9a3d, #ffcf7a); } #pstat2 .wb span { text-align: right; color: #fff; font-weight: 700; }
+    #pstat2 .mw { display: flex; flex-wrap: wrap; gap: 6px; } #pstat2 .mw div { background: #1b2634; border: 1px solid #2f3d52; border-radius: 8px; padding: 5px 10px; font-size: 12px; color: #cfd9e6; } #pstat2 .mw b { color: #fff; }
     #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
     #wbar { position: fixed; left: 10px; bottom: 14px; z-index: 4; display: flex; gap: 6px; }
     #wbar button { font: 13px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; min-width: 74px; }
@@ -385,11 +391,12 @@
           <p class="note" data-s="move weapons items other">Click a key, then press the new one. Esc cancels, Backspace clears. A key can only do one thing, so it moves here if it is used elsewhere. Mouse: aim with the mouse, left click shoots, hold right click to aim down the sights (a sniper gets the scope). Keys are saved in your profile.</p>
         </div>
         <div class="pane" id="tab-profile">
-          <h2 id="pname"></h2><div id="pstats"></div>
-          <h4>Titles earned</h4><div id="ptitles"></div>
-          <h4>Last weapon pack</h4><div id="ppack"></div>
-          <h4>Recent fights</h4><div id="phist"></div>
-          <div class="row"><button id="pclear" class="btn ghost">Clear history</button></div>
+          <h2 id="pname"></h2><div id="pstats" data-s="over"></div>
+          <h4 data-s="over">Titles earned</h4><div id="ptitles" data-s="over"></div>
+          <h4 data-s="over">Last weapon pack</h4><div id="ppack" data-s="over"></div>
+          <div id="pstat2" data-s="stats"></div>
+          <h4 data-s="hist">Recent fights</h4><div id="phist" data-s="hist"></div>
+          <div class="row" data-s="hist"><button id="pclear" class="btn ghost">Clear history</button></div>
         </div>
         <div class="pane" id="tab-credits">
           <p class="note" style="margin-top:0">This game stands on the work of these artists and developers. Thank you!</p><div id="creditslist"></div>

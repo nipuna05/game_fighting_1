@@ -14,10 +14,12 @@ export interface MatchEntry {
   kills: number;
   deaths: number;
   coins?: number; // coins earned for this match
+  style?: GameMode; map?: string; shots?: number; hits?: number; dmg?: number;   // what was played and how well (older entries do not have these)
 }
 export interface Pack { weapons: number[]; armor: boolean }
 export interface AutoBuy { primary: number | null; armor: boolean } // buy this automatically at the start of every buy phase
-export interface Totals { matches: number; wins: number; kills: number; deaths: number }
+export interface Totals { matches: number; wins: number; kills: number; deaths: number; shots: number; hits: number; dmg: number; bestKills: number; bestStreak: number; byWeapon: Record<string, number>; statGames: number }   // statGames: games recorded with shot / damage counts
+const emptyTotals = (): Totals => ({ matches: 0, wins: 0, kills: 0, deaths: 0, shots: 0, hits: 0, dmg: 0, bestKills: 0, bestStreak: 0, byWeapon: {}, statGames: 0 });
 export type TeamPref = 'auto' | 'CT' | 'T';
 // Costumes and sidearms can be unlocked with coins earned from finished matches (index = costume / weapon index).
 export const SKIN_PRICES = [0, 0, 300, 400];
@@ -34,7 +36,7 @@ const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs a
 const KEY = 'fight.profile.v1';
 const MAX_HISTORY = 20;
 
-const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55, helpSeen: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0], tints: [0, 1, 2, 3], kits: [0, 1] }, coins: START_COINS, name: '', skin: 0, kit: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', difficulty: 'normal', custom: {}, daily: { claimed: 0, last: '' }, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: { matches: 0, wins: 0, kills: 0, deaths: 0 } });
+const fresh = (): Profile => ({ options: { replay: true, voice: 'off', view: 'fps', viewSet: false, music: 55, helpSeen: false }, keybinds: {}, titles: {}, unlocks: { skins: [0, 1], sidearms: [0], tints: [0, 1, 2, 3], kits: [0, 1] }, coins: START_COINS, name: '', skin: 0, kit: 0, team: 'auto', sidearm: 0, map: 'town', style: 'bomb', weaponSet: 'all', pick: 'manual', difficulty: 'normal', custom: {}, daily: { claimed: 0, last: '' }, autoBuy: { primary: null, armor: false }, pack: null, packVer: PACK_VERSION, history: [], totals: emptyTotals() });
 
 export function loadProfile(): Profile {
   try {
@@ -84,7 +86,7 @@ export function loadProfile(): Profile {
       packVer: PACK_VERSION,
       pack: p.packVer === PACK_VERSION && p.pack && Array.isArray(p.pack.weapons) ? { weapons: p.pack.weapons.filter(Number.isInteger), armor: !!p.pack.armor } : null,
       history: Array.isArray(p.history) ? p.history.slice(0, MAX_HISTORY) : [],
-      totals: { ...base.totals, ...(p.totals ?? {}) },
+      totals: { ...base.totals, ...(p.totals ?? {}), byWeapon: p.totals?.byWeapon && typeof p.totals.byWeapon === 'object' ? p.totals.byWeapon : {} },
     };
   } catch {
     return fresh(); // storage blocked or corrupt: start clean, the game still works
@@ -95,13 +97,20 @@ export function saveProfile(p: Profile) {
   try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private mode / quota: ignore */ }
 }
 
-export function addMatch(p: Profile, e: MatchEntry) {
+export function addMatch(p: Profile, e: MatchEntry, extra?: { byWeapon: Record<string, number>; bestStreak: number }) {
   p.history.unshift(e);
   p.history = p.history.slice(0, MAX_HISTORY);
   p.totals.matches++;
   if (e.won) p.totals.wins++;
   p.totals.kills += e.kills;
   p.totals.deaths += e.deaths;
+  if (e.shots !== undefined) p.totals.statGames++;
+  p.totals.shots += e.shots ?? 0; p.totals.hits += e.hits ?? 0; p.totals.dmg += e.dmg ?? 0;
+  p.totals.bestKills = Math.max(p.totals.bestKills, e.kills);
+  if (extra) {
+    p.totals.bestStreak = Math.max(p.totals.bestStreak, extra.bestStreak);
+    for (const [w, n] of Object.entries(extra.byWeapon)) p.totals.byWeapon[w] = (p.totals.byWeapon[w] ?? 0) + n;
+  }
   p.coins += e.coins ?? 0;
   saveProfile(p);
 }
@@ -114,7 +123,7 @@ export function addTitle(p: Profile, name: string) {
 
 export function clearHistory(p: Profile) {
   p.history = [];
-  p.totals = { matches: 0, wins: 0, kills: 0, deaths: 0 };
+  p.totals = emptyTotals();
   p.pack = null;
   p.titles = {};
   saveProfile(p);

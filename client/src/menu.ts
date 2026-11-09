@@ -229,6 +229,17 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
         `<tr><td>${esc(new Date(m.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td class="${m.won ? 'w' : 'l'}">${m.won ? 'WIN' : 'LOSS'}</td><td>${m.team === 'CT' ? m.ctWins : m.tWins}-${m.team === 'CT' ? m.tWins : m.ctWins}</td><td>${m.kills}/${m.deaths}</td><td>${m.coins ?? '-'}</td><td>${esc(TEAM_INFO[m.team]?.name ?? m.team)}</td><td>${m.mode === 'multi' ? esc(m.room) : 'solo'}</td></tr>`).join('') + '</table>'
       : 'No fights saved yet. Finish a match (first to 6 rounds) and it shows up here.';
     $('pclear').textContent = confirmClear ? 'Click again to confirm' : 'Clear history';
+    // lifetime stats (from the totals, plus the per-mission results of the recent fights)
+    const acc = t.shots ? `${Math.round((t.hits / t.shots) * 100)}%` : '-';
+    const top = Object.entries(t.byWeapon).sort((a, b) => b[1] - a[1]).slice(0, 6), topMax = top.length ? top[0][1] : 1;
+    const byMode = new Map<string, { w: number; l: number }>();
+    for (const m of profile.history) { const k = GAME_MODES.find((g) => g.id === m.style)?.name ?? 'Older games'; const e = byMode.get(k) ?? { w: 0, l: 0 }; if (m.won) e.w++; else e.l++; byMode.set(k, e); }
+    $('pstat2').innerHTML = t.matches
+      ? `<div class="sg"><div class="sc"><b>${acc}</b><small>Accuracy</small></div><div class="sc"><b>${t.statGames ? Math.round(t.dmg / t.statGames) : '-'}</b><small>Damage / game</small></div><div class="sc"><b>${t.bestKills}</b><small>Best game (score)</small></div><div class="sc"><b>${t.bestStreak || '-'}</b><small>Best streak</small></div></div>`
+        + `<h4>Favourite weapons (kills)</h4>${top.length ? top.map(([id, n]) => `<div class="wb"><span style="text-align:left;font-weight:400">${esc(WEAPONS.find((w) => w.id === id)?.name ?? id)}</span><i style="width:${Math.max(6, Math.round((n / topMax) * 100))}%"></i><span>${n}</span></div>`).join('') : '<p class="note">Kills with each weapon are counted from now on.</p>'}`
+        + `<h4>Results by mission (recent fights)</h4><div class="mw">${[...byMode].map(([k, e]) => `<div>${esc(k)}: <b>${e.w}</b> won, <b>${e.l}</b> lost</div>`).join('')}</div>`
+        + `<p class="note">${t.shots} shots fired, ${t.hits} hit, over ${t.statGames} games (${t.matches} played in all). Stats are saved in this browser.</p>`
+      : 'Play a game to start your stats: accuracy, favourite weapons, your best game and your results per mission.';
   };
 
   // ---------- sub-tabs: split a long pane into short pages so nothing needs scrolling ----------
@@ -463,6 +474,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   ($('name') as HTMLInputElement).value = profile.name;
 
   renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderRewards(); renderShop(); renderPlayExtra(); renderSidearms(); renderPrimaries(); renderSkins(); renderKits(); renderControls();
+  subTabs('tab-profile', [['over', 'Overview'], ['stats', 'Stats'], ['hist', 'History']], '#pname');
   subTabs('tab-setup', [['map', 'Map'], ['match', 'Game'], ['player', 'Player']], '.setuphead');
   subTabs('tab-controls', [['opts', 'Options'], ['move', 'Movement'], ['weapons', 'Weapons'], ['items', 'Items'], ['other', 'Other']]);
   subTabs('tab-rewards', [['w1', 'Days 1-14'], ['w2', 'Days 15-28']], '.dprog');
