@@ -7,6 +7,7 @@ primary_region = "sin"          # Singapore, the closest Fly region to Sri Lanka
 
 [env]
   PORT = "8080"
+  ALLOWED_ORIGINS = "https://nipuna05.github.io,http://localhost:5173"   # only the GitHub page (and local development) may connect
 
 [http_service]
   internal_port = 8080

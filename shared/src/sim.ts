@@ -1292,8 +1292,10 @@ export class Sim {
 }
 
 // ---- network protocol ----
+/** Bump this when the messages or the snapshot change in a way an old page cannot understand: a server refuses a join from a different version and tells the player to reload. */
+export const PROTOCOL_VERSION = 1;
 export type ClientMsg =
-  | { type: 'join'; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode; cu?: Record<string, number> }
+  | { type: 'join'; ver?: number; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode; cu?: Record<string, number> }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number }
   | { type: 'ping'; t: number }
@@ -1304,6 +1306,8 @@ export type ServerMsg =
   | { type: 'snap'; snap: Snapshot }
   | { type: 'pong'; t: number }
   | { type: 'voice'; from: string; ready: boolean }
-  | { type: 'rtc'; from: string; data: unknown };
+  | { type: 'rtc'; from: string; data: unknown }
+  | { type: 'notice'; text: string; restart?: boolean }   // a message for the players (the server is about to restart)
+  | { type: 'outdated'; server: number };                 // your page is an older version than this server: reload it
 
 export { other as otherTeam };

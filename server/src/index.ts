@@ -1,9 +1,16 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { Sim, TICK_RATE, TEAM_SIZE, type ClientMsg, type ServerMsg, type SimOptions, type GameMode, type WeaponSet, type PickMode } from '@fight/shared';
+import { Sim, TICK_RATE, TEAM_SIZE, PROTOCOL_VERSION, type ClientMsg, type ServerMsg, type SimOptions, type GameMode, type WeaponSet, type PickMode } from '@fight/shared';
 
 const portArg = process.argv.find((a) => a.startsWith('--port='))?.slice(7);
 const PORT = Number(portArg ?? process.env.PORT ?? 8080);   // dev 8080, test environment 8081 (--port=8081)
 const MAX_PER_ROOM = 6; // matches 2 teams of TEAM_SIZE; bots are replaced as humans join
+// ---- protection for a public server ----
+const MAX_ROOMS = 60;                 // games running at once on this server
+const MAX_PER_IP = 8;                 // connections from one address
+const MAX_MSGS_PER_SEC = 250;         // normal play sends about 35 per second (inputs + pings); far more than this is a flood
+// Which websites may open a connection (set ALLOWED_ORIGINS="https://a.example,http://localhost:5173" on a public server; unset = anyone, for local play).
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const perIp = new Map<string, number>();
 
 interface Room { code: string; sim: Sim; clients: Map<string, WebSocket>; voice: Set<string> }
 const rooms = new Map<string, Room>();
@@ -24,15 +31,27 @@ process.on('uncaughtException', (e) => console.error('uncaught:', e));
 process.on('unhandledRejection', (e) => console.error('unhandled:', e));
 let nextId = 1;
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.length && (!origin || !ALLOWED_ORIGINS.includes(origin))) { ws.close(1008, 'origin not allowed'); return; }
+  const fwd = req.headers['fly-client-ip'] ?? String(req.headers['x-forwarded-for'] ?? '').split(',')[0];
+  const ip = String(fwd || req.socket.remoteAddress || '?').trim();
+  const open = perIp.get(ip) ?? 0;
+  if (open >= MAX_PER_IP) { ws.close(1013, 'too many connections'); return; }
+  perIp.set(ip, open + 1);
+  ws.on('close', () => { const n = (perIp.get(ip) ?? 1) - 1; if (n <= 0) perIp.delete(ip); else perIp.set(ip, n); });
   let room: Room | null = null;
   const id = `p${nextId++}`;
+  let winStart = Date.now(), winCount = 0;
   let alive = true, lastInput = Date.now();
   ws.on('pong', () => { alive = true; });
   heartbeat.set(ws, () => { if (!alive) { ws.terminate(); return; } alive = false; ws.ping(); });
   ws.on('error', () => undefined);
 
   ws.on('message', (raw) => {
+    const now = Date.now();
+    if (now - winStart >= 1000) { winStart = now; winCount = 0; }
+    if (++winCount > MAX_MSGS_PER_SEC) { ws.terminate(); return; }          // a flood: drop this connection
     let msg: ClientMsg;
     try { msg = JSON.parse(String(raw)); } catch { return; }
     if (!msg || typeof msg !== 'object') return;
@@ -45,11 +64,17 @@ wss.on('connection', (ws) => {
   function handle(msg: ClientMsg) {
     if (msg.type === 'ping') { send(ws, { type: 'pong', t: Number(msg.t) || 0 }); return; }
     if (msg.type === 'join' && !room) {
+      if (msg.ver !== undefined && Number(msg.ver) !== PROTOCOL_VERSION) {            // an out-of-date (or too new) page: tell it to reload instead of playing a broken game
+        send(ws, { type: 'outdated', server: PROTOCOL_VERSION });
+        setTimeout(() => ws.close(4001, 'outdated'), 300);
+        return;
+      }
       const style: GameMode = (['tdm', 'rescue', 'collect', 'point', 'flag', 'vip'] as string[]).includes(String(msg.style)) ? (msg.style as GameMode) : 'bomb';
       const wset: WeaponSet = (['all', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'random'] as WeaponSet[]).includes(msg.wset as WeaponSet) ? msg.wset as WeaponSet : 'all';
       const pick: PickMode = msg.pick === 'auto' ? 'auto' : 'manual';
       // the public room is per game style, so people who want different rules never end up in the same game
       const code = String(msg.room || `public-${style}-${wset}-${pick}`).slice(0, 28).replace(/[^\w-]/g, '') || 'public';
+      if (!rooms.has(code) && rooms.size >= MAX_ROOMS) { ws.close(1013, 'server busy'); return; }
       const r = getRoom(code, msg.map, { mode: style, weaponSet: wset, pick });
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
@@ -103,4 +128,16 @@ setInterval(() => {
 }, 1000 / TICK_RATE);
 setInterval(() => { for (const f of heartbeat.values()) f(); }, 15000);
 
-console.log(`Fight server listening on ws://localhost:${PORT}`);
+// When the server is about to stop (a new version is being deployed), tell everybody first so the game can say so instead of just freezing.
+let stopping = false;
+function shutdown(why: string) {
+  if (stopping) return;
+  stopping = true;
+  console.log(`${why}: telling the players, then stopping`);
+  for (const r of rooms.values()) for (const ws of r.clients.values()) send(ws, { type: 'notice', text: 'The server is updating. Back in a moment...', restart: true });
+  setTimeout(() => process.exit(0), 2500);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+console.log(`Fight server listening on ws://localhost:${PORT} (protocol ${PROTOCOL_VERSION})`);

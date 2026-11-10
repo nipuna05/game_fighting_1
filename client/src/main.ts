@@ -14,7 +14,7 @@ import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybin
 import { startLanding, type Landing } from './landing';
 import {
   Sim, movePlayer, PLAYER_SPEED, adsSpeed, ADS_SPREAD, CROUCH_SPEED, PRONE_SPEED, SNEAK_SPEED, JUMP_SPEED, JUMP_TIME, JUMP_COOLDOWN, WALLS, WEAPONS, SITES, SPAWN_ZONES, WORLD_W, WORLD_H, PICKUP_R, MAX_HP, TICK_RATE, TEAM_SIZE, WINS_TO_WIN,
-  levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, type Difficulty, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, FRAG_R, getMap, MAP_IDS, type MapDef,
+  PROTOCOL_VERSION, levelWalls, FLOOR_H, GAME_MODES, type PlayerState, ITEMS, ITEM_BASE, SMOKE_R, customMods, allowedWeapons, type GameMode, type WeaponSet, type PickMode, type Difficulty, ARMOR_ITEM, ARMOR_COST, SKIN_COUNT, SKIN_BASE, TEAM_INFO, MULTI_NAMES, FIRST_BLOOD, MVP_TITLE, FRAG_R, getMap, MAP_IDS, type MapDef,
   type Input, type Snapshot, type ServerMsg, type Team,
 } from '@fight/shared';
 
@@ -341,11 +341,12 @@ class Game {
   }
 
   private retries = 0;
+  private serverRestarting = false;
   private connect() {
     this.status = this.retries ? 'Reconnecting...' : 'Connecting...';
     const url = getServerUrl() ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick, cu: profile.custom })); };
+    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', ver: PROTOCOL_VERSION, name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick, cu: profile.custom })); };
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
@@ -355,14 +356,22 @@ class Game {
         this.voice?.disable(); this.voice = null; this.startVoice(m.id);   // a reconnect is a new player id
       }
       else if (m.type === 'snap') this.snap = m.snap;
+      else if (m.type === 'notice') { this.toast(m.text); this.serverRestarting = !!m.restart; }
+      else if (m.type === 'outdated') { this.retries = 99; $('updateovl').classList.add('on'); }                 // this page is older than the server: ask for a reload
       else this.voice?.handle(m);               // 'voice' / 'rtc': team voice chat set-up
     };
     this.ws.onclose = (ev) => {
-      if (ev.code === 1013) { this.status = 'Room is full - go back and pick another room code'; this.toast('Room is full'); return; }
+      if (ev.code === 4001) return;                                           // the outdated-page screen is showing
+      if (ev.code === 1013) {
+        const full = ev.reason === 'room full';
+        this.status = full ? 'Room is full - go back and pick another room code' : 'The server is busy - try again in a minute';
+        this.toast(full ? 'Room is full' : 'The server is busy'); return;
+      }
+      if (ev.code === 1008) { this.status = 'This website is not allowed to use that game server'; this.toast('Server refused the connection'); this.retries = 99; return; }
       // the connection dropped (server restart, wifi change, phone sleep): try again instead of leaving the player stuck
       this.snap = null;
       if (this.retries >= 20) { this.status = 'Disconnected (is the server running?)'; return; }
-      this.retries++; this.status = `Connection lost - reconnecting (${this.retries})...`;
+      this.retries++; this.status = this.serverRestarting ? `The server is updating - reconnecting (${this.retries})...` : `Connection lost - reconnecting (${this.retries})...`;
       setTimeout(() => this.connect(), Math.min(4000, 500 * this.retries));
     };
   }
