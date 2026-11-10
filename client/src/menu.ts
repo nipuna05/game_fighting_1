@@ -325,6 +325,13 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const optReplay = $('optreplay') as HTMLInputElement;
   optReplay.checked = profile.options.replay;
   optReplay.addEventListener('change', () => { profile.options.replay = optReplay.checked; saveProfile(profile); });
+  const optSens = $('optsens') as HTMLInputElement, optAds = $('optads') as HTMLInputElement, optQ = $('optq') as HTMLSelectElement;
+  optSens.value = String(profile.options.sens ?? 100); $('optsensv').textContent = `${optSens.value}%`;
+  optAds.value = String(profile.options.adsSens ?? 70); $('optadsv').textContent = `${optAds.value}%`;
+  optQ.value = profile.options.quality ?? 'auto';
+  optSens.addEventListener('input', () => { profile.options.sens = Number(optSens.value); $('optsensv').textContent = `${optSens.value}%`; saveProfile(profile); });
+  optAds.addEventListener('input', () => { profile.options.adsSens = Number(optAds.value); $('optadsv').textContent = `${optAds.value}%`; saveProfile(profile); });
+  optQ.addEventListener('change', () => { profile.options.quality = optQ.value as NonNullable<typeof profile.options.quality>; saveProfile(profile); });
   const optMusic = $('optmusic') as HTMLInputElement;
   optMusic.value = String(profile.options.music);
   $('optmusicv').textContent = `${profile.options.music}%`;
@@ -565,7 +572,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   renderCoins(); renderMaps(); renderRules(); renderCustom(); renderTeams(); renderRewards(); renderShop(); renderPlayExtra(); renderSidearms(); renderPrimaries(); renderSkins(); renderKits(); renderControls();
   subTabs('tab-profile', [['over', 'Overview'], ['stats', 'Stats'], ['hist', 'History']], '#pname');
   subTabs('tab-setup', [['map', 'Map'], ['match', 'Game'], ['player', 'Player']], '.setuphead');
-  subTabs('tab-controls', [['opts', 'Options'], ['move', 'Movement'], ['weapons', 'Weapons'], ['items', 'Items'], ['other', 'Other']]);
+  subTabs('tab-controls', [['opts', 'Options'], ['feel', 'Mouse & graphics'], ['move', 'Movement'], ['weapons', 'Weapons'], ['items', 'Items'], ['other', 'Other']]);
   subTabs('tab-rewards', [['w1', 'Days 1-14'], ['w2', 'Days 15-28'], ['ch', 'Daily challenges']], '.dprog');
   subTabs('tab-shop', [['costumes', 'Costumes'], ['kits', 'Dress kits'], ['sidearms', 'Sidearms'], ['finishes', 'Finishes']], '.rhead');
   if (profile.daily.claimed >= 14 && profile.daily.claimed < 28) subs['tab-rewards'].set('w2');

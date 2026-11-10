@@ -109,6 +109,7 @@ function setKey(code: string, v: boolean): boolean {
     case 'reload': keys.reload = v; if (v) game?.queueReload(); break;
     case 'item0': case 'item1': case 'item2': case 'item3': case 'item4': case 'item5': case 'item6': case 'item7': case 'item8': case 'item9': if (v) game?.useItem(Number(act.slice(4))); break;
     case 'view': if (v) game?.toggleView(); break;
+    case 'scoreboard': game?.board(v); break;
     case 'jump': if (v && keys.prone) { keys.prone = false; break; } keys.jump = v; if (v) game?.queueJump(); break;   // from the ground the first press only gets you up
     case 'buyArmor': if (v) game?.buy(ARMOR_ITEM); break;
     case 'rebuy': if (v) game?.rebuy(); break;
@@ -299,6 +300,7 @@ class Game {
     host.appendChild(this.renderer.domElement);
     if (QS.has('debug')) (window as unknown as { __game: Game }).__game = this; // dev: inspect the game from the console
     if (QS.has('debug')) (window as unknown as { __sfx: typeof sfx }).__sfx = sfx;   // dev: play sounds from the console
+    { const q = profile.options.quality; this.quality = q === 'medium' ? 1 : q === 'low' ? 2 : q === 'min' ? 3 : 0; this.adaptiveQ = !q || q === 'auto'; }   // the graphics choice from Settings
     if (QS.has('lowq')) { this.quality = Number(QS.get('lowq')); }
     this.camera = new THREE.PerspectiveCamera(45, 1, 10, 4000);
     this.resize();
@@ -551,7 +553,12 @@ class Game {
     this.toast(this.fp ? 'First-person view' : 'Top-down view');
   }
   /** Mouse movement turns the head in first-person (needs the captured mouse). */
-  look(dx: number, dy = 0) { if (this.fpActive && document.pointerLockElement && !this.paused) { this.yaw += dx * 0.0022; this.pitch = Math.max(-0.6, Math.min(0.6, this.pitch - dy * 0.0022)); } }   // mouse up = look up
+  look(dx: number, dy = 0) {
+    if (!(this.fpActive && document.pointerLockElement && !this.paused)) return;
+    // the player's own sensitivity, a bit lower while aiming down the sights (the view is zoomed, so the same mouse movement turns it further)
+    const k = 0.0022 * ((profile.options.sens ?? 100) / 100) * (1 - (1 - (profile.options.adsSens ?? 70) / 100) * Math.min(1, this.scopeT));
+    this.yaw += dx * k; this.pitch = Math.max(-0.6, Math.min(0.6, this.pitch - dy * k));   // mouse up = look up
+  }
   /** The weapon in my hands, drawn on top of everything in front of the camera. */
   private viewGunKey = '';
   private viewFlash: THREE.Sprite | null = null;
@@ -803,7 +810,26 @@ class Game {
     $('tTalk').classList.toggle('hide', !(this.voice && profile.options.voice === 'ptt' && this.voice.status === 'ready'));
   }
 
+  private adaptiveQ = true;                                            // false when the player picked a fixed graphics level
   private pingShownAt = 0;
+  private boardOn = false; private boardKey = '';
+  /** Tab (hold): the full scoreboard. */
+  board(on: boolean) { this.boardOn = on; $('board').classList.toggle('on', on); if (on) this.boardKey = ''; }
+  private renderBoard(s: Snapshot) {
+    if (!this.boardOn) return;
+    const r = s.round;
+    const key = s.players.map((p) => `${p.id}:${p.score}:${p.deaths}:${p.sh}:${p.ht}:${p.dd}:${p.alive ? 1 : 0}`).join('|') + `|${r ? Math.floor(r.timeLeft) : ''}`;
+    if (key === this.boardKey) return;
+    this.boardKey = key;
+    const mode = GAME_MODES.find((m) => m.id === r?.mode)?.name ?? '';
+    $('boardhead').textContent = `${mode}${this.mapDef ? ' \u00b7 ' + this.mapDef.name : ''}${this.ws ? ` \u00b7 ping ${Math.round(this.pingMs)} ms` : ''}`;
+    const acc = (p: { sh: number; ht: number }) => (p.sh ? `${Math.round((p.ht / p.sh) * 100)}%` : '-');
+    const team = (t: Team) => {
+      const rows = s.players.filter((p) => p.team === t).sort((a, b) => b.score - a.score || a.deaths - b.deaths);
+      return `<table><caption class="${t === 'CT' ? 'ct' : 't'}">${esc(TEAM_INFO[t].name)}</caption><tr><th>Player</th><th>Score</th><th>Deaths</th><th>Acc</th><th>Damage</th></tr>${rows.map((p) => `<tr class="${p.id === this.myId ? 'me' : ''}${p.alive ? '' : ' dead'}"><td>${esc(p.name)}${p.bot ? '<span class="bot">BOT</span>' : ''}</td><td>${p.score}</td><td>${p.deaths}</td><td>${acc(p)}</td><td>${p.dd}</td></tr>`).join('')}</table>`;
+    };
+    $('boardgrid').innerHTML = team('CT') + team('T');
+  }
   /** Multiplayer: a small always-visible ping, so a player can tell whether lag is on their side (a high number) or not. */
   private pingTag() {
     const el = $('pingtag'), now = performance.now();
@@ -835,7 +861,7 @@ class Game {
       }
     }
     this.frameMs += (deltaMs - this.frameMs) * 0.05;
-    if (!QS.has('noadapt')) {
+    if (!QS.has('noadapt') && this.adaptiveQ) {
       if (this.frameMs > 26) this.slowFor += deltaMs / 1000; else this.slowFor = Math.max(0, this.slowFor - deltaMs / 1000);
       if (this.slowFor > 3 && this.quality < 3) { this.quality++; this.slowFor = 0; this.applyQuality(); }
     }
@@ -1374,7 +1400,7 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
-    if (s.round && !this.replay) { this.finalMoment(s); }
+    if (s.round && !this.replay) { this.finalMoment(s); this.renderBoard(s); }
     if (s.round && !this.replay) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); this.lootEvents(s); this.killEvents(s); this.updateSpectate(s); }
   }
 
