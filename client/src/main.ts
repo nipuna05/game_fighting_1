@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { initAudio, sfx, toggleMute } from './audio';
+import { initAudio, sfx, toggleMute, type Surface } from './audio';
 import { music } from './music';
 import { buildWorld, makeWeaponModel, loadGunModels, type World } from './world';
 import {
@@ -198,7 +198,7 @@ class Game {
   // death replay (kill cam) and spectating
   private history: { t: number; snap: Snapshot }[] = [];
   private lastHistoryT = 0;
-  private replay: { frames: { t: number; snap: Snapshot }[]; clock: number; end: number; killer: string; speed: number; snap: Snapshot } | null = null;
+  private replay: { frames: { t: number; snap: Snapshot }[]; clock: number; end: number; killer: string; speed: number; snap: Snapshot; final: boolean } | null = null;   // final = the deciding-moment replay at the end of a game (I am alive during it)
   private lastDeath: { frames: { t: number; snap: Snapshot }[]; killer: string } | null = null;
   private specId: string | null = null;
   private voice: Voice | null = null;               // team voice chat (multiplayer, if the player turned it on)
@@ -1353,10 +1353,43 @@ class Game {
       (el.querySelector('b') as HTMLElement).style.width = `${(p.hp / MAX_HP) * 100}%`;
     }
 
+    if (s.round && !this.replay) { this.finalMoment(s); }
     if (s.round && !this.replay) { this.updateHud(s); this.audioEvents(s, performance.now() / 1000); this.trackProfile(s); this.lootEvents(s); this.killEvents(s); this.updateSpectate(s); }
   }
 
   // ---------- kill cam and spectating ----------
+  /** What a bullet hit sounds like: the wall kind plus the map's look (a "shop" is a steel container on the docks, plaster in town). */
+  private surfaceOf(kind?: string): Surface {
+    const theme = this.mapDef?.theme ?? 'town', steel = theme === 'dock' || theme === 'base' || theme === 'arctic';
+    switch (kind) {
+      case 'window': return 'glass';
+      case 'crate': return 'wood';
+      case 'scooter': case 'rail': return 'metal';
+      case 'shop': return steel ? 'metal' : theme === 'desert' || theme === 'town' || theme === 'village' ? 'plaster' : 'stone';
+      case 'barrier': return steel ? 'metal' : 'stone';
+      case 'house': case 'inner': return 'plaster';
+      default: return 'stone';
+    }
+  }
+
+  // ---- the final moment: when a game ends, replay its deciding seconds in slow motion before the end screen ----
+  private prevPhase = '';
+  private finalMoment(s: Snapshot) {
+    const r = s.round!;
+    const justEnded = this.prevPhase !== 'over' && r.phase === 'over' && !!r.winner;
+    this.prevPhase = r.phase;
+    if (!justEnded || !profile.options.replay || r.mode === 'range') return;
+    const frames = this.history.filter((h) => h.t >= performance.now() - 2400);
+    if (frames.length < 6) return;
+    let target = '', label = 'Final moment';
+    if (r.mode === 'flag') { for (let i = frames.length - 1; i >= 0 && !target; i--) { const f = frames[i].snap.round?.flags.find((q) => q.by); if (f?.by) { target = f.by; label = 'The deciding capture'; } } }
+    else if (r.mode === 'vip' && r.vip) { target = r.vip; label = r.winner === 'CT' ? 'The VIP makes it out' : 'The VIP goes down'; }
+    if (!target) { const k = [...s.kills].sort((a, b) => b.id - a.id)[0]; if (k) target = k.killer; }
+    if (!target) target = [...s.players].filter((p) => p.team === r.winner).sort((a, b) => b.score - a.score)[0]?.id ?? '';
+    if (!target || !frames[frames.length - 1].snap.players.some((p) => p.id === target)) return;
+    this.startReplay(target, frames, label);
+  }
+
   /** Keeps the last few seconds of snapshots so the death can be replayed. */
   private record(live: Snapshot | null) {
     if (!live) return;
@@ -1367,14 +1400,15 @@ class Game {
     while (this.history.length && this.history[0].t < now - 7000) this.history.shift();
   }
 
-  private startReplay(killer: string, frames?: { t: number; snap: Snapshot }[]) {
+  private startReplay(killer: string, frames?: { t: number; snap: Snapshot }[], label?: string) {
     const f = frames ?? this.history.filter((h) => h.t >= performance.now() - 1900);
     if (f.length < 6 || !f[f.length - 1].snap.players.some((p) => p.id === killer)) return;
-    this.lastDeath = { frames: f, killer };
-    this.replay = { frames: f, clock: f[0].t, end: f[f.length - 1].t + 450, killer, speed: 0.4, snap: f[0].snap };
+    if (!label) this.lastDeath = { frames: f, killer };                   // only a real death can be watched again with the key
+    this.replay = { frames: f, clock: f[0].t, end: f[f.length - 1].t + 450, killer, speed: 0.45, snap: f[0].snap, final: !!label };
     this.shown.clear();                                 // no smoothing across the jump back in time
     const name = f[f.length - 1].snap.players.find((p) => p.id === killer)?.name ?? '?';
-    $('replaywho').textContent = `Killed by ${name}  -  slow motion`;
+    $('replaytitle').textContent = label ? 'FINAL MOMENT' : 'KILL CAM';
+    $('replaywho').textContent = label ? `${label}  -  ${name}  -  slow motion` : `Killed by ${name}  -  slow motion`;
     $('replayskip').textContent = `${keyLabel(currentBinds().specNext[0])} skips`;
     $('replay').classList.add('on');
     this.renderer.domElement.style.filter = 'saturate(.65) contrast(1.08) sepia(.22)';
@@ -1433,7 +1467,7 @@ class Game {
     if (me.alive) {
       if (this.respawnWas) { keys.prone = false; }
       if (this.respawnWas) { this.respawnWas = false; this.toast('BACK IN THE FIGHT'); }
-      if (this.replay) this.endReplay();                       // the kill cam stops when I am alive again
+      if (this.replay && !this.replay.final) this.endReplay();   // the kill cam stops when I am alive again (the final-moment replay is shown while I am alive)
       el.style.display = 'none';
       return;
     }
@@ -1638,7 +1672,7 @@ class Game {
       let hitEnemy = false;
       for (const e of s.impacts) {
         if (e.id <= ev.maxImpact) continue;
-        sfx.impact(e.kind, 1 - Math.hypot(e.x - me.x, e.y - me.y) / 800, (e.x - me.x) / 450);
+        sfx.impact(e.kind, 1 - Math.hypot(e.x - me.x, e.y - me.y) / 800, (e.x - me.x) / 450, e.kind === 'wall' ? this.surfaceOf(e.m) : 'stone');
         if (e.kind === 'body' && e.o === this.myId && e.v !== this.myId) hitEnemy = true;                 // my bullet hit someone
         if (e.kind === 'body' && e.v === this.myId && e.a !== undefined && me.alive) this.damageArc(e.a);   // I was shot: show where from
       }

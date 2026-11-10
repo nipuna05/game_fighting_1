@@ -138,14 +138,27 @@ function gunShot(id: string, vol: number, pan: number, far: number, own: boolean
 }
 
 /** Bullet hits: flesh (thud + wet slap) or wall (crisp tick, sometimes a ricochet whine). */
-function impact(kind: 'wall' | 'body', vol: number, pan: number) {
+export type Surface = 'stone' | 'metal' | 'wood' | 'glass' | 'plaster';
+function impact(kind: 'wall' | 'body', vol: number, pan: number, mat: Surface = 'stone') {
   if (!ctx || muted || !noiseBuf || !master || vol <= 0.03) return;
   const t = ctx.currentTime + 0.003, j = 0.9 + Math.random() * 0.2, out = bus(vol, pan, 1 - vol, 0.12);
   if (kind === 'body') {
     nz(out, t, 'lowpass', 700, 0.7, 0.7, 0.1);
     osc(out, t, 'sine', 150 * j, 55, 0.6, 0.11);
     nz(out, t, 'bandpass', 2200 * j, 1.2, 0.28, 0.035);
-  } else {
+  } else if (mat === 'metal') {                                                      // a ringing clang
+    nz(out, t, 'bandpass', 4200 * j, 1.5, 0.55, 0.04);
+    osc(out, t, 'triangle', 2300 * j, 2150 * j, 0.22, 0.32); osc(out, t, 'sine', 3650 * j, 3500 * j, 0.1, 0.22); osc(out, t, 'sine', 1180 * j, 1100 * j, 0.12, 0.38);
+    if (Math.random() < 0.5) osc(out, t + 0.012, 'sine', 3300 * j, 1300, 0.08, 0.3);                // ricochet whine
+  } else if (mat === 'wood') {                                                       // a dull knock and a few splinters
+    nz(out, t, 'lowpass', 1000 * j, 0.8, 0.65, 0.07); osc(out, t, 'sine', 230 * j, 110, 0.5, 0.1);
+    nz(out, t + 0.012, 'bandpass', 2600 * j, 2, 0.16, 0.025); nz(out, t + 0.03, 'bandpass', 3400 * j, 2, 0.1, 0.02);
+  } else if (mat === 'glass') {                                                      // a crack and tinkling shards
+    nz(out, t, 'highpass', 5000, 0.8, 0.5, 0.05);
+    for (let i = 0; i < 5; i++) osc(out, t + 0.02 + i * 0.035 + Math.random() * 0.02, 'sine', (3000 + Math.random() * 3500) * j, 2400, 0.1, 0.12);
+  } else if (mat === 'plaster') {                                                    // a soft thud and a puff of dust
+    nz(out, t, 'lowpass', 1500 * j, 0.7, 0.55, 0.09); osc(out, t, 'sine', 190 * j, 90, 0.35, 0.1); nz(out, t + 0.01, 'bandpass', 2400 * j, 1, 0.12, 0.05);
+  } else {                                                                           // stone / concrete: a crisp tick, sometimes a ricochet
     nz(out, t, 'bandpass', 3200 * j, 1, 0.6, 0.05);
     osc(out, t, 'triangle', 1900 * j, 900, 0.09, 0.09);
     if (Math.random() < 0.35) osc(out, t + 0.01, 'sine', 2800 * j, 1100, 0.07, 0.24); // ricochet whine

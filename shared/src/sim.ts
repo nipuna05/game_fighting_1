@@ -1,7 +1,7 @@
 // Shared game simulation. Runs in the browser (single player) and on the server (multiplayer).
 // Two modes: 'dm' (free-for-all deathmatch, used by tests) and 'rounds' (CS-style bomb defusal).
 
-import { getMap, levelWalls, updateLevel, stairAt, stairEnd, FLOOR_H, WORLD_W, WORLD_H, type MapDef, type Rect, type Site } from './maps';
+import { getMap, levelWalls, type WallKind, updateLevel, stairAt, stairEnd, FLOOR_H, WORLD_W, WORLD_H, type MapDef, type Rect, type Site } from './maps';
 export * from './maps';
 
 export const PLAYER_R = 18;
@@ -198,7 +198,7 @@ export interface PlayerState {
   bo: boolean;   // adrenaline boost is active
 }
 export interface BulletState { id: number; x: number; y: number; a: number; w: number; z: number } // a = direction (radians), w = weapon index
-export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body'; z: number; o?: string; v?: string; a?: number }   // body hits also say who shot (o), who was hit (v) and the bullet's direction (a)
+export interface ImpactEvent { id: number; t: number; x: number; y: number; kind: 'wall' | 'body'; z: number; o?: string; v?: string; a?: number; m?: WallKind }   // body hits also say who shot (o), who was hit (v) and the bullet's direction (a)
 export interface PickupState { id: number; x: number; y: number; kind: 'heal' | 'cash'; amount?: number }
 export type BombStatus = 'none' | 'carried' | 'dropped' | 'planted';
 export interface BombState {
@@ -322,8 +322,8 @@ export class Sim {
   private firstBloodDone = false;
   private impactLog: ImpactEvent[] = [];
   private nextImpact = 1;
-  private addImpact(x: number, y: number, kind: 'wall' | 'body', z = 0, who?: { o: string; v: string; a: number }) {
-    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind, z: Math.round(z), ...(who ? { o: who.o, v: who.v, a: Math.round(who.a * 100) / 100 } : {}) });
+  private addImpact(x: number, y: number, kind: 'wall' | 'body', z = 0, who?: { o: string; v: string; a: number }, mat?: WallKind) {
+    this.impactLog.push({ id: this.nextImpact++, t: this.time, x: Math.round(x), y: Math.round(y), kind, z: Math.round(z), ...(who ? { o: who.o, v: who.v, a: Math.round(who.a * 100) / 100 } : {}), ...(mat ? { m: mat } : {}) });
     if (this.impactLog.length > 40) this.impactLog.shift();
   }
   private nextKill = 1;
@@ -891,12 +891,12 @@ export class Sim {
       if (b.life <= 0) continue;
       // Walls stop bullets. Low cover only stops shots from a kneeling shooter: a standing shooter fires over it, and a kneeling
       // target right behind it is then hidden (the bullet flew over their head). So: kneel behind cover to hide, stand up to shoot.
-      let blocked = false;
+      let blocked = false, hitKind: WallKind | undefined;
       for (const w of this.wallsAt(b.lv)) {
         if (b.x < w.x || b.x > w.x + w.w || b.y < w.y || b.y > w.y + w.h) continue;
-        if (isLow(w) && !b.crouch) b.over = 0.3; else { blocked = true; break; }
+        if (isLow(w) && !b.crouch) b.over = 0.3; else { blocked = true; hitKind = w.kind; break; }
       }
-      if (blocked) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall', b.z); continue; }
+      if (blocked) { this.addImpact(b.x - b.vx * dt, b.y - b.vy * dt, 'wall', b.z, undefined, hitKind); continue; }
       let hit = false;
       for (const p of this.players.values()) {
         if (!p.alive || p.id === b.owner || p.lv !== b.lv) continue;
