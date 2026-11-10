@@ -29,7 +29,7 @@ export const START_COINS = 400;
 export interface Unlocks { skins: number[]; sidearms: number[]; tints: number[]; kits: number[] }
 export interface Daily { claimed: number; last: string }     // days claimed in this 28-day cycle, and the date of the last claim (YYYY-MM-DD)
 export const TINT_PRICES = [0, 0, 0, 0, 400, 900];          // weapon finishes: Factory, Black, Desert, Olive are free; Arctic and Gold cost coins or come from daily rewards
-export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean; music: number; helpSeen?: boolean; sens?: number; adsSens?: number; quality?: 'auto' | 'high' | 'medium' | 'low' | 'min' } // replay = slow-motion kill cam; voice = team voice chat mode
+export interface Options { replay: boolean; voice: 'ptt' | 'open' | 'off'; view: 'top' | 'fps'; viewSet?: boolean; music: number; helpSeen?: boolean; tipsSeen?: string[]; sens?: number; adsSens?: number; quality?: 'auto' | 'high' | 'medium' | 'low' | 'min' } // replay = slow-motion kill cam; voice = team voice chat mode
 export interface Challenges { date: string; progress: number[]; claimed: boolean[] }   // today's three daily challenges (what they are comes from the date)
 export interface Profile { challenges?: Challenges; options: Options; keybinds: Record<string, string[]>; titles: Record<string, number>; unlocks: Unlocks; coins: number; name: string; skin: number; kit: number; team: TeamPref; sidearm: number; map: string; style: GameMode; weaponSet: WeaponSet; pick: PickMode; difficulty: Difficulty; custom: Record<string, number>; daily: Daily; autoBuy: AutoBuy; pack: Pack | null; packVer: number; history: MatchEntry[]; totals: Totals }
 const PACK_VERSION = 2; // bump when weapon indexes change, so old saved packs are dropped
@@ -53,6 +53,7 @@ export function loadProfile(): Profile {
         view: p.options?.viewSet ? (p.options.view === 'top' ? 'top' : 'fps') : 'fps',
         viewSet: !!p.options?.viewSet,
         helpSeen: !!p.options?.helpSeen,
+        tipsSeen: Array.isArray(p.options?.tipsSeen) ? p.options!.tipsSeen.filter((x) => typeof x === 'string').slice(0, 12).map((x) => x.slice(0, 12)) : [],
         sens: typeof p.options?.sens === 'number' && Number.isFinite(p.options.sens) ? Math.max(20, Math.min(300, Math.round(p.options.sens))) : 100,
         adsSens: typeof p.options?.adsSens === 'number' && Number.isFinite(p.options.adsSens) ? Math.max(20, Math.min(100, Math.round(p.options.adsSens))) : 70,
         quality: (['auto', 'high', 'medium', 'low', 'min'] as string[]).includes(p.options?.quality as string) ? p.options!.quality : 'auto',

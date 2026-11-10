@@ -9,6 +9,16 @@ import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './p
 import { initMenu } from './menu';
 import { getServerUrl } from './assets';
 import { weaponPic } from './weaponpic';
+
+const MISSION_TIPS: Record<string, string> = {
+  bomb: 'Raiders: carry the bomb to site A, B or C (upstairs in the house) and hold E to plant it, then protect it. Sentinels: guard the sites and hold E next to the bomb to defuse it.',
+  tdm: 'The first team to 25 kills wins. You come back 5 seconds after you go down, so keep fighting.',
+  rescue: 'Sentinels: walk up to a hostage, hold E to untie it, then walk it to the green zone at your spawn. Raiders: guard the hostages until time runs out.',
+  collect: 'Walk over the orange intel cases to take them. The first team with 8 wins. A taken case comes back after 25 seconds.',
+  point: 'Stand inside the glowing circle in the middle with no enemy in it to earn a point every second. First team to 100 wins.',
+  flag: 'Touch the enemy flag to carry it, then run to your own flag. Your flag must be at home to score. Touch your own dropped flag to send it home. First to 3 captures wins.',
+  vip: 'Sentinels: escort the VIP (gold marker) to the green zone and keep them alive. Raiders: find and kill the VIP.',
+};
 import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
@@ -244,6 +254,21 @@ class Game {
     if (!profile.options.helpSeen) { profile.options.helpSeen = true; saveProfile(profile); }
   }
   private helpQueued = false;
+  private tipDone = false; private tipTimer = 0;
+  /** The first time a mission is played, a short card says how it works (after the controls sheet, if that is showing). */
+  private missionTip(r: NonNullable<Snapshot['round']>) {
+    if (r.phase === 'over') { $('tip').classList.remove('on'); return; }
+    if (this.tipDone || r.phase !== 'live' || !MISSION_TIPS[r.mode] || $('help').classList.contains('on')) return;
+    const seen = profile.options.tipsSeen ?? (profile.options.tipsSeen = []);
+    this.tipDone = true;
+    if (seen.includes(r.mode)) return;
+    seen.push(r.mode); saveProfile(profile);
+    $('tiptitle').textContent = GAME_MODES.find((m) => m.id === r.mode)?.name ?? 'Mission';
+    $('tiptext').textContent = MISSION_TIPS[r.mode];
+    $('tip').classList.add('on');
+    window.clearTimeout(this.tipTimer);
+    this.tipTimer = window.setTimeout(() => $('tip').classList.remove('on'), 14000);
+  }
   private game_alive() { return game === this && !this.paused && !!this.me()?.alive; }
   private endDismissed = false;
   private statsKey = '';
@@ -1615,7 +1640,8 @@ class Game {
       const tag = multiName || (k.first ? FIRST_BLOOD : '');   // a multi-kill name wins over first blood in the feed
       const row = document.createElement('div');
       row.className = `k${mine ? ' me' : ''}${victimIsMe ? ' you' : ''}`;
-      row.innerHTML = `<span class="${k.killerTeam === 'CT' ? 'ct' : 't'}">${esc(k.killerName)}</span><span class="w">${esc(WEAPONS[k.weapon]?.name ?? ITEMS[k.weapon - WEAPONS.length]?.name ?? '')}</span><span class="${k.victimTeam === 'CT' ? 'ct' : 't'}">${esc(k.victimName)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}`;
+      const gunName = WEAPONS[k.weapon]?.name ?? ITEMS[k.weapon - WEAPONS.length]?.name ?? '';
+      row.innerHTML = `<span class="${k.killerTeam === 'CT' ? 'ct' : 't'}">${esc(k.killerName)}</span>${WEAPONS[k.weapon] ? `<span class="w" title="${esc(gunName)}">${weaponPic(WEAPONS[k.weapon].id, 'wpic kf')}</span>` : `<span class="w">${esc(gunName)}</span>`}<span class="${k.victimTeam === 'CT' ? 'ct' : 't'}">${esc(k.victimName)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}`;
       const feed = $('feed');
       feed.appendChild(row);
       while (feed.children.length > 6) feed.firstElementChild!.remove();
@@ -1807,9 +1833,9 @@ class Game {
     let html = '';
     if (me) {
       const kd = me.deaths ? (me.score / me.deaths).toFixed(2) : me.score.toFixed(0);
-      let bestW = '', bestN = 0; for (const [w, n] of this.mkStat.byWeapon) if (n > bestN) { bestN = n; bestW = WEAPONS[w]?.name ?? ''; }
+      let bestW = '', bestN = 0, bestId = ''; for (const [w, n] of this.mkStat.byWeapon) if (n > bestN) { bestN = n; bestW = WEAPONS[w]?.name ?? ''; bestId = WEAPONS[w]?.id ?? ''; }
       html += `<div class="sg"><div class="sc"><b>${me.score}</b><small>Score</small></div><div class="sc"><b>${me.deaths}</b><small>Deaths</small></div><div class="sc"><b>${kd}</b><small>K / D</small></div><div class="sc"><b>${acc(me)}</b><small>Accuracy</small></div><div class="sc"><b>${me.dd}</b><small>Damage</small></div></div>`;
-      const bits = [bestW ? `Best weapon: ${esc(bestW)} (${bestN} kills)` : '', this.mkStat.bestMulti >= 2 ? `Best streak: ${this.mkStat.bestMulti} kills in a row` : '', `${me.sh} shots, ${me.ht} hits`].filter(Boolean);
+      const bits = [bestW ? `Best weapon: ${bestId ? weaponPic(bestId, 'wpic kf') : ''}${esc(bestW)} (${bestN} kills)` : '', this.mkStat.bestMulti >= 2 ? `Best streak: ${this.mkStat.bestMulti} kills in a row` : '', `${me.sh} shots, ${me.ht} hits`].filter(Boolean);
       html += `<p class="best">${bits.join('  &middot;  ')}</p>`;
     }
     const rows = [...s.players].sort((a, b) => b.score - a.score || a.deaths - b.deaths).slice(0, 14);
@@ -1846,6 +1872,7 @@ class Game {
     goalEl.innerHTML = `<b class="gt">${modeName}</b><span class="gx"></span><span class="gp"></span>`;
     (goalEl.querySelector('.gx') as HTMLElement).textContent = r.goal[myTeam];
     (goalEl.querySelector('.gp') as HTMLElement).textContent = progress;
+    this.missionTip(r);
     if (r.phase === 'buy' && !profile.options.helpSeen && !isTouch && !this.helpQueued) { this.helpQueued = true; window.setTimeout(() => { if (this.game_alive()) this.showHelp(true); }, 7000); }   // a new player: show the controls after the mission banner
     if (r.phase === 'buy') this.introUntil = performance.now() + 6000;   // a big "your aim" banner while the game starts
     const intro = performance.now() < this.introUntil && r.phase !== 'over' && r.phase !== 'post';
