@@ -15,6 +15,8 @@ Small scripts used to check the game. Run them from the repository root (`D:\my\
 |---|---|
 | `jointest.mjs <ws-url>` | joins a game server and prints what it sends (`ORIGIN=https://nipuna05.github.io` for a public server) |
 | `version-test.mjs <ws-url>` | the version check: matching, missing and wrong versions |
+| `bandwidth.mjs <ws-url> [style] [seconds]` | what one player receives: snapshots per second, size, what crosses the network after compression, gaps between snapshots and the round trip (lag diagnosis) |
+| `load-test.mjs <ws-url> [players]` | 8 players in 2 rooms: does the server keep its 30-per-second rhythm? |
 | `protect-test.mjs` | the public-server protections (start a server with `ALLOWED_ORIGINS=https://nipuna05.github.io npx tsx server/src/index.ts --port=8098` first) |
 
 ## Picture capture (needs the dev client running and a headless Edge with `--remote-debugging-port=9223`)

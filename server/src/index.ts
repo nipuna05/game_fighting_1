@@ -25,7 +25,13 @@ function getRoom(code: string, mapId?: string, rules: Partial<SimOptions> = {}):
 
 const send = (ws: WebSocket, m: ServerMsg) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); };
 
-const wss = new WebSocketServer({ port: PORT, maxPayload: 8 * 1024 }); // game messages are tiny: refuse anything big
+const wss = new WebSocketServer({
+  port: PORT,
+  maxPayload: 8 * 1024,                // game messages are tiny: refuse anything big
+  // The game state is JSON full of repeated words, so compressing every message (a standard WebSocket feature, every browser supports it)
+  // makes each player download several times less. Level 1 and no shared memory between messages keep the server's cost low.
+  perMessageDeflate: { threshold: 256, zlibDeflateOptions: { level: 1 }, serverNoContextTakeover: true, clientNoContextTakeover: true, concurrencyLimit: 8 },
+});
 // A bad message or a bug must never take the whole server (and everybody's game) down.
 process.on('uncaughtException', (e) => console.error('uncaught:', e));
 process.on('unhandledRejection', (e) => console.error('unhandled:', e));

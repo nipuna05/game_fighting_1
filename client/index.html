@@ -71,6 +71,8 @@
     #collection .cc .wpic { height: 34px; margin-bottom: 3px; } #collection .cc .ct { height: 78px; border-radius: 8px; margin-bottom: 4px; background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #1f2a38; }
     #collection .cb { position: absolute; top: 5px; right: 6px; font-style: normal; font: 800 9px system-ui; letter-spacing: .08em; padding: 2px 6px; border-radius: 999px; }
     #collection .cb.eq { background: #1b3a2c; color: #7dff9c; border: 1px solid #3ddc84; } #collection .cb.ok { background: #1c2a40; color: #8cb8ff; border: 1px solid #3f6fb0; } #collection .cb.lock { background: #2a2118; color: #e0b070; border: 1px solid #6a4a22; }
+    #pingtag { position: fixed; left: 10px; bottom: 52px; z-index: 4; display: none; font: 700 11px ui-monospace, monospace; padding: 3px 8px; border-radius: 6px; background: #000a; color: #7dff9c; pointer-events: none; }
+    #pingtag.mid { color: #ffd34d; } #pingtag.bad { color: #ff6b6b; }
     #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
     #wbar { position: fixed; left: 10px; bottom: 14px; z-index: 4; display: flex; gap: 6px; }
     #wbar button { font: 13px system-ui; color: #e8eef5; background: #0b0f14cc; border: 1px solid #2f3d52; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; min-width: 74px; }
@@ -294,6 +296,7 @@
   <div id="toast"></div>
   <div id="aimline"></div>
   <div id="xhair"><i></i><i></i><i></i><i></i><i></i></div>
+  <div id="pingtag"></div>
   <div id="fphint">Click to look around &middot; Esc for the menu &middot; P: top-down view &middot; F1: all controls</div>
   <div id="help"><div class="hp"><h3>Controls</h3><div class="hg" id="helpgrid"></div><p class="hn">Press <b id="helpkey">F1</b> to close. You can change every key in Settings.</p></div></div>
   <div id="scope"><i class="ring"></i><i class="h"></i><i class="v"></i><i class="dot"></i></div>

@@ -795,7 +795,20 @@ class Game {
     $('tTalk').classList.toggle('hide', !(this.voice && profile.options.voice === 'ptt' && this.voice.status === 'ready'));
   }
 
+  private pingShownAt = 0;
+  /** Multiplayer: a small always-visible ping, so a player can tell whether lag is on their side (a high number) or not. */
+  private pingTag() {
+    const el = $('pingtag'), now = performance.now();
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) { el.style.display = 'none'; return; }
+    if (now - this.pingShownAt < 500) return;
+    this.pingShownAt = now;
+    const ms = Math.round(this.pingMs);
+    el.style.display = 'block';
+    el.className = ms >= 160 ? 'bad' : ms >= 90 ? 'mid' : '';
+    el.textContent = ms ? `ping ${ms} ms${ms >= 160 ? ' (slow connection)' : ''}` : 'ping ...';
+  }
   private monitor(deltaMs: number) {
+    this.pingTag();
     if (isTouch) this.touchUi();
     if (this.voice) {
       this.voice.update();
