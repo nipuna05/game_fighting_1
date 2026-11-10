@@ -8,6 +8,7 @@ import {
 import { loadProfile, saveProfile, addMatch, addTitle, type TeamPref } from './profile';
 import { initMenu } from './menu';
 import { getServerUrl } from './assets';
+import { weaponPic } from './weaponpic';
 import { Voice } from './voice';
 import { actionFor, applyBinds, binds as currentBinds, keyLabel } from './keybinds';
 import { startLanding, type Landing } from './landing';
@@ -432,7 +433,7 @@ class Game {
         const b = document.createElement('button');
         b.dataset.item = String(i);
         b.className = (me.ch === i || (me.ch < 0 && ((me.owned >> i) & 1))) ? 'cur' : '';
-        b.innerHTML = `${esc(WEAPONS[i].name)}<small>${esc(WEAPONS[i].cat)}</small>`;
+        b.innerHTML = `${weaponPic(WEAPONS[i].id, 'wpic gp')}${esc(WEAPONS[i].name)}<small>${esc(WEAPONS[i].cat)}</small>`;
         b.addEventListener('click', () => this.buy(i));
         row.appendChild(b);
       }
@@ -457,7 +458,8 @@ class Game {
         if (w.cat !== cat || w.slot !== 'primary') return;
         const b = document.createElement('button');
         b.dataset.item = String(i);
-        b.innerHTML = `${esc(w.name)}<small>$${w.cost}</small>`;
+        b.className = 'wb';
+        b.innerHTML = `${weaponPic(w.id, 'wpic gp')}<span class="wt">${esc(w.name)}<small>$${w.cost}</small></span>`;
         b.addEventListener('click', () => this.buy(i));
         col.appendChild(b);
       });
@@ -477,7 +479,7 @@ class Game {
     gear.append(armor, rebuy);
     grid.appendChild(gear);
     const eq = document.createElement('div');
-    eq.className = 'grp';
+    eq.className = 'grp eq';
     eq.innerHTML = '<h4>Equipment</h4>';
     ITEMS.forEach((d, k) => {
       const b = document.createElement('button');

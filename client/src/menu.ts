@@ -6,6 +6,7 @@ import { saveProfile, clearHistory, makeChallenges, ensureChallenges, claimChall
 import { music } from './music';
 import { asset, isStaticHost, getServerUrl, setServerUrl, validServerUrl } from './assets';
 import { mapThumb } from './mapthumb';
+import { weaponPic } from './weaponpic';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -112,7 +113,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const sidearms = WEAPONS.map((w, i) => ({ w, i })).filter((o) => o.w.slot === 'sidearm');
   const primaries = WEAPONS.map((w, i) => ({ w, i })).filter((o) => o.w.slot === 'primary');
   // a picture of each gun: the real-model render when it exists on this PC, otherwise the built-in one (the second layer shows if the first file is missing)
-  const wpic = (id: string) => `<div class="wpic" style="background-image:url(${asset(`/weapons/real/${id}.png`)}),url(${asset(`/weapons/${id}.png`)})"></div>`;
+  const wpic = (id: string) => weaponPic(id);
   const renderSidearms = () => {
     const box = $('sidearms');
     box.innerHTML = '';
@@ -155,7 +156,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     for (const id of TINT_GUNS) {
       const i = WEAPONS.findIndex((w) => w.id === id);
       const b = document.createElement('button');
-      b.className = `cbtn${custSel === id ? ' on' : ''}`; b.textContent = WEAPONS[i].name;
+      b.className = `cbtn${custSel === id ? ' on' : ''}`; b.innerHTML = `${weaponPic(id, 'wpic sm')}${esc(WEAPONS[i].name)}`;
       b.addEventListener('click', () => { custSel = id; hooks.onPrimary(i); renderCustom(); });
       pick.appendChild(b);
     }
