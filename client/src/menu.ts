@@ -115,6 +115,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   // a picture of each gun: the real-model render when it exists on this PC, otherwise the built-in one (the second layer shows if the first file is missing)
   const wpic = (id: string) => weaponPic(id);
   const renderSidearms = () => {
+    renderCollection();
     const box = $('sidearms');
     box.innerHTML = '';
     for (const { w, i } of sidearms) {
@@ -206,6 +207,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   // dress kits: colour outfits over the chosen costume
   const KIT_CSS = ['#8d98a6', '#7e9a52', '#d9b46e', '#dbe6f2', '#5c6572', '#c8483a', '#e6b72a'];
   const renderKits = () => {
+    renderCollection();
     const box = $('kits');
     box.innerHTML = KIT_NAMES.map((n, k) => { const own = profile.unlocks.kits.includes(k); return `<button class="cbtn${profile.kit === k ? ' on' : ''}${own ? '' : ' locked'}" data-kit="${k}"><i class="sw" style="background:${KIT_CSS[k]}"></i>${esc(n)}${own ? '' : ' &#128274; ' + KIT_PRICES[k]}</button>`; }).join('');
     box.querySelectorAll<HTMLElement>('[data-kit]').forEach((b) => b.addEventListener('click', () => {
@@ -376,7 +378,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     if (profile.daily.claimed >= 28) profile.daily.claimed = 0;                 // a new cycle begins
     const r = REWARDS[profile.daily.claimed];
     grant(r); profile.daily.claimed++; profile.daily.last = today(); save();
-    renderCoins(); renderRewards(); renderShop(); renderSidearms(); renderSkins(); renderKits(); renderCustom(); renderPlayExtra();
+    renderCoins(); renderRewards(); renderShop(); renderSidearms(); renderSkins(); renderKits(); renderCustom(); renderPlayExtra(); renderCollection();
     say(`Day ${profile.daily.claimed} reward claimed: ${rewardInfo(r).label}!`);
   };
   const untilTomorrow = () => { const n = new Date(), t = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1); const ms = t.getTime() - n.getTime(); return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`; };
@@ -435,6 +437,57 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     }));
   };
 
+  // ---------- Collection: everything you can own, in one place (what you have, how to get the rest, one click to use it) ----------
+  function renderCollection() {
+    const box = document.getElementById('collection');
+    if (!box) return;
+    const dayOf = (kind: string, v: number) => { const i = REWARDS.findIndex((r) => r.kind === kind && r.v === v); return i >= 0 ? i + 1 : 0; };
+    const how = (price: number, kind: string, v: number) => { const d = dayOf(kind, v); return price === 0 ? 'Free' : `${price} coins in the Shop${d ? ` or daily reward day ${d}` : ''}`; };
+    const badge = (own: boolean, eq: boolean) => (eq ? '<em class="cb eq">IN USE</em>' : own ? '<em class="cb ok">OWNED</em>' : '<em class="cb lock">LOCKED</em>');
+    const all = () => { renderCoins(); renderSidearms(); renderSkins(); renderKits(); renderCustom(); renderShop(); renderCollection(); };
+    let have = 0, total = 0;
+    const count = (own: boolean) => { total++; if (own) have++; };
+    const side = sidearms.map(({ w, i }) => {
+      const own = profile.unlocks.sidearms.includes(i), eq = profile.sidearm === i; count(own);
+      return `<div class="cc${own ? '' : ' locked'}${eq ? ' sel' : ''}" data-side="${i}">${weaponPic(w.id)}<b>${esc(w.name)}</b>${badge(own, eq)}<small>${own ? (eq ? 'Your sidearm' : 'Click to use') : esc(how(SIDEARM_PRICES[i], 'sidearm', i))}</small></div>`;
+    }).join('');
+    const costumes = Array.from({ length: SKIN_BASE }, (_, i) => {
+      const own = profile.unlocks.skins.includes(i), eq = profile.skin === i; count(own);
+      const img = portraits ? asset(`/models/thumbs/skin${i}.png`) : asset(`/models/kenney/thumb${i}.png`);
+      return `<div class="cc${own ? '' : ' locked'}${eq ? ' sel' : ''}" data-skin="${i}"><div class="ct" style="background-image:url(${img})"></div><b>Costume ${i + 1}</b>${badge(own, eq)}<small>${own ? (eq ? 'Wearing it' : 'Click to wear') : esc(how(SKIN_PRICES[i], 'skin', i))}</small></div>`;
+    }).join('');
+    const kits = KIT_NAMES.map((n, k) => {
+      const own = profile.unlocks.kits.includes(k); count(own);
+      return `<button class="cbtn${profile.kit === k ? ' on' : ''}${own ? '' : ' locked'}" data-kit="${k}" title="${own ? 'Click to wear' : esc(how(KIT_PRICES[k], 'kit', k))}"><i class="sw" style="background:${KIT_CSS[k]}"></i>${esc(n)}${own ? '' : ` &#128274; ${KIT_PRICES[k]}`}</button>`;
+    }).join('');
+    const finishes = TINT_NAMES.map((n, k) => {
+      const own = profile.unlocks.tints.includes(k); count(own);
+      return `<button class="cbtn${own ? '' : ' locked'}" data-tint="${k}" title="${own ? 'Paint it on a gun in Customize' : esc(how(TINT_PRICES[k], 'tint', k))}"><i class="sw" style="background:${TINT_CSS[k]}"></i>${esc(n)}${own ? '' : ` &#128274; ${TINT_PRICES[k]}`}</button>`;
+    }).join('');
+    box.innerHTML = `<div class="cs"><h4 style="margin:0">Sidearms</h4><small>You own ${have} of ${total} items &middot; hover a locked one to see how to get it</small></div><div class="cg c3">${side}</div>`
+      + `<h4>Costumes</h4><div class="cg c4">${costumes}</div><h4>Dress kits</h4><div class="crow">${kits}</div><h4>Weapon finishes</h4><div class="crow">${finishes}</div>`;
+    box.querySelectorAll<HTMLElement>('[data-side]').forEach((el) => el.addEventListener('click', () => {
+      const i = Number(el.dataset.side), w = WEAPONS[i];
+      if (profile.unlocks.sidearms.includes(i)) { profile.sidearm = i; save(); all(); return; }
+      askUnlock(`sidearm${i}`, w.name, SIDEARM_PRICES[i], () => { profile.unlocks.sidearms.push(i); profile.sidearm = i; }, all);
+    }));
+    box.querySelectorAll<HTMLElement>('[data-skin]').forEach((el) => el.addEventListener('click', () => {
+      const i = Number(el.dataset.skin);
+      if (profile.unlocks.skins.includes(i)) { profile.skin = i; save(); hooks.onSkin(i + SKIN_BASE * profile.kit); all(); return; }
+      askUnlock(`skin${i}`, `Costume ${i + 1}`, SKIN_PRICES[i], () => { profile.unlocks.skins.push(i); profile.skin = i; hooks.onSkin(i + SKIN_BASE * profile.kit); }, all);
+    }));
+    box.querySelectorAll<HTMLElement>('[data-kit]').forEach((el) => el.addEventListener('click', () => {
+      const k = Number(el.dataset.kit);
+      if (profile.unlocks.kits.includes(k)) { profile.kit = k; save(); hooks.onSkin(profile.skin + SKIN_BASE * k); all(); return; }
+      askUnlock(`kit${k}`, `${KIT_NAMES[k]} dress kit`, KIT_PRICES[k], () => { profile.unlocks.kits.push(k); profile.kit = k; hooks.onSkin(profile.skin + SKIN_BASE * k); }, all);
+    }));
+    box.querySelectorAll<HTMLElement>('[data-tint]').forEach((el) => el.addEventListener('click', () => {
+      const k = Number(el.dataset.tint);
+      if (profile.unlocks.tints.includes(k)) { eqSub = 'custom'; showTab('loadout'); return; }                    // a finish is painted per gun: jump to Customize
+      askUnlock(`tint${k}`, `${TINT_NAMES[k]} finish`, TINT_PRICES[k], () => { profile.unlocks.tints.push(k); }, all);
+    }));
+  }
+
   // ---------- Play page extras: rank progress and today's reward ----------
   const renderPlayExtra = () => {
     const r = rankOf();
@@ -449,7 +502,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   };
 
   // ---------- tabs and buttons ----------
-  let eqSub: 'loadout' | 'custom' | 'costume' = 'loadout';
+  let eqSub: 'loadout' | 'custom' | 'costume' | 'collection' = 'loadout';
   const showTab = (name: string) => {
     document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === (name === 'setup' ? 'play' : name)));
     const pane = name === 'loadout' ? `tab-${eqSub}` : `tab-${name}`;                      // Equipment has sub-tabs: Weapons, Customize, Outfit
