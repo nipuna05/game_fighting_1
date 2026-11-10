@@ -12,14 +12,15 @@ const MAX_MSGS_PER_SEC = 250;         // normal play sends about 35 per second (
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const perIp = new Map<string, number>();
 
-interface Room { code: string; sim: Sim; clients: Map<string, WebSocket>; voice: Set<string> }
+interface Room { code: string; sim: Sim; clients: Map<string, WebSocket>; voice: Set<string>; lastStatic: string; keyAt: number }
+const conn = new WeakMap<WebSocket, { lite: boolean; needFull: boolean }>();   // lite = this page understands snapshots without the rarely-changing parts
 const rooms = new Map<string, Room>();
 const heartbeat = new Map<WebSocket, () => void>();   // drops dead connections (a closed laptop / phone) so ghost players leave
 const staleCheck = new Map<WebSocket, () => void>();
 
 function getRoom(code: string, mapId?: string, rules: Partial<SimOptions> = {}): Room {
   let r = rooms.get(code);
-  if (!r) { r = { code, sim: new Sim({ rounds: true, map: mapId, ...rules }), clients: new Map(), voice: new Set() }; rooms.set(code, r); } // the first player picks the room's map
+  if (!r) { r = { code, sim: new Sim({ rounds: true, map: mapId, ...rules }), clients: new Map(), voice: new Set(), lastStatic: '', keyAt: 0 }; rooms.set(code, r); } // the first player picks the room's map
   return r;
 }
 
@@ -84,6 +85,7 @@ wss.on('connection', (ws, req) => {
       const r = getRoom(code, msg.map, { mode: style, weaponSet: wset, pick });
       if (r.clients.size >= MAX_PER_ROOM) { ws.close(1013, 'room full'); return; }
       room = r;
+      conn.set(ws, { lite: msg.lite === true, needFull: true });
       r.clients.set(id, ws);
       r.sim.join(id, String(msg.name || 'Player').slice(0, 14), Number(msg.skin) || 0, Number(msg.sidearm) || 0, msg.team === 'CT' || msg.team === 'T' ? msg.team : 'auto', msg.cu && typeof msg.cu === 'object' ? msg.cu : {});
       r.sim.fillBots(TEAM_SIZE);
@@ -126,8 +128,19 @@ setInterval(() => {
   for (const room of rooms.values()) {
     try {
       room.sim.step(1 / TICK_RATE);
-      const snap = { type: 'snap', snap: room.sim.snapshot() } as const;
-      for (const ws of room.clients.values()) send(ws, snap);
+      const snap = room.sim.snapshot();
+      // Pickups, supply boxes and the round's instruction text hardly ever change, yet they are a third of every update. Pages that understand it
+      // get them only when they change (and once a second as a refresh, and in their first update); older pages always get the full snapshot.
+      const key = JSON.stringify([snap.pickups, snap.supplies, snap.round?.goal, snap.round?.extract]);
+      const now = Date.now(), keyframe = key !== room.lastStatic || now - room.keyAt > 1000;
+      if (keyframe) { room.lastStatic = key; room.keyAt = now; }
+      let fullStr: string | null = null, liteStr: string | null = null;
+      for (const ws of room.clients.values()) {
+        if (ws.readyState !== ws.OPEN) continue;
+        const c = conn.get(ws);
+        if (!c || !c.lite || keyframe || c.needFull) { fullStr ??= JSON.stringify({ type: 'snap', snap }); ws.send(fullStr); if (c) c.needFull = false; }
+        else { liteStr ??= JSON.stringify({ type: 'snap', lite: true, snap: { ...snap, pickups: [], supplies: [], round: snap.round ? { ...snap.round, goal: undefined, extract: undefined } : null } }); ws.send(liteStr); }
+      }
     } catch (e) { console.error('room', room.code, 'step failed', e); }
   }
   for (const f of staleCheck.values()) f();

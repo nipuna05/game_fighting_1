@@ -342,20 +342,28 @@ class Game {
 
   private retries = 0;
   private serverRestarting = false;
+  private lastFull: Snapshot | null = null;                              // the last full snapshot from the server (see 'lite' in the protocol)
   private connect() {
     this.status = this.retries ? 'Reconnecting...' : 'Connecting...';
     const url = getServerUrl() ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:${import.meta.env.VITE_WS_PORT ?? 8080}`;
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', ver: PROTOCOL_VERSION, name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick, cu: profile.custom })); };
+    this.ws.onopen = () => { this.retries = 0; this.ws!.send(JSON.stringify({ type: 'join', ver: PROTOCOL_VERSION, lite: true, name: this.cfg.name, room: this.cfg.room, skin: this.cfg.skin, sidearm: this.cfg.sidearm, team: this.cfg.team, map: this.cfg.map, style: this.cfg.style, wset: this.cfg.weaponSet, pick: this.cfg.pick, cu: profile.custom })); };
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as ServerMsg;
       if (m.type === 'pong') { this.pingMs = performance.now() - m.t; return; }
       if (m.type === 'welcome') {
-        this.myId = m.id; this.status = `Room: ${m.room}`;
+        this.myId = m.id; this.status = `Room: ${m.room}`; this.lastFull = null;
         if (!this.mapDef) { this.worldMode = m.mode ?? this.cfg.style; this.buildWorld(getMap(m.map)); }
         this.voice?.disable(); this.voice = null; this.startVoice(m.id);   // a reconnect is a new player id
       }
-      else if (m.type === 'snap') this.snap = m.snap;
+      else if (m.type === 'snap') {
+        if (m.lite) {                                                  // the rarely-changing parts were left out: take them from the last full snapshot
+          const full = this.lastFull; if (!full) return;
+          m.snap.pickups = full.pickups; m.snap.supplies = full.supplies;
+          if (m.snap.round && full.round) { m.snap.round.goal = full.round.goal; m.snap.round.extract = full.round.extract; }
+        } else this.lastFull = m.snap;
+        this.snap = m.snap;
+      }
       else if (m.type === 'notice') { this.toast(m.text); this.serverRestarting = !!m.restart; }
       else if (m.type === 'outdated') { this.retries = 99; $('updateovl').classList.add('on'); }                 // this page is older than the server: ask for a reload
       else this.voice?.handle(m);               // 'voice' / 'rtc': team voice chat set-up

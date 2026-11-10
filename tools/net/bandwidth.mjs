@@ -4,7 +4,7 @@ import { WebSocket } from 'ws';
 const url = process.argv[2] || 'ws://localhost:8080', style = process.argv[3] || 'bomb', secs = Number(process.argv[4] || 20);
 const ws = new WebSocket(url, process.env.ORIGIN ? { headers: { Origin: process.env.ORIGIN } } : {});
 let bytes = 0, snaps = 0, max = 0; const parts = new Map(); const gaps = []; let last = 0; const rtts = [];
-ws.on('open', () => ws.send(JSON.stringify({ type: 'join', ver: 1, name: 'Bandwidth', room: 'bw-' + Date.now(), skin: 0, sidearm: 0, team: 'auto', map: 'town', style, wset: 'rifle', pick: 'auto', cu: {} })));
+ws.on('open', () => ws.send(JSON.stringify({ type: 'join', ver: 1, name: 'Bandwidth', room: 'bw-' + Date.now(), skin: 0, sidearm: 0, team: 'auto', map: 'town', style, wset: 'rifle', pick: 'auto', cu: {}, ...(process.env.LITE === '0' ? {} : { lite: true }) })));   // LITE=0 acts like an older page
 setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping', t: Date.now() })); }, 1000);
 ws.on('message', (d) => {
   const raw = String(d); bytes += raw.length;

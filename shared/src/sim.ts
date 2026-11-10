@@ -1295,7 +1295,7 @@ export class Sim {
 /** Bump this when the messages or the snapshot change in a way an old page cannot understand: a server refuses a join from a different version and tells the player to reload. */
 export const PROTOCOL_VERSION = 1;
 export type ClientMsg =
-  | { type: 'join'; ver?: number; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode; cu?: Record<string, number> }
+  | { type: 'join'; ver?: number; lite?: boolean; name: string; room: string; skin?: number; sidearm?: number; team?: Team | 'auto'; map?: string; style?: GameMode; wset?: WeaponSet; pick?: PickMode; cu?: Record<string, number> }
   | { type: 'input'; input: Input }
   | { type: 'buy'; item: number }
   | { type: 'ping'; t: number }
@@ -1303,7 +1303,7 @@ export type ClientMsg =
   | { type: 'rtc'; to: string; data: unknown };    // WebRTC set-up message for a teammate (relayed by the server)
 export type ServerMsg =
   | { type: 'welcome'; id: string; room: string; map: string; mode?: GameMode }
-  | { type: 'snap'; snap: Snapshot }
+  | { type: 'snap'; snap: Snapshot; lite?: boolean }   // lite: pickups, supplies and the round's goal / extract are left out (they have not changed): reuse the last full one
   | { type: 'pong'; t: number }
   | { type: 'voice'; from: string; ready: boolean }
   | { type: 'rtc'; from: string; data: unknown }
