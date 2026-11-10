@@ -6,7 +6,7 @@ import { saveProfile, clearHistory, makeChallenges, ensureChallenges, claimChall
 import { music } from './music';
 import { asset, isStaticHost, getServerUrl, setServerUrl, validServerUrl } from './assets';
 import { mapThumb } from './mapthumb';
-import { weaponPic } from './weaponpic';
+import { weaponPic, costumePicUrl, onArtReady } from './weaponpic';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -114,6 +114,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   const primaries = WEAPONS.map((w, i) => ({ w, i })).filter((o) => o.w.slot === 'primary');
   // a picture of each gun: the real-model render when it exists on this PC, otherwise the built-in one (the second layer shows if the first file is missing)
   const wpic = (id: string) => weaponPic(id);
+  onArtReady(() => { renderSidearms(); renderPrimaries(); renderSkins(); renderCollection(); renderCustom(); });     // the realistic picture set was found: draw again with it
   const renderSidearms = () => {
     renderCollection();
     const box = $('sidearms');
@@ -182,9 +183,11 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
   };
 
   // ---------- Costume tab ----------
-  let portraits = false; // true once the soldier portraits (client/public/models/thumbs) are known to exist
+  // costume pictures: renders of the downloaded soldier models when they exist on this PC (costumes/real), else of the free Kenney soldier (costumes)
+  const costumePic = (i: number) => `url(${costumePicUrl(i)})`;
+  let portraits = false; // (older head crops, no longer used)
   const probe = new Image();
-  probe.onload = () => { portraits = true; renderSkins(); };
+  probe.onload = () => { portraits = true; renderSkins(); renderCollection(); };
   probe.src = asset('/models/thumbs/skin0.png');
   const renderSkins = () => {
     const box = $('skins');
@@ -193,8 +196,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
       const owned = profile.unlocks.skins.includes(i);
       const d = document.createElement('div');
       d.className = `skin${profile.skin === i ? ' sel' : ''}${owned ? '' : ' locked'}`;
-      d.style.backgroundImage = `url(${portraits ? asset(`/models/thumbs/skin${i}.png`) : asset(`/models/kenney/thumb${i}.png`)})`;
-      if (portraits) d.classList.add('p');
+      d.style.backgroundImage = costumePic(i);
       if (!owned) d.innerHTML = `<em>${SKIN_PRICES[i]} coins</em>`;
       d.addEventListener('click', () => {
         if (owned) { profile.skin = i; save(); hooks.onSkin(i + SKIN_BASE * profile.kit); renderSkins(); return; }
@@ -453,8 +455,7 @@ export function initMenu(profile: Profile, hooks: MenuHooks) {
     }).join('');
     const costumes = Array.from({ length: SKIN_BASE }, (_, i) => {
       const own = profile.unlocks.skins.includes(i), eq = profile.skin === i; count(own);
-      const img = portraits ? asset(`/models/thumbs/skin${i}.png`) : asset(`/models/kenney/thumb${i}.png`);
-      return `<div class="cc${own ? '' : ' locked'}${eq ? ' sel' : ''}" data-skin="${i}"><div class="ct" style="background-image:url(${img})"></div><b>Costume ${i + 1}</b>${badge(own, eq)}<small>${own ? (eq ? 'Wearing it' : 'Click to wear') : esc(how(SKIN_PRICES[i], 'skin', i))}</small></div>`;
+      return `<div class="cc${own ? '' : ' locked'}${eq ? ' sel' : ''}" data-skin="${i}"><div class="ct" style="background-image:${costumePic(i)}"></div><b>Costume ${i + 1}</b>${badge(own, eq)}<small>${own ? (eq ? 'Wearing it' : 'Click to wear') : esc(how(SKIN_PRICES[i], 'skin', i))}</small></div>`;
     }).join('');
     const kits = KIT_NAMES.map((n, k) => {
       const own = profile.unlocks.kits.includes(k); count(own);

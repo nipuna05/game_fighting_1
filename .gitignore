@@ -52,3 +52,6 @@ dist-pages
 
 # gun pictures rendered from the downloaded (non-redistributable) gun models stay out of git; the built-in set is tracked
 client/public/weapons/real/
+
+# costume pictures rendered from the downloaded (non-redistributable) soldier models stay out of git; the free Kenney set is tracked
+client/public/costumes/real/

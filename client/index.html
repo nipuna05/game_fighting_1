@@ -68,7 +68,7 @@
     #collection .cc { position: relative; padding: 7px 8px 8px; border-radius: 10px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; text-align: center; }
     #collection .cc:hover { border-color: #ff9a3d; } #collection .cc.sel { border-color: #3ddc84; box-shadow: 0 0 0 2px #3ddc8455; } #collection .cc.locked { opacity: .62; }
     #collection .cc b { display: block; font-size: 13px; } #collection .cc small { display: block; color: #8fa0b5; font-size: 10.5px; margin-top: 1px; }
-    #collection .cc .wpic { height: 34px; margin-bottom: 3px; } #collection .cc .ct { height: 60px; border-radius: 8px; margin-bottom: 4px; background-size: cover; background-position: center 18%; background-color: #1f2a38; }
+    #collection .cc .wpic { height: 34px; margin-bottom: 3px; } #collection .cc .ct { height: 78px; border-radius: 8px; margin-bottom: 4px; background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #1f2a38; }
     #collection .cb { position: absolute; top: 5px; right: 6px; font-style: normal; font: 800 9px system-ui; letter-spacing: .08em; padding: 2px 6px; border-radius: 999px; }
     #collection .cb.eq { background: #1b3a2c; color: #7dff9c; border: 1px solid #3ddc84; } #collection .cb.ok { background: #1c2a40; color: #8cb8ff; border: 1px solid #3f6fb0; } #collection .cb.lock { background: #2a2118; color: #e0b070; border: 1px solid #6a4a22; }
     #hurt { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 160px 40px #e02020; opacity: 0; transition: opacity .35s ease-out; }
@@ -121,7 +121,7 @@
     .chip { flex: 1; text-align: center; padding: 9px 6px; border-radius: 10px; border: 2px solid #2a3544; background: rgba(21,28,38,.8); cursor: pointer; font-size: 14px; line-height: 1.25; }
     .chip small { display: block; color: #8fa0b5; font-size: 11px; } .chip.ct { border-bottom-color: #3f8cff; } .chip.t { border-bottom-color: #e08a2c; }
     #skins { display: grid; }
-    .skin { height: 124px; border-radius: 10px; border: 2px solid #2a3544; background: #1f2a38 center 20% / auto 135% no-repeat; cursor: pointer; position: relative; overflow: hidden; }
+    .skin { height: 124px; border-radius: 10px; border: 2px solid #2a3544; background: #1f2a38 center 8% / contain no-repeat; cursor: pointer; position: relative; overflow: hidden; }
     .skin.locked { filter: grayscale(.85) brightness(.7); } .skin em { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 4px; background: rgba(0,0,0,.65); text-align: center; }
     .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; color: #cdd7e4; } .note { color: #8fa0b5; font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
     #menumsg { display: none; margin: 0 18px 14px; padding: 9px 12px; border-radius: 8px; background: rgba(255,211,77,.12); border: 1px solid rgba(255,211,77,.35); color: #ffe39a; font-size: 13px; } #menumsg.on { display: block; }
@@ -225,7 +225,7 @@
     #mic.talk { color: #fff; background: #b3261e; } #mic.bad { color: #ffd34d; }
     .lbl.speaking span::before { content: '\1F50A '; } .lbl.speaking span { text-shadow: 0 0 8px #3ddc84, 0 1px 2px #000; color: #b9ffd0 !important; }
     #creditslist .cr { padding: 9px 0; border-bottom: 1px solid #2a3544; font-size: 14px; } #creditslist .cr b { display: block; color: #fff; } #creditslist .cr span { color: #9fb0c4; font-size: 13px; } #creditslist a { color: #7db4ff; }
-    .skin.p { background-size: cover; background-position: center top; }
+    .skin.p { background-size: contain; background-position: center 8%; }
     #scope { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 50%, transparent 0, transparent 33vmin, #000 33.5vmin); will-change: opacity, transform; }
     #scope .ring { position: absolute; left: 50%; top: 50%; width: 67vmin; height: 67vmin; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 46px 12px rgba(0,0,0,.6), 0 0 0 3px #000; }
     #scope .h, #scope .v { position: absolute; background: rgba(15,15,15,.9); }
