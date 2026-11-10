@@ -2,7 +2,8 @@ import { WebSocket } from 'ws';
 const url = process.argv[2];
 async function tryJoin(label, extra) {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url); const types = []; let code = null;
+    const ws = new WebSocket(url, process.env.ORIGIN ? { headers: { Origin: process.env.ORIGIN } } : {});   // a public server needs ORIGIN=https://nipuna05.github.io
+    const types = []; let code = null;
     ws.on('open', () => ws.send(JSON.stringify({ type: 'join', name: 'VerTest', room: 'ver-' + label, skin: 0, sidearm: 0, team: 'auto', map: 'town', style: 'tdm', wset: 'rifle', pick: 'auto', cu: {}, ...extra })));
     ws.on('message', (d) => { const m = JSON.parse(String(d)); if (!types.includes(m.type)) types.push(m.type); });
     ws.on('close', (c) => { code = c; });
